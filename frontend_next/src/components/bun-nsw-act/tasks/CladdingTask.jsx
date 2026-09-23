@@ -5,6 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 export default function CladdingTask({
   formData = {},
@@ -126,7 +127,7 @@ export default function CladdingTask({
   const groupedWallsByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -641,7 +642,7 @@ const claddingManualRows = (() => {
             userSelect: "none"
           }}
         >
-          <span>2. Entered Cladding Walls ({(entries || []).length})</span>
+          <span>3. Entered Cladding Walls ({(entries || []).length})</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("cladding")}
             onClear={onClearData}
@@ -854,7 +855,7 @@ const claddingManualRows = (() => {
                 gap: "8px"
               }}>
                 <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                  {entries.length} {entries.length === 1 ? "wall" : "walls"} calculated
+                  {entries.length} {entries.length === 1 ? "wall" : "walls"} entered
                 </span>
                 <div style={{ display: "flex", gap: "8px" }}>
                   

@@ -28,7 +28,7 @@ export default function SheetScheduleTask({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>📄 1. Plasterboard & FC Sheet Schedule</span>
+            <span>📄 1. Plasterboard & FC Sheet Data</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {onAddDataAI && (
@@ -95,12 +95,12 @@ export default function SheetScheduleTask({
                   </select>
                 </div>
                 <div>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Estimated Sheets</span>
+                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Sheet Quantity</span>
                   <input
                     type="number"
                     min="1"
                     placeholder="48"
-                    value={formData.sheet_qty || "48"}
+                    value={formData.sheet_qty || ""}
                     onChange={(e) => onChange && onChange("sheet_schedule", "sheet_qty", e.target.value)}
                     className="task-field-input"
                   />
@@ -119,13 +119,13 @@ export default function SheetScheduleTask({
               gap: "8px"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                {formData.sheet_qty || 48} Sheets · {formData.sheet_length || "3600 x 1200 mm"}
+                {formData.sheet_qty || "—"} Sheets · {formData.sheet_length || "3600 x 1200 mm"}
               </span>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   type="button"
                   onClick={() => {
-                    alert(`Saved sheet schedule data (${formData.sheet_qty || 48} sheets)`);
+                    alert(`Saved sheet data (${formData.sheet_qty || 0} sheets)`);
                   }}
                   style={{
                     padding: "4px 8px",

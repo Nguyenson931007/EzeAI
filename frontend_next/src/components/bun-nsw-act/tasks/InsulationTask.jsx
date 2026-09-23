@@ -5,6 +5,7 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 export const DEFAULT_WALL_PRODUCTS = {
   "R2.0": [
@@ -175,7 +176,7 @@ export default function InsulationTask({
   const groupedWallsByLevel = useMemo(() => {
     const groups = {};
     (wallEntries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) groups[lvl] = [];
       groups[lvl].push(item);
     });
@@ -195,7 +196,7 @@ export default function InsulationTask({
   const groupedAreasByLevel = useMemo(() => {
     const groups = {};
     (areaEntries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) groups[lvl] = [];
       groups[lvl].push(item);
     });

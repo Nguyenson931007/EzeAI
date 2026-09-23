@@ -3,6 +3,7 @@ import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -342,7 +343,7 @@ export default function PowerTrussBracesTask({
   const groupedTrussByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }

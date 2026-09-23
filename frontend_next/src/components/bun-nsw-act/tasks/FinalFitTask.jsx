@@ -118,7 +118,7 @@ export default function FinalFitTask({
                     type="number"
                     min="1"
                     placeholder="10"
-                    value={formData.passage_handles || "10"}
+                    value={formData.passage_handles || ""}
                     onChange={(e) => onChange && onChange("final_fit", "passage_handles", e.target.value)}
                     className="task-field-input"
                   />
@@ -129,7 +129,7 @@ export default function FinalFitTask({
                     type="number"
                     min="0"
                     placeholder="12"
-                    value={formData.door_stops || "12"}
+                    value={formData.door_stops || ""}
                     onChange={(e) => onChange && onChange("final_fit", "door_stops", e.target.value)}
                     className="task-field-input"
                   />
@@ -148,13 +148,13 @@ export default function FinalFitTask({
               gap: "8px"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                {formData.passage_handles || 10} Handles · {formData.door_stops || 12} Stops
+                {formData.passage_handles || "—"} Handles · {formData.door_stops || "—"} Stops
               </span>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   type="button"
                   onClick={() => {
-                    alert(`Saved final fit hardware data (${formData.passage_handles || 10} handles)`);
+                    alert(`Saved final fit hardware data (${formData.passage_handles || 0} handles)`);
                   }}
                   style={{
                     padding: "4px 8px",

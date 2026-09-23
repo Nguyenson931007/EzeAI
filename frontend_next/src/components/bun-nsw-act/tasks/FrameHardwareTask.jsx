@@ -5,6 +5,8 @@ import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS } from "@/constants/pro
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 
 const parseFrameExtras = (value) => {
@@ -160,29 +162,7 @@ export default function FrameHardwareTask({
     const _getFloorLevelByPage = (idx) => {
       const archOrderIdx = architecturalIndices.indexOf(idx);
       const effectiveOrderIdx = archOrderIdx >= 0 ? archOrderIdx : idx;
-
-      if (pages && pages[idx]) {
-        const page = pages[idx];
-        const name = (page.floor_name || page.name || "").trim();
-        if (name && !name.toLowerCase().startsWith("page ") && !name.toLowerCase().startsWith("cladding") && !name.toLowerCase().startsWith("image")) {
-          const upper = name.toUpperCase();
-          if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
-          if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
-          if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
-          if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
-          if (upper.startsWith("LEVEL ")) {
-            const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
-            if (num === 1) return "GF";
-            if (num === 2) return "FF";
-            if (num === 3) return "SF";
-            if (num === 4) return "TF";
-            return `${num - 1}F`;
-          }
-          return name;
-        }
-      }
-      const labels = ["GF", "FF", "SF", "TF"];
-      return effectiveOrderIdx < labels.length ? labels[effectiveOrderIdx] : `${effectiveOrderIdx}F`;
+      return normalizeFloorLevel(pages?.[idx], effectiveOrderIdx);
     };
 
     const groupsMap = {};
@@ -423,7 +403,7 @@ export default function FrameHardwareTask({
   const groupedWallsByLevel = useMemo(() => {
     const groups = {};
     (qualifiedWalls || []).forEach(w => {
-      const lvl = (w.floorLevel || w.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(w.floorLevel || w.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -1615,7 +1595,7 @@ export default function FrameHardwareTask({
                 gap: "8px"
               }}>
                 <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                  {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} calculated
+                  {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} entered
                 </span>
                 <div style={{ display: "flex", gap: "8px" }}>
                   

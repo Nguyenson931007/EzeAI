@@ -3,6 +3,7 @@ import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { SHELVING_TYPES, SHELVING_SIZES, SHELVING_EXTRA_FIELDS } from "@/constants/procurementFormParity";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 const parseShelvingExtras = (value) => {
   try { if (value && typeof value === "object") return value; return value ? JSON.parse(value) : {}; } catch { return {}; }
@@ -327,7 +328,7 @@ export default function ShelvingTask({
   const groupedShelvingByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -663,10 +664,36 @@ export default function ShelvingTask({
         )}
       </div>
 
-      {/* ═══ CARD 2: ENTERED SHELVING TABLE ═══ */}
+      {/* ═══ CARD 2: MANUAL EXTRAS ═══ */}
+      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
+        <div
+          onClick={() => setIsExtrasOpen((v) => !v)}
+          style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: isExtrasOpen ? "1px solid #e2e8f0" : "none", fontWeight: 800, fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
+        >
+          <span>2. Manual extras</span>
+          <span style={{ fontSize: "11px", color: "#64748b" }}>{isExtrasOpen ? "▲" : "▼"}</span>
+        </div>
+        {isExtrasOpen && (
+          <div style={{ padding: "10px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: "8px" }}>
+            {SHELVING_EXTRA_FIELDS.map(([key, label]) => {
+              const extras = parseShelvingExtras(formData?.shelving_extras);
+              return <label key={key} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>{label}</span>
+                <input inputMode="decimal" value={extras[key] ?? "0"} onFocus={(e) => e.currentTarget.select()} onChange={(e) => {
+                  if (!/^\d*(?:[.,]\d*)?$/.test(e.target.value)) return;
+                  const next = { ...extras, [key]: e.target.value };
+                  if (onChange) onChange("shelving", "shelving_extras", JSON.stringify(next));
+                }} style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px", boxSizing: "border-box" }} />
+              </label>;
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ CARD 3: ENTERED SHELVING TABLE ═══ */}
       <div style={S.card}>
         <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
-          <span>2. Entered shelving {totalCount > 0 ? `(${totalCount})` : ""}</span>
+          <span>3. Entered shelving {totalCount > 0 ? `(${totalCount})` : ""}</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("shelving")}
             onClear={onClearData}
@@ -908,30 +935,6 @@ export default function ShelvingTask({
         )}
       </div>
 
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          onClick={() => setIsExtrasOpen((v) => !v)}
-          style={{ padding: "9px 12px", background: "#f8fafc", borderBottom: isExtrasOpen ? "1px solid #e2e8f0" : "none", fontWeight: 800, fontSize: "12px", color: "#0f2744", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
-        >
-          <span>3. Manual extras</span>
-          <span style={{ fontSize: "11px", color: "#64748b" }}>{isExtrasOpen ? "▲" : "▼"}</span>
-        </div>
-        {isExtrasOpen && (
-          <div style={{ padding: "10px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: "8px" }}>
-            {SHELVING_EXTRA_FIELDS.map(([key, label]) => {
-              const extras = parseShelvingExtras(formData?.shelving_extras);
-              return <label key={key} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>{label}</span>
-                <input inputMode="decimal" value={extras[key] ?? "0"} onFocus={(e) => e.currentTarget.select()} onChange={(e) => {
-                  if (!/^\d*(?:[.,]\d*)?$/.test(e.target.value)) return;
-                  const next = { ...extras, [key]: e.target.value };
-                  if (onChange) onChange("shelving", "shelving_extras", JSON.stringify(next));
-                }} style={{ height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px", boxSizing: "border-box" }} />
-              </label>;
-            })}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

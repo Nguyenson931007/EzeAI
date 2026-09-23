@@ -2257,6 +2257,7 @@ export default function App() {
                 currentPage={currentPage}
                 setCurrentPage={goPage}
                 goPage={goPage}
+                zoomToBbox={zoomToBbox}
                 currentProjectName={currentProjectName}
                 wallsByPage={wallsByPage}
                 doorsByPage={processedDoorsByPage}
@@ -2305,4 +2306,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -5,6 +5,7 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -836,7 +837,7 @@ export default function FowPlumbingTask({
   const groupedPlumbingByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach((item) => {
-      const lvl = (item.floorLevel || item.floor_level || "GF").trim().toUpperCase();
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) groups[lvl] = [];
       groups[lvl].push(item);
     });
@@ -1252,7 +1253,7 @@ export default function FowPlumbingTask({
             justifyContent: "space-between",
           }}>
             <span style={{ fontSize: "12px", color: "#475569", fontWeight: 600 }}>
-              {totalCount} {totalCount === 1 ? "plumbing fixture" : "plumbing fixtures"} calculated
+              {totalCount} {totalCount === 1 ? "plumbing fixture" : "plumbing fixtures"} entered
             </span>
             
           </div>

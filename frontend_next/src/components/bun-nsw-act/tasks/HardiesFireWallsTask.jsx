@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog } from "@/utils/catalogHelpers";
+import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 
 export default function HardiesFireWallsTask({
   formData = {},
@@ -150,27 +151,6 @@ export default function HardiesFireWallsTask({
     setWallHeight(heightM > 0 ? heightM.toFixed(2) : "2.70");
   };
 
-  // ── HELPER CALCULATIONS PER ROW ──
-  const calculateRowMetrics = (len, h) => {
-    const l = parseFloat(String(len || "0").replace(/[^\d.]/g, "")) || 0;
-    const height = parseFloat(String(h || "2.70").replace(/[^\d.]/g, "")) || 2.70;
-    const areaM2 = l * height;
-    // Standard 1200mm wide fire board / sheets
-    const sheetsQty = Math.ceil((l * 1000) / 1200);
-    // Sealant: ~1 tube per 6 linear meters of joints & perimeter
-    const perimeterM = 2 * (l + height);
-    const sealantTubes = Math.max(1, Math.ceil(perimeterM / 6));
-    // Perimeter angle top and bottom
-    const angleLm = l * 2;
-
-    return {
-      areaM2: Number(areaM2.toFixed(2)),
-      sheetsQty: sheetsQty || 1,
-      sealantTubes: sealantTubes || 1,
-      angleLm: Number(angleLm.toFixed(2))
-    };
-  };
-
   // ── ADD ENTRY ──
   const handleAddEntry = (e) => {
     e?.preventDefault();
@@ -182,9 +162,10 @@ export default function HardiesFireWallsTask({
       return;
     }
 
-    const metrics = calculateRowMetrics(l, h);
     const newEntry = {
       id: `hfw_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      wallId: selectedWall?.id || null,
+      floorLevel: selectedWall?.floorLevel || selectedWall?.floor_level || normalizeFloorLevel(appModel?.pages?.[appModel?.currentPage], appModel?.currentPage || 0),
       location: locationName.trim() || `Fire Wall ${wallEntries.length + 1}`,
       length: l.toFixed(2),
       height: h.toFixed(2),
@@ -193,10 +174,6 @@ export default function HardiesFireWallsTask({
       framing: defaultFraming,
       sealant: defaultSealant,
       angle: defaultAngle,
-      areaM2: metrics.areaM2,
-      sheetsQty: metrics.sheetsQty,
-      sealantTubes: metrics.sealantTubes,
-      angleLm: metrics.angleLm,
       notes: notes.trim()
     };
 
@@ -247,16 +224,9 @@ export default function HardiesFireWallsTask({
   };
 
   const handleSaveEdit = () => {
-    const metrics = calculateRowMetrics(editRowData.length, editRowData.height);
     const updated = wallEntries.map((w) =>
       w.id === editingRowId
-        ? {
-            ...editRowData,
-            areaM2: metrics.areaM2,
-            sheetsQty: metrics.sheetsQty,
-            sealantTubes: metrics.sealantTubes,
-            angleLm: metrics.angleLm
-          }
+        ? { ...editRowData }
         : w
     );
     setEntries(updated);
@@ -267,32 +237,6 @@ export default function HardiesFireWallsTask({
       localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(updated));
     } catch (_) {}
   };
-
-  // ── SUMMARY STATS ──
-  const summary = useMemo(() => {
-    let totalLen = 0;
-    let totalArea = 0;
-    let totalSheets = 0;
-    let totalSealant = 0;
-    let totalAngle = 0;
-
-    wallEntries.forEach((w) => {
-      totalLen += parseFloat(w.length) || 0;
-      totalArea += parseFloat(w.areaM2) || 0;
-      totalSheets += parseInt(w.sheetsQty, 10) || 0;
-      totalSealant += parseInt(w.sealantTubes, 10) || 0;
-      totalAngle += parseFloat(w.angleLm) || 0;
-    });
-
-    return {
-      count: wallEntries.length,
-      totalLen: totalLen.toFixed(2),
-      totalArea: totalArea.toFixed(2),
-      totalSheets,
-      totalSealant,
-      totalAngle: totalAngle.toFixed(2)
-    };
-  }, [wallEntries]);
 
   // ── SAVE TO DATABASE (MSSQL / API) ──
   const handleSaveToMSSQL = async () => {
@@ -419,27 +363,6 @@ export default function HardiesFireWallsTask({
           >
             {isSaving ? "Saving..." : saveStatus === "success" ? "✓ Saved" : "💾 Save"}
           </button>
-        </div>
-      </div>
-
-      {/* ── KPI METRICS CARDS ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-        <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px", textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Walls Count</div>
-          <div style={{ fontSize: "20px", fontWeight: 800, color: "#0f172a", marginTop: "2px" }}>{summary.count}</div>
-          <div style={{ fontSize: "11px", color: "#3b82f6", fontWeight: 700 }}>{summary.totalLen} Lm</div>
-        </div>
-
-        <div style={{ background: "#ffffff", border: "1.5px solid #ef4444", borderRadius: "8px", padding: "10px", textAlign: "center", boxShadow: "0 1px 4px rgba(239,68,68,0.12)" }}>
-          <div style={{ fontSize: "11px", color: "#b91c1c", fontWeight: 700, textTransform: "uppercase" }}>Total Fire Area</div>
-          <div style={{ fontSize: "20px", fontWeight: 800, color: "#b91c1c", marginTop: "2px" }}>{summary.totalArea}</div>
-          <div style={{ fontSize: "11px", color: "#dc2626", fontWeight: 700 }}>m²</div>
-        </div>
-
-        <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px", textAlign: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Est. Materials</div>
-          <div style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a", marginTop: "2px" }}>{summary.totalSheets} shts</div>
-          <div style={{ fontSize: "11px", color: "#f59e0b", fontWeight: 700 }}>{summary.totalSealant} tubes sealant</div>
         </div>
       </div>
 
@@ -675,7 +598,7 @@ export default function HardiesFireWallsTask({
                 boxShadow: "0 2px 6px rgba(37,99,235,0.25)"
               }}
             >
-              + Add to Hardies Fire Walls Takeoff
+              + Add fire wall
             </button>
           </form>
         )}
@@ -696,11 +619,8 @@ export default function HardiesFireWallsTask({
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span>📋</span>
-            <span>Fire Walls Takeoff Schedule ({wallEntries.length})</span>
+            <span>Entered Fire Walls ({wallEntries.length})</span>
           </div>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>
-            Total: {summary.totalArea} m²
-          </span>
         </div>
 
         {wallEntries.length === 0 ? (
@@ -713,10 +633,10 @@ export default function HardiesFireWallsTask({
               <thead>
                 <tr style={{ background: "#f1f5f9", color: "#475569", borderBottom: "1px solid #cbd5e1" }}>
                   <th style={{ padding: "6px 8px" }}>#</th>
+                  <th style={{ padding: "6px 8px" }}>Floor Level</th>
                   <th style={{ padding: "6px 8px" }}>Location</th>
                   <th style={{ padding: "6px 8px" }}>Len (m)</th>
                   <th style={{ padding: "6px 8px" }}>Height</th>
-                  <th style={{ padding: "6px 8px" }}>Area (m²)</th>
                   <th style={{ padding: "6px 8px" }}>System / Spec</th>
                   <th style={{ padding: "6px 8px", textAlign: "center" }}>Actions</th>
                 </tr>
@@ -728,6 +648,15 @@ export default function HardiesFireWallsTask({
                     return (
                       <tr key={w.id} style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d" }}>
                         <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <select
+                            value={editRowData.floorLevel || "GF"}
+                            onChange={(e) => setEditRowData({ ...editRowData, floorLevel: e.target.value })}
+                            style={{ width: "58px", padding: "4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
+                          >
+                            {["GF", "FF", "SF", "TF", "4F", "5F"].map((level) => <option key={level} value={level}>{level}</option>)}
+                          </select>
+                        </td>
                         <td style={{ padding: "6px 8px" }}>
                           <input
                             type="text"
@@ -751,9 +680,6 @@ export default function HardiesFireWallsTask({
                             onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
                             style={{ width: "50px", padding: "4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", fontWeight: 700 }}
                           />
-                        </td>
-                        <td style={{ padding: "6px 8px", fontWeight: 800, color: "#b91c1c" }}>
-                          {((parseFloat(editRowData.length) || 0) * (parseFloat(editRowData.height) || 0)).toFixed(2)}
                         </td>
                         <td style={{ padding: "6px 8px" }}>
                           <select
@@ -791,19 +717,23 @@ export default function HardiesFireWallsTask({
                   return (
                     <tr
                       key={w.id}
+                      onClick={(event) => {
+                        if (event.target.closest("button, input, select, textarea, a")) return;
+                        if (onSelectEntry) onSelectEntry(w);
+                      }}
                       style={{
                         borderBottom: "1px solid #e2e8f0",
                         background: idx % 2 === 0 ? "#ffffff" : "#f8fafc"
                       }}
                     >
                       <td style={{ padding: "6px 8px", fontWeight: 700, color: "#64748b" }}>{idx + 1}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700, color: "#2563eb" }}>{w.floorLevel || w.floor_level || "GF"}</td>
                       <td style={{ padding: "6px 8px", fontWeight: 700, color: "#1e293b" }}>
                         {w.location}
                         {w.notes && <div style={{ fontSize: "10px", color: "#94a3b8", fontWeight: 400 }}>{w.notes}</div>}
                       </td>
                       <td style={{ padding: "6px 8px", fontWeight: 700 }}>{w.length}m</td>
                       <td style={{ padding: "6px 8px" }}>{w.height}m</td>
-                      <td style={{ padding: "6px 8px", fontWeight: 800, color: "#b91c1c" }}>{w.areaM2} m²</td>
                       <td style={{ padding: "6px 8px", color: "#334155" }}>
                         <div style={{ fontWeight: 600 }}>{w.systemType?.split("(")[0]?.trim() || w.systemType}</div>
                         <div style={{ fontSize: "10px", color: "#64748b" }}>{w.liningSpec}</div>

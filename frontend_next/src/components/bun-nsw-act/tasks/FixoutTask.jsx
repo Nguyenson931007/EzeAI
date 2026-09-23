@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import {
   FIXOUT_HEIGHTS,
   FIXOUT_WIDTHS,
@@ -30,7 +31,7 @@ import {
 } from "@/constants/procurementFormParity";
 
 // ══════════════════════════════════════════════════════
-// CONSTANTS & OPTIONS (aligned with FixoutForm.tsx & dropdown_api.py)
+// INPUT OPTIONS FOR THE FIXOUT DATA-ENTRY FORM
 // ══════════════════════════════════════════════════════
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
@@ -77,8 +78,7 @@ const FALLBACK_PREHUNG_INTERNAL_DOORS = PREHUNG_DOOR_NAMES;
 const FALLBACK_LOOSE_JAMB_INTERNAL_DOORS = LOOSE_JAMB_DOOR_NAMES;
 
 const OPT = {
-  // ProcurementApp FixoutForm.tsx is authoritative. Cavity and internal-door
-  // heights intentionally use different validation lists.
+  // Cavity and internal-door inputs intentionally use different option lists.
   height: FIXOUT_HEIGHTS,
   width: FIXOUT_WIDTHS,
   cavityHeight: FIXOUT_CAVITY_HEIGHTS,
@@ -695,7 +695,7 @@ function CategorySection({
   const furnitureOpts = FURNITURE_OPTIONS_BY_MODE[mode] || FURNITURE_OPTIONS_BY_MODE.prehung;
 
   return (
-    <div style={{ marginBottom: "12px" }}>
+    <div style={{ marginBottom: "6px" }}>
       {/* Subgroup Header */}
       <div onClick={() => setIsOpen(!isOpen)} style={S.sectionHeader(isOpen)}>
         <span>{title}</span>
@@ -901,9 +901,7 @@ function CategorySection({
             </button>
           </div>
 
-          <div style={S.note}>
-            Door and material codes are looked up automatically from the Bunnings workbook.
-          </div>
+          <div style={S.note}>Enter the values above, then add the row to the entered-data table.</div>
         </div>
       )}
     </div>
@@ -920,7 +918,7 @@ const safeParseJson = (value, fallback) => {
   }
 };
 
-function ProcurementFixoutSupplement({ formData = {}, onChange, doorNames = [] }) {
+function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
   const read = (key, fallback = "") => formData?.[key] ?? fallback;
   const write = (key, value) => { if (onChange) onChange("fixout", key, value); };
 
@@ -958,9 +956,9 @@ function ProcurementFixoutSupplement({ formData = {}, onChange, doorNames = [] }
   return (
     <>
       <div style={cardStyle}>
-        <div style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none" }}>
-          <div onClick={() => setIsRobeOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: "7px", cursor: "pointer", userSelect: "none", flex: 1 }}>
-            <span>3. Smart Robe Door</span>
+        <div onClick={() => setIsRobeOpen((v) => !v)} style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none", cursor: "pointer", userSelect: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "7px", flex: 1 }}>
+            <span>2. Smart Robe Door</span>
             <span style={{ fontSize: "11px", color: "#64748b" }}>{isRobeOpen ? "▲" : "▼"}</span>
           </div>
           <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>
@@ -978,14 +976,13 @@ function ProcurementFixoutSupplement({ formData = {}, onChange, doorNames = [] }
           <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v}/>)}</datalist>
           <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v}/>)}</datalist>
         </div>
-        {robeRows.length > 0 && <div style={{ padding: "0 10px 10px", fontSize: "10px", color: "#475569" }}>Entered robe door: {robeRows.map((r, i) => <span key={r.id || i} style={{ display: "inline-flex", gap: "4px", margin: "2px 5px 2px 0", padding: "3px 6px", border: "1px solid #e2e8f0", borderRadius: "4px" }}>{r.label} · {r.unitHeight} · {r.unitSize}<button type="button" onClick={() => persistRows("fixout_smart_robe_rows", robeRows.filter((_, idx) => idx !== i))} style={{ border: 0, background: "transparent", color: "#dc2626", cursor: "pointer" }}>×</button></span>)}</div>}
           </>
         )}
       </div>
 
       <div style={cardStyle}>
         <div onClick={() => setIsTrimOpen((v) => !v)} style={{ ...titleStyle, borderBottom: isTrimOpen ? "1px solid #e2e8f0" : "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}>
-          <span>4. Additional trim measurements</span>
+          <span>3. Additional trim measurements</span>
           <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
         </div>
         {isTrimOpen && (
@@ -997,7 +994,6 @@ function ProcurementFixoutSupplement({ formData = {}, onChange, doorNames = [] }
           <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
           <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
         </div>
-        {revealRows.length > 0 && <div style={{ padding: "0 10px 8px", fontSize: "10px", color: "#475569" }}>{revealRows.map((r, i) => <span key={r.id || i} style={{ display: "inline-flex", gap: "4px", margin: "2px 5px 2px 0", padding: "3px 6px", border: "1px solid #e2e8f0", borderRadius: "4px" }}>{r.type} {r.height}×{r.width} · Block {r.blockWork}<button type="button" onClick={() => persistRows("fixout_reveal_openings", revealRows.filter((_, idx) => idx !== i))} style={{ border: 0, background: "transparent", color: "#dc2626", cursor: "pointer" }}>×</button></span>)}</div>}
         <div style={{ padding: "8px 10px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "8px", borderTop: "1px solid #f1f5f9" }}>
           <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)}/></label>
           {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
@@ -1036,8 +1032,8 @@ export default function FixoutTask({
   const activeCustomerShortName = getActiveClientShortName();
 
   const [floorLevel, setFloorLevel] = useState("GF");
-  const [isSection1Open, setIsSection1Open] = useState(true);
-  const [isSection2Open, setIsSection2Open] = useState(true);
+  const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(true);
+  const [isScheduleOpen, setIsScheduleOpen] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
@@ -1055,6 +1051,30 @@ export default function FixoutTask({
   const [looseJambDoors, setLooseJambDoors] = useState(FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
 
   const totalCount = (entries || []).length;
+  const smartRobeRows = useMemo(
+    () => safeParseJson(formData?.fixout_smart_robe_rows, []),
+    [formData?.fixout_smart_robe_rows]
+  );
+  const revealRows = useMemo(
+    () => safeParseJson(formData?.fixout_reveal_openings, []),
+    [formData?.fixout_reveal_openings]
+  );
+  const trimRows = useMemo(() => ([
+    ["Extras architrave", formData?.fixout_arch_extra_lengths ?? "0"],
+    ["Architrave Type", formData?.fixout_arch_description ?? ""],
+    ["Skirting", formData?.fixout_skirting_lm ?? "0"],
+    ["Skirting Type", formData?.fixout_skirting_description ?? ""],
+    ["Robe Count", formData?.fixout_robe_count ?? "0"],
+    ["Robe/Linen jamb size", formData?.fixout_robe_jamb_size ?? "112x19"],
+    ["Wet-area architrave", formData?.fixout_wet_arch_lengths ?? "0"],
+    ["Wet-area Architrave Type", formData?.["fixout_arch-wet_description"] ?? ""],
+    ["Wet-area skirting", formData?.fixout_wet_skirting_lm ?? "0"],
+    ["Wet-area Skirting Type", formData?.["fixout_skirting-wet_description"] ?? ""],
+  ]), [formData]);
+
+  const removeCachedRow = (key, rows, index) => {
+    if (onChange) onChange("fixout", key, JSON.stringify(rows.filter((_, rowIndex) => rowIndex !== index)));
+  };
 
   useEffect(() => {
     editingRowIdRef.current = editingRowId;
@@ -1089,9 +1109,8 @@ export default function FixoutTask({
         }
 
         if (isMounted && data) {
-          // ProcurementApp is authoritative. Use local fallback only when the DB
-          // returns no options at all; never merge stale hard-coded values into
-          // a valid Procurement dropdown.
+          // Prefer current dropdown values from the backend; use local options
+          // only when the backend returns no values.
           const rawPrehung = Array.isArray(data.prehung_internal) && data.prehung_internal.length > 0
             ? data.prehung_internal
             : (Array.isArray(data.internal) && data.internal.length > 0 ? data.internal : []);
@@ -1119,7 +1138,7 @@ export default function FixoutTask({
   const groupedDoorsByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach((item) => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -1344,12 +1363,12 @@ export default function FixoutTask({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
 
-      {/* ═══ CARD 1: DOOR INFORMATION ═══ */}
       <div style={S.card}>
-        <div onClick={() => setIsSection1Open(!isSection1Open)} style={S.cardTitle}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span>1. Door information</span>
-          </div>
+        <div
+          onClick={() => setIsDoorInformationOpen((v) => !v)}
+          style={{ ...S.cardTitle, cursor: "pointer", userSelect: "none" }}
+        >
+          <span>1. Door information</span>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             {reloadMsg && (
               <span style={{
@@ -1362,7 +1381,10 @@ export default function FixoutTask({
             )}
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReloadFromDb(true);
+              }}
               disabled={isLoadingDb}
               style={{
                 background: "#ffffff",
@@ -1372,32 +1394,19 @@ export default function FixoutTask({
                 fontWeight: 700,
                 padding: "3px 8px",
                 borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
+                cursor: isLoadingDb ? "not-allowed" : "pointer"
               }}
               title="Reload Fixout doors from MSSQL"
             >
               {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
             </button>
-            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-              {isSection1Open ? "▲" : "▼"}
-            </span>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>{isDoorInformationOpen ? "▲" : "▼"}</span>
           </div>
         </div>
 
-        {isSection1Open && (
+        {isDoorInformationOpen && (
           <div style={{ padding: "8px" }}>
-            {/* Shared Floor Level Selector at top of Card 1 */}
-            <div style={{
-              padding: "6px 10px 10px",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              borderBottom: "1px solid #f1f5f9",
-              marginBottom: "8px"
-            }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
               <span style={{ fontSize: "11px", color: "#334155", fontWeight: 700 }}>Floor level:</span>
               <select
                 value={floorLevel}
@@ -1424,7 +1433,6 @@ export default function FixoutTask({
               </select>
             </div>
 
-            {/* 3 Categories all use shared floorLevel */}
             <CategorySection
               mode="cavity"
               title="Cavity Sliding Door"
@@ -1456,25 +1464,27 @@ export default function FixoutTask({
         )}
       </div>
 
-      <ProcurementFixoutSupplement formData={formData} onChange={onChange} doorNames={prehungDoors} />
+      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} />
 
-      {/* ═══ CARD 2: ENTERED DOORS (GROUPED BY FLOOR LEVEL) ═══ */}
       <div style={S.card}>
-        <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
-          <span>2. Entered doors {totalCount > 0 ? `(${totalCount})` : ""}</span>
+        <div
+          onClick={() => setIsScheduleOpen((v) => !v)}
+          style={{ ...S.cardTitle, cursor: "pointer", userSelect: "none" }}
+        >
+          <span>4. Entered Fixout data</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("fixout")}
             onClear={onClearData}
-            isOpen={isSection2Open}
-            onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSave}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            isOpen={isScheduleOpen}
+            onToggle={() => setIsScheduleOpen((v) => !v)}
           />
         </div>
 
-        {isSection2Open && (
+        {isScheduleOpen && (
+          <>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", tableLayout: "auto" }}>
               <thead>
@@ -1909,17 +1919,6 @@ export default function FixoutTask({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleStartEdit(item);
-                                    }}
-                                    style={S.editBtn}
-                                    title="Edit door"
-                                  >
-                                    ✎
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
                                       handleRemoveEntry(item.id);
                                     }}
                                     style={S.deleteBtn}
@@ -1939,7 +1938,106 @@ export default function FixoutTask({
               </tbody>
             </table>
           </div>
-        )}
+
+          <div style={{ borderTop: "1px solid #cbd5e1" }}>
+            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
+              Smart Robe Door
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <thead>
+                  <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
+                    <th style={{ padding: "6px 8px", width: "28px" }}>#</th>
+                    <th style={{ padding: "6px 8px" }}>Label</th>
+                    <th style={{ padding: "6px 8px" }}>Unit Height</th>
+                    <th style={{ padding: "6px 8px" }}>Unit Size</th>
+                    <th style={{ padding: "6px 8px" }}>Wall</th>
+                    <th style={{ padding: "6px 8px" }}>Type</th>
+                    <th style={{ padding: "6px 8px" }}>Thicks</th>
+                    <th style={{ padding: "6px 8px" }}>Finger Grips</th>
+                    <th style={{ padding: "6px 8px", width: "38px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {smartRobeRows.length === 0 ? (
+                    <tr><td colSpan={9} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>No Smart Robe Door data entered.</td></tr>
+                  ) : smartRobeRows.map((row, index) => (
+                    <tr key={row.id || index} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: "6px 8px", textAlign: "center" }}>{index + 1}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.label || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.unitHeight || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.unitSize || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.wall || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.type || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.thicks || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{formData?.fixout_smart_robe_finger_grips || "No"}</td>
+                      <td style={{ padding: "4px", textAlign: "center" }}>
+                        <button type="button" onClick={() => removeCachedRow("fixout_smart_robe_rows", smartRobeRows, index)} style={S.deleteBtn} title="Delete robe door">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #cbd5e1" }}>
+            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
+              Additional trim openings
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <thead>
+                  <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
+                    <th style={{ padding: "6px 8px", width: "28px" }}>#</th>
+                    <th style={{ padding: "6px 8px" }}>Type</th>
+                    <th style={{ padding: "6px 8px" }}>Height</th>
+                    <th style={{ padding: "6px 8px" }}>Width</th>
+                    <th style={{ padding: "6px 8px" }}>Block Work</th>
+                    <th style={{ padding: "6px 8px", width: "38px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revealRows.length === 0 ? (
+                    <tr><td colSpan={6} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>No opening data entered.</td></tr>
+                  ) : revealRows.map((row, index) => (
+                    <tr key={row.id || index} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: "6px 8px", textAlign: "center" }}>{index + 1}</td>
+                      <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>{row.type || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.height || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.width || "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.blockWork || "—"}</td>
+                      <td style={{ padding: "4px", textAlign: "center" }}>
+                        <button type="button" onClick={() => removeCachedRow("fixout_reveal_openings", revealRows, index)} style={S.deleteBtn} title="Delete opening">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #cbd5e1" }}>
+            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
+              Additional trim values
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+              <thead>
+                <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
+                  <th style={{ padding: "6px 8px" }}>Field</th>
+                  <th style={{ padding: "6px 8px" }}>Entered value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trimRows.map(([label, value]) => (
+                  <tr key={label} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 700, color: "#334155" }}>{label}</td>
+                    <td style={{ padding: "6px 8px", color: "#475569" }}>{String(value || "—")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
         {/* Footer: Save */}
         {totalCount > 0 && (
@@ -1964,6 +2062,8 @@ export default function FixoutTask({
               
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

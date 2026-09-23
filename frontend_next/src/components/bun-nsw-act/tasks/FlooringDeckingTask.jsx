@@ -5,6 +5,7 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByArea, canonicalProductValue } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 export default function FlooringDeckingTask({
   formData = {},
@@ -779,7 +780,7 @@ export default function FlooringDeckingTask({
   const groupedFlooringByLevel = React.useMemo(() => {
     const groups = {};
     (enteredRows || []).forEach(item => {
-      const lvl = String(item.floorLevel || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -1381,7 +1382,7 @@ export default function FlooringDeckingTask({
               {enteredRows.length === 0 ? (
                 <tr>
                   <td colSpan="5" style={{ padding: "20px 12px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "11px" }}>
-                    No flooring areas entered yet. Click <strong>⚡ Auto Fill (AI)</strong> above to calculate from drawings.
+                    No flooring areas entered yet. Use <strong>⚡ Auto Fill (AI)</strong> to populate data from the selected plan.
                   </td>
                 </tr>
               ) : (
@@ -1663,7 +1664,7 @@ export default function FlooringDeckingTask({
             alignItems: "center"
           }}>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {enteredRows.length} flooring area{enteredRows.length > 1 ? "s" : ""} calculated
+              {enteredRows.length} flooring area{enteredRows.length > 1 ? "s" : ""} entered
             </span>
             <div style={{ display: "flex", gap: "8px" }}>
               

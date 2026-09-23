@@ -89,12 +89,54 @@ import {
   buildLockupRows,
   buildFlooringRows,
   buildInsulationRows,
+  buildInsulationAreaRow,
   buildFrameRows,
   buildShelvingRows,
   buildFinalFitPatch,
   normalizeFloorLevel,
   roomAreaM2,
 } from "@/utils/procurementAutoFill";
+
+function getPlanObjectBounds(objects = []) {
+  const points = [];
+  const addPoint = (point) => {
+    if (Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))) {
+      points.push([Number(point[0]), Number(point[1])]);
+    } else if (point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y))) {
+      points.push([Number(point.x), Number(point.y)]);
+    }
+  };
+
+  objects.forEach((item) => {
+    if (!item) return;
+    const bbox = item.bbox || item.boundingBox || item.bounds;
+    if (Array.isArray(bbox) && bbox.length >= 4 && bbox.slice(0, 4).every((value) => Number.isFinite(Number(value)))) {
+      points.push([Number(bbox[0]), Number(bbox[1])], [Number(bbox[2]), Number(bbox[3])]);
+    }
+    [item.centerline, item.points, item.polygon, item.mask_polygon, item.vertices, item.corners, item.outline, item.poly, item.path]
+      .filter(Array.isArray)
+      .forEach((list) => list.forEach(addPoint));
+    addPoint(item.p1);
+    addPoint(item.p2);
+    addPoint(item.start);
+    addPoint(item.end);
+    addPoint(item.position);
+    addPoint(item.center);
+    addPoint(item);
+  });
+
+  if (!points.length) return null;
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  let x1 = Math.min(...xs);
+  let y1 = Math.min(...ys);
+  let x2 = Math.max(...xs);
+  let y2 = Math.max(...ys);
+  const padding = Math.max(30, Math.min(120, Math.max(x2 - x1, y2 - y1) * 0.18));
+  if (x2 - x1 < 20) { x1 -= 20; x2 += 20; }
+  if (y2 - y1 < 20) { y1 -= 20; y2 += 20; }
+  return [x1 - padding, y1 - padding, x2 + padding, y2 + padding];
+}
 
 /* ================================================================
    MAIN PANEL
@@ -150,6 +192,7 @@ export default function RightPropertyPaneView({
   currentPage: currentPageProp,
   setCurrentPage: setCurrentPageProp,
   goPage,
+  zoomToBbox,
   currentProjectName: currentProjectNameProp,
   wallsByPage: wallsByPageProp = {},
   doorsByPage: doorsByPageProp = {},
@@ -651,6 +694,34 @@ export default function RightPropertyPaneView({
     setAiGeneratedSuccess(null);
   };
 
+  const focusPlanObjects = (objectType, objectIds = [], preferredPageIndex = -1) => {
+    if (typeof zoomToBbox !== "function" || !objectIds.length) return;
+    const idSet = new Set(objectIds.filter(Boolean).map(String));
+    const pageMap = objectType === "wall"
+      ? (effectiveWallsByPage || wallsByPageProp || {})
+      : objectType === "room"
+        ? (roomsByPageProp || {})
+        : (doorsByPageProp || {});
+    const fallbackItems = objectType === "wall" ? walls : objectType === "room" ? rooms : doors;
+    const candidates = [];
+
+    if (preferredPageIndex >= 0) candidates.push(preferredPageIndex);
+    Object.keys(pageMap || {}).map(Number).filter(Number.isFinite).forEach((pageIndex) => {
+      if (!candidates.includes(pageIndex)) candidates.push(pageIndex);
+    });
+    if (!candidates.includes(currentPage)) candidates.push(currentPage);
+
+    for (const pageIndex of candidates) {
+      const pageItems = Array.isArray(pageMap?.[pageIndex]) ? pageMap[pageIndex] : (pageIndex === currentPage ? fallbackItems : []);
+      const matched = (pageItems || []).filter((item) => idSet.has(String(item?.id)));
+      const bbox = getPlanObjectBounds(matched);
+      if (bbox) {
+        zoomToBbox(pageIndex, bbox);
+        return;
+      }
+    }
+  };
+
   // Handler for selecting an entry in task tables — highlights matching objects on canvas
   const handleSelectEntry = (entry) => {
     if (!entry) {
@@ -708,6 +779,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("wall");
       if (setSelectedId) setSelectedId(entry.wallIds[0]);
+      focusPlanObjects("wall", entry.wallIds, targetPageIndex);
       return;
     }
     if (entry.wallId) {
@@ -717,6 +789,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("wall");
       if (setSelectedId) setSelectedId(entry.wallId);
+      focusPlanObjects("wall", [entry.wallId], targetPageIndex);
       return;
     }
     if (entry.roomIds && entry.roomIds.length > 0) {
@@ -726,6 +799,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("room");
       if (setSelectedId) setSelectedId(entry.roomIds[0]);
+      focusPlanObjects("room", entry.roomIds, targetPageIndex);
       return;
     }
     if (entry.roomId) {
@@ -735,6 +809,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("room");
       if (setSelectedId) setSelectedId(entry.roomId);
+      focusPlanObjects("room", [entry.roomId], targetPageIndex);
       return;
     }
     if (entry.doorId) {
@@ -744,6 +819,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("door");
       if (setSelectedId) setSelectedId(entry.doorId);
+      focusPlanObjects("door", [entry.doorId], targetPageIndex);
       return;
     }
 
@@ -770,6 +846,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("wall");
       if (setSelectedId) setSelectedId(matchedWallIds[0] || null);
+      focusPlanObjects("wall", matchedWallIds, targetPageIndex);
       return;
     }
 
@@ -793,6 +870,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedType) setSelectedType("wall");
       if (setSelectedId) setSelectedId(matchedWallIds[0] || null);
+      focusPlanObjects("wall", matchedWallIds, targetPageIndex);
       return;
     }
 
@@ -867,6 +945,7 @@ export default function RightPropertyPaneView({
       if (setSelectedDoorIds) setSelectedDoorIds([]);
       if (setSelectedType) setSelectedType("room");
       if (setSelectedId) setSelectedId(matchedRoomIds[0] || null);
+      focusPlanObjects("room", matchedRoomIds, targetPageIdx);
       return;
     }
 
@@ -889,6 +968,7 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setSelectedId) setSelectedId(matchedDoor.id);
       if (setSelectedType) setSelectedType("door");
+      focusPlanObjects("door", [matchedDoor.id], targetPageIndex);
     } else {
       const fallbackId = entry.doorId || entry.id;
       if (fallbackId) {
@@ -999,17 +1079,14 @@ export default function RightPropertyPaneView({
         const pIdx = Number(pageKey);
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
         const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
-        if (area > 0) ceilEntries.push({
+        if (area > 0) ceilEntries.push(buildInsulationAreaRow({
           id: `ins-ai-ceil-${pIdx}`,
           floorLevel: normalizeFloorLevel(pages?.[pIdx], pIdx),
-          location: "Ceiling / Roof Space",
-          areaType: "Ceiling",
+          type: "Ceiling",
           rValue: "",
           product: "",
           areaM2: Number(area.toFixed(2)),
-          totalArea: Number(area.toFixed(2)),
-          autofill_source: "drawing",
-        });
+        }));
       });
       setInsulationAreaEntries(ceilEntries);
       generatedCount = allRows.length + ceilEntries.length;
@@ -1068,6 +1145,7 @@ export default function RightPropertyPaneView({
         return {
           id: `clad-ai-${w.id || idx}`,
           wallId: w.id,
+          floorLevel: normalizeFloorLevel(pages?.[currentPage], currentPage),
           elevation: String(w.elevation || w.label || `Exterior wall ${idx + 1}`),
           height: height || "",
           length: lenMm || "",

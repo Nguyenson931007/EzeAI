@@ -4,6 +4,8 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
+import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import {
   LOCKUP_HEIGHTS,
   LOCKUP_WIDTHS,
@@ -77,6 +79,7 @@ const SearchDropdown = ({
     <div
       ref={containerRef}
       data-search-dropdown="true"
+      onClick={(event) => event.stopPropagation()}
       style={{
         position: "relative",
         width: "100%",
@@ -311,6 +314,20 @@ export default function LockupTask({
   
   // Procurement-style inline row editing.
   const [editingDoorData, setEditingDoorData] = useState(null);
+  const [editingDoorCell, setEditingDoorCell] = useState(null);
+
+  const enteredDoorsByFloor = useMemo(() => {
+    const floorOrder = { GF: 0, FF: 1, SF: 2, TF: 3 };
+    return (entries || []).map((row, originalIndex) => ({
+      ...row,
+      __originalIndex: originalIndex,
+      __displayFloor: normalizeFloorLevelCode(row.floorLevel || row.floor_level || row.__floorLevel || "GF"),
+    })).sort((a, b) => {
+      const aOrder = floorOrder[a.__displayFloor] ?? 100;
+      const bOrder = floorOrder[b.__displayFloor] ?? 100;
+      return aOrder - bOrder || a.__originalIndex - b.__originalIndex;
+    });
+  }, [entries]);
 
   // Collapsible States
   const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
@@ -358,8 +375,9 @@ export default function LockupTask({
     return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
   };
 
-  const beginInlineEdit = (row) => {
+  const beginInlineEdit = (row, cell = null) => {
     if (!row) return;
+    setEditingDoorCell(cell);
     const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
     const effDoorIsExt = Boolean(
       effCanvasDoor && (
@@ -518,6 +536,7 @@ export default function LockupTask({
   const commitInlineEdit = (savedData = editingDoorData) => {
     if (!savedData || !savedData.id || !onSetEntries) {
       setEditingDoorData(null);
+      setEditingDoorCell(null);
       return;
     }
 
@@ -561,12 +580,27 @@ export default function LockupTask({
 
     syncCanvasDoor(savedData);
     setEditingDoorData(null);
+    setEditingDoorCell(null);
   };
 
-  const cancelInlineEdit = () => setEditingDoorData(null);
+  const cancelInlineEdit = () => {
+    setEditingDoorData(null);
+    setEditingDoorCell(null);
+  };
 
-  // Selecting a door from Canvas should highlight the table row only.
-  // Editing starts exclusively by double-clicking the table row.
+  useEffect(() => {
+    if (!editingDoorData?.id) return undefined;
+    const saveWhenClickingOutsideRow = (event) => {
+      const targetRow = event.target?.closest?.("[data-lockup-row-id]");
+      if (targetRow?.dataset?.lockupRowId === String(editingDoorData.id)) return;
+      commitInlineEdit(editingDoorData);
+    };
+    document.addEventListener("mousedown", saveWhenClickingOutsideRow, true);
+    return () => document.removeEventListener("mousedown", saveWhenClickingOutsideRow, true);
+  }, [editingDoorData]);
+
+  // Selecting a door from Canvas highlights the row; clicking a table cell
+  // edits only that cell so the remaining column widths stay stable.
 
   const lastTargetDoorIdRef = useRef(null);
   useEffect(() => {
@@ -894,7 +928,8 @@ export default function LockupTask({
   const handleAddDoor = (item) => {
     const newEntry = {
       id: "door-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
-      ...item
+      ...item,
+      floorLevel: item.floorLevel || item.floor_level || normalizeFloorLevel(pages?.[currentPage], currentPage),
     };
 
     if (onSetEntries) {
@@ -944,6 +979,7 @@ export default function LockupTask({
   const handleAddBlankRow = () => {
     const newRow = {
       id: `door-custom-${Date.now()}`,
+      floorLevel: normalizeFloorLevel(pages?.[currentPage], currentPage),
       mode: null,
       scope: "internal",
       label: null,
@@ -977,10 +1013,19 @@ export default function LockupTask({
 
       if (doorsByPage && Object.keys(doorsByPage).length > 0) {
         Object.keys(doorsByPage).forEach(p => {
-          (doorsByPage[p] || []).forEach(d => allDoors.push(d));
+          const pageIndex = Number(p);
+          const floorLevel = normalizeFloorLevel(pages?.[pageIndex], pageIndex);
+          (doorsByPage[p] || []).forEach(d => allDoors.push({
+            ...d,
+            __floorLevel: d.floorLevel || d.floor_level || d.__floorLevel || floorLevel,
+          }));
         });
       } else {
-        (doors || []).forEach(d => allDoors.push(d));
+        const floorLevel = normalizeFloorLevel(pages?.[currentPage], currentPage);
+        (doors || []).forEach(d => allDoors.push({
+          ...d,
+          __floorLevel: d.floorLevel || d.floor_level || d.__floorLevel || floorLevel,
+        }));
       }
 
       if (wallsByPage && Object.keys(wallsByPage).length > 0) {
@@ -1038,6 +1083,7 @@ export default function LockupTask({
           location: isExt ? "External" : "Internal",
           label: doorLabel,
           door_name: doorLabel,
+          floorLevel: d.__floorLevel || d.floorLevel || d.floor_level || "GF",
           door_type: d.lockup_door_type || d.product || null,
           width: dWidth,
           height: dHeight,
@@ -1116,6 +1162,7 @@ export default function LockupTask({
           location: isExt ? "External" : "Internal",
           label: doorLabel,
           door_name: doorLabel,
+          floorLevel: r.floorLevel || r.floor_level || origDoor.__floorLevel || origDoor.floorLevel || origDoor.floor_level || "GF",
           door_type: r.door_type || origDoor.door_type || origDoor.product || null,
           height: finalHeight,
           width: finalWidth,
@@ -1156,6 +1203,7 @@ export default function LockupTask({
           id: `door-sync-${Date.now()}-${idx}`,
           mode: r.mode || null,
           scope: r.scope || "internal",
+          floorLevel: r.floorLevel || r.floor_level || "GF",
           label: r.label || r.door_name || `D-${idx + 1}`,
           door_name: r.door_name || r.label || `D-${idx + 1}`,
           door_type: r.door_type || null,
@@ -1293,6 +1341,7 @@ export default function LockupTask({
             const loaded = validRows.map((r, idx) => ({
               id: `door-loaded-${Date.now()}-${idx}`,
               mode: r.mode || null,
+              floorLevel: r.floorLevel || r.floor_level || "GF",
               scope: r.scope || null,
               label: r.label || null,
               door_type: r.door_type || null,
@@ -2238,7 +2287,10 @@ export default function LockupTask({
                   </tr>
                 </thead>
                 <tbody>
-                  {(entries || []).map((row, idx) => {
+                  {enteredDoorsByFloor.map((row, idx) => {
+                    const rowFloor = row.__displayFloor || "GF";
+                    const previousFloor = idx > 0 ? enteredDoorsByFloor[idx - 1].__displayFloor : null;
+                    const showFloorHeader = idx === 0 || rowFloor !== previousFloor;
                     const effDoor = selectedDoorProp || selectedDoor;
                     const effDoorIds = selectedDoorIdsProp || selectedDoorIds || [];
                     const effId = selectedIdProp || selectedId;
@@ -2332,6 +2384,7 @@ export default function LockupTask({
 
                     const isEditing = editingDoorData?.id === row.id;
                     const editRow = isEditing ? editingDoorData : null;
+                    const isCellEditing = (field) => isEditing && editingDoorCell === field;
                     const editIsExt = isEditing
                       ? (editRow.scope === "external" || editRow.location === "External")
                       : isExt;
@@ -2368,34 +2421,31 @@ export default function LockupTask({
                     const editJambOptions = editIsExt ? jambSizeExternalOptions : jambSizeInternalOptions;
 
                     return (
+                      <React.Fragment key={row.id || `${rowFloor}-${idx}`}>
+                      {showFloorHeader && (
+                        <tr data-task-group-row="true" style={{ background: "#eaf2ff", borderTop: "2px solid #93c5fd" }}>
+                          <td colSpan={18} style={{ padding: "6px 10px", fontSize: "10.5px", fontWeight: 800, color: "#1e3a5f" }}>
+                            Level: <span style={{ color: "#2563eb" }}>{rowFloor}</span>
+                          </td>
+                        </tr>
+                      )}
                       <tr
-                        key={row.id || idx}
-                        ref={(el) => {
-                          if (isSelected && el) {
-                            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        data-floor-level={rowFloor}
+                        data-lockup-row-id={String(row.id)}
+                        onClick={(e) => {
+                          if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
+                            e.stopPropagation();
+                            return;
                           }
-                        }}
-                        onDoubleClick={(e) => {
-                          if (e.target.closest("button, input, select, textarea, a")) return;
-                          e.stopPropagation();
-
-                          if (editingDoorData && editingDoorData.id !== row.id) {
-                            commitInlineEdit(editingDoorData);
-                          }
-
                           setSelectedEntryId(row.id);
                           if (onSelectEntry) onSelectEntry(row);
-                          beginInlineEdit(row);
-                        }}
-                        onClick={() => {
-                          setSelectedEntryId(row.id);
-                          if (onSelectEntry) onSelectEntry(row);
-                        }}
-                        onBlur={(e) => {
-                          if (!isEditing) return;
-                          const nextTarget = e.relatedTarget;
-                          if (!nextTarget || !e.currentTarget.contains(nextTarget)) {
-                            commitInlineEdit();
+                          const editableCell = e.target.closest("[data-edit-field]");
+                          const field = editableCell?.dataset?.editField;
+                          if (field) {
+                            if (editingDoorData && (editingDoorData.id !== row.id || editingDoorCell !== field)) {
+                              commitInlineEdit(editingDoorData);
+                            }
+                            beginInlineEdit(row, field);
                           }
                         }}
                         onKeyDown={(e) => {
@@ -2411,9 +2461,9 @@ export default function LockupTask({
                           }
                         }}
                         style={{
-                          background: isEditing ? "#eff6ff" : rowBg,
-                          cursor: isEditing ? "default" : "pointer",
-                          outline: isEditing ? "2px solid #3b82f6" : (isSelected ? "2px solid #2563eb" : "none"),
+                          background: rowBg,
+                          cursor: "pointer",
+                          outline: isSelected ? "2px solid #2563eb" : "none",
                           outlineOffset: "-1px",
                           boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
                           transition: "background 0.15s ease"
@@ -2423,30 +2473,30 @@ export default function LockupTask({
                           position: "sticky",
                           left: 0,
                           zIndex: 2,
-                          background: isEditing ? "#dbeafe" : (isSelected ? "#bfdbfe" : rowBg),
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
-                          fontWeight: isSelected || isEditing ? 800 : 700,
+                          fontWeight: isSelected ? 800 : 700,
                           textAlign: "center",
-                          color: isSelected || isEditing ? "#1e40af" : "#64748b",
+                          color: isSelected ? "#1e40af" : "#64748b",
                           width: "32px",
                           minWidth: "32px",
                           maxWidth: "32px",
                           borderBottom: "1px solid #e2e8f0",
-                          borderLeft: isSelected || isEditing ? "4px solid #2563eb" : "4px solid transparent"
+                          borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
                         }}>{idx + 1}</td>
 
-                        <td style={{
+                        <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
                           position: "sticky",
                           left: "32px",
                           zIndex: 2,
-                          background: isEditing ? "#dbeafe" : (isSelected ? "#bfdbfe" : rowBg),
+                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "5px 6px",
                           width: "105px",
                           minWidth: "105px",
                           borderBottom: "1px solid #e2e8f0",
                           borderRight: "2px solid #cbd5e1"
                         }}>
-                          {isEditing ? (
+                          {isCellEditing("label") ? (
                             <input
                               autoFocus
                               value={editRow.label || ""}
@@ -2468,8 +2518,8 @@ export default function LockupTask({
                           )}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("category") ? (
                             <select
                               value={editIsLoose ? "Loose Jamb" : "Prehung"}
                               onChange={(e) => {
@@ -2488,8 +2538,8 @@ export default function LockupTask({
                           ) : categoryDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="location" data-cell-editing={isCellEditing("location") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("location") ? (
                             <select
                               value={editIsExt ? "External" : "Internal"}
                               onChange={(e) => {
@@ -2514,8 +2564,8 @@ export default function LockupTask({
                           ) : locationDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
-                          {isEditing ? (
+                        <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
+                          {isCellEditing("door_type") ? (
                             <select
                               value={editRow.door_type || ""}
                               onChange={(e) => updateEditingDoorField({ door_type: e.target.value })}
@@ -2528,8 +2578,8 @@ export default function LockupTask({
                           ) : (doorDisplay || "-")}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="size" data-cell-editing={isCellEditing("size") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("size") ? (
                             <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
                               <select
                                 value={String(editRow.height || 2040)}
@@ -2554,8 +2604,8 @@ export default function LockupTask({
                           ) : sizeDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="thickness" data-cell-editing={isCellEditing("thickness") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("thickness") ? (
                             <select
                               value={String(editRow.thickness || "").replace("mm", "")}
                               onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
@@ -2568,8 +2618,8 @@ export default function LockupTask({
                           ) : thicksDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
-                          {isEditing ? (
+                        <td data-edit-field="jamb_or_wall" data-cell-editing={isCellEditing("jamb_or_wall") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                          {isCellEditing("jamb_or_wall") ? (
                             <input
                               value={editRow.jamb_or_wall || ""}
                               onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
@@ -2578,8 +2628,8 @@ export default function LockupTask({
                           ) : jambWallDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
-                          {isEditing ? (
+                        <td data-edit-field="jamb_size" data-cell-editing={isCellEditing("jamb_size") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                          {isCellEditing("jamb_size") ? (
                             <select
                               value={editRow.jamb_size || ""}
                               onChange={(e) => updateEditingDoorField({ jamb_size: e.target.value })}
@@ -2592,8 +2642,8 @@ export default function LockupTask({
                           ) : (row.jamb_size || row.jambSize || "-")}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="hung" data-cell-editing={isCellEditing("hung") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("hung") ? (
                             <select
                               value={editRow.hung || ""}
                               onChange={(e) => updateEditingDoorField({ hung: e.target.value })}
@@ -2606,8 +2656,8 @@ export default function LockupTask({
                           ) : hungDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="type" data-cell-editing={isCellEditing("type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("type") ? (
                             <select
                               value={editRow.type || ""}
                               onChange={(e) => updateEditingDoorField({ type: e.target.value })}
@@ -2620,8 +2670,8 @@ export default function LockupTask({
                           ) : typeDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing && editIsExt ? (
+                        <td data-edit-field="weatherguard" data-cell-editing={isCellEditing("weatherguard") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("weatherguard") && editIsExt ? (
                             <select
                               value={editRow.weatherguard || "No"}
                               onChange={(e) => updateEditingDoorField({ weatherguard: e.target.value })}
@@ -2632,8 +2682,8 @@ export default function LockupTask({
                           ) : weatherguardDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing && editIsExt ? (
+                        <td data-edit-field="dbl_rebated" data-cell-editing={isCellEditing("dbl_rebated") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("dbl_rebated") && editIsExt ? (
                             <select
                               value={editRow.dbl_rebated || "No"}
                               onChange={(e) => updateEditingDoorField({ dbl_rebated: e.target.value })}
@@ -2644,8 +2694,8 @@ export default function LockupTask({
                           ) : dblRebatedDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing && !editIsExt ? (
+                        <td data-edit-field="internal_type" data-cell-editing={isCellEditing("internal_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("internal_type") && !editIsExt ? (
                             <select
                               value={editRow.internal_type || "HF"}
                               onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
@@ -2658,8 +2708,8 @@ export default function LockupTask({
                           ) : hfHoDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing && !editIsExt ? (
+                        <td data-edit-field="color" data-cell-editing={isCellEditing("color") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("color") && !editIsExt ? (
                             <select
                               value={editRow.color || "CHR"}
                               onChange={(e) => updateEditingDoorField({ color: e.target.value })}
@@ -2672,8 +2722,8 @@ export default function LockupTask({
                           ) : colorDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="door_stop" data-cell-editing={isCellEditing("door_stop") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("door_stop") ? (
                             <select
                               value={normalizeDoorStop(editRow.door_stop || editRow.stop)}
                               onChange={(e) => updateEditingDoorField({ door_stop: e.target.value, stop: e.target.value })}
@@ -2684,8 +2734,8 @@ export default function LockupTask({
                           ) : stopDisplay}
                         </td>
 
-                        <td style={{ padding: "5px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing ? (
+                        <td data-edit-field="qty" data-cell-editing={isCellEditing("qty") ? "true" : undefined} style={{ padding: "5px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("qty") ? (
                             <input
                               inputMode="numeric"
                               value={editRow.default_qty || editRow.qty || 1}
@@ -2699,11 +2749,6 @@ export default function LockupTask({
                         </td>
 
                         <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
-                          {isEditing && (
-                            <span style={{ fontSize: "9px", color: "#2563eb", fontWeight: 700, marginRight: "4px" }} title="Enter or click outside to save">
-                              ↵
-                            </span>
-                          )}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2726,13 +2771,14 @@ export default function LockupTask({
                           </button>
                         </td>
                       </tr>
+                      </React.Fragment>
                     );
                   })}
 
                   {(!entries || entries.length === 0) && (
                     <tr>
                       <td colSpan={18} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                        No doors entered. Click <strong>⚡ Auto Fill (AI)</strong> to calculate timber doors from project.
+                        No doors entered. Use <strong>⚡ Auto Fill (AI)</strong> to populate door data from the selected plan.
                       </td>
                     </tr>
                   )}
@@ -2751,7 +2797,7 @@ export default function LockupTask({
               gap: "10px"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                {(entries || []).length} doors calculated
+                {(entries || []).length} doors entered
               </span>
 
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

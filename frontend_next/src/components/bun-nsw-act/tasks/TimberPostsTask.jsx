@@ -5,6 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 
@@ -334,7 +335,7 @@ export default function TimberPostsTask({
   const groupedPostsByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }

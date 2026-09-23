@@ -26,20 +26,21 @@ const finite = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
 
 export const normalizeFloorLevel = (page, index = 0) => {
   const raw = text(page?.floor_name || page?.name).toUpperCase();
-  if (/^(GF|G\/F|GROUND|GROUND FLOOR|LEVEL 1|0F)$/.test(raw)) return "GF";
-  if (/^(FF|1\/F|1F|FIRST|FIRST FLOOR|LEVEL 2)$/.test(raw)) return "FF";
-  if (/^(SF|2\/F|2F|SECOND|SECOND FLOOR|LEVEL 3)$/.test(raw)) return "SF";
-  if (/^(TF|3\/F|3F|THIRD|THIRD FLOOR|LEVEL 4)$/.test(raw)) return "TF";
+  const fallback = ["GF", "FF", "SF", "TF"][index] || `${index}F`;
+  if (/^(GF|G\/F|GROUND|GROUND FLOOR|0F)$/.test(raw)) return "GF";
+  if (/^(FF|1\/F|1F|FIRST|FIRST FLOOR)$/.test(raw)) return "FF";
+  if (/^(SF|2\/F|2F|SECOND|SECOND FLOOR)$/.test(raw)) return "SF";
+  if (/^(TF|3\/F|3F|THIRD|THIRD FLOOR)$/.test(raw)) return "TF";
   const m = raw.match(/^LEVEL\s+(\d+)$/);
   if (m) {
     const n = Number(m[1]);
-    if (n === 1) return "GF";
-    if (n === 2) return "FF";
-    if (n === 3) return "SF";
-    if (n === 4) return "TF";
-    return `${n - 1}F`;
+    // Imported PDF pages can all carry the same generic name (for example
+    // "Level 1"). The architectural page order is the source of truth used
+    // by the GF/FF sidebar, so do not collapse later pages back into GF.
+    const namedLevel = ["GF", "FF", "SF", "TF"][n - 1] || `${n - 1}F`;
+    return n - 1 === index ? namedLevel : fallback;
   }
-  return ["GF", "FF", "SF", "TF"][index] || `${index}F`;
+  return fallback;
 };
 
 export const wallLengthMm = (wall, scale = 1) => {
@@ -213,6 +214,23 @@ export const buildFlooringRows = (rooms = [], scale = 1, floorLevel = "GF") => r
   };
 }).filter(Boolean);
 
+export const buildInsulationAreaRow = ({ id, floorLevel = "GF", type = "Ceiling", rValue = "", product = "", areaM2 = 0 }) => {
+  const normalizedArea = Number(finite(areaM2).toFixed(2));
+  return {
+    id,
+    floorLevel,
+    type,
+    location: type === "Ceiling" ? "Ceiling / Roof Space" : type,
+    areaType: type,
+    rValue,
+    product,
+    insulationArea: normalizedArea,
+    areaM2: normalizedArea,
+    totalArea: normalizedArea,
+    autofill_source: "drawing",
+  };
+};
+
 export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") => {
   const groups = new Map();
   walls.forEach((w) => {
@@ -235,9 +253,14 @@ export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") =>
 
 export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, fallbackScale = 1) => {
   const groups = new Map();
+  const architecturalIndices = (pages || [])
+    .map((page, pageIndex) => ({ page, pageIndex }))
+    .filter(({ page }) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace)
+    .map(({ pageIndex }) => pageIndex);
   Object.entries(wallsByPage || {}).forEach(([pageKey, walls]) => {
     const pageIndex = Number(pageKey);
-    const level = normalizeFloorLevel(pages?.[pageIndex], pageIndex);
+    const architecturalOrder = architecturalIndices.indexOf(pageIndex);
+    const level = normalizeFloorLevel(pages?.[pageIndex], architecturalOrder >= 0 ? architecturalOrder : pageIndex);
     const scale = finite(scalesByPage?.[pageIndex]) || fallbackScale;
     (walls || []).forEach((w) => {
       const rawClass = lower(w?.class_name || w?.wall_type);

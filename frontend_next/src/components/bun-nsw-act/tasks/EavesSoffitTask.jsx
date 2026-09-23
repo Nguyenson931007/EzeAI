@@ -5,6 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogRoleKey, procurementProductLabel } from "@/utils/catalogHelpers";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 
 export default function EavesSoffitTask({
   formData = {},
@@ -165,7 +166,7 @@ export default function EavesSoffitTask({
   const groupedEavesByLevel = useMemo(() => {
     const groups = {};
     (entries || []).forEach(item => {
-      const lvl = String(item.floorLevel || item.floor_level || "GF").toUpperCase().trim() || "GF";
+      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
       if (!groups[lvl]) {
         groups[lvl] = [];
       }
@@ -540,98 +541,11 @@ export default function EavesSoffitTask({
     }
   };
 
-  const [scheduleState, setScheduleState] = useState({
-    status: "idle",
-    rows: [],
-    totalSheetRaw: 0,
-    joinerQty: 0,
-    error: ""
-  });
   const [isMaterialOpen, setIsMaterialOpen] = useState(true);
   const [isStandardOpen, setIsStandardOpen] = useState(true);
   const [isSoffitOpen, setIsSoffitOpen] = useState(true);
   const [isExtrasOpen, setIsExtrasOpen] = useState(true);
   const [isScheduleOpen, setIsScheduleOpen] = useState(true);
-
-  const codeFromSelection = (value) => {
-    const text = String(value || "").trim();
-    const match = text.match(/^([A-Za-z0-9_-]+)(?=\s|·|$)/);
-    return match?.[1] || text;
-  };
-
-  const eavesCatalogPayload = useMemo(() => {
-    const products = {};
-    const sheetCodes = {};
-    const joinerCodes = {};
-    let nailsCode = "";
-    let metalBattenCode = "";
-
-    for (const item of catalogItems || []) {
-      const code = String(item.item_number || item.code || "").trim();
-      if (!code) continue;
-      products[code] = {
-        description: String(item.description || item.name || "").trim(),
-        unit: String(item.unit || "Each").trim()
-      };
-      const role = catalogRoleKey(item);
-      const brand = String(item.parameters?.brand || "").trim();
-      const thick = String(item.parameters?.thickness || "").trim();
-      const dimension = Number(item.parameters?.dimension_mm || 0);
-      if ((role === "standard_eaves" || role === "soffit_sheet") && brand && thick && dimension > 0) {
-        sheetCodes[`${brand}|${thick}|${dimension}`] = code;
-      } else if (role === "joiner" && thick) {
-        joinerCodes[thick] = code;
-      } else if (role === "nails") {
-        nailsCode = code;
-      } else if (role === "metal_batten") {
-        metalBattenCode = code;
-      }
-    }
-    return { products, sheetCodes, joinerCodes, nailsCode, metalBattenCode };
-  }, [catalogItems]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      if (!sheetBrand || !sheetThickness) {
-        setScheduleState({ status: "idle", rows: [], totalSheetRaw: 0, joinerQty: 0, error: "" });
-        return;
-      }
-      try {
-        setScheduleState((prev) => ({ ...prev, status: "loading", error: "" }));
-        const response = await ApiService.calculateEaves({
-          fields: inputData || {},
-          material: sheetBrand,
-          thickness: sheetThickness,
-          battenCode: codeFromSelection(soffitBatten),
-          beadCode: codeFromSelection(soffitBead),
-          catalog: eavesCatalogPayload
-        });
-        if (cancelled) return;
-        const result = response?.data || response || {};
-        setScheduleState({
-          status: "ok",
-          rows: Array.isArray(result.rows) ? result.rows.filter((row) => Number(row.qty || 0) > 0) : [],
-          totalSheetRaw: Number(result.totalSheetRaw || 0),
-          joinerQty: Number(result.joinerQty || 0),
-          error: ""
-        });
-      } catch (error) {
-        if (cancelled) return;
-        setScheduleState({
-          status: "error",
-          rows: [],
-          totalSheetRaw: 0,
-          joinerQty: 0,
-          error: error?.message || "Eaves/Soffit calculation failed."
-        });
-      }
-    }, 220);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inputData, sheetBrand, sheetThickness, soffitBatten, soffitBead, eavesCatalogPayload]);
 
   const handleAddEave = () => {
     const newEntry = {
@@ -687,11 +601,6 @@ export default function EavesSoffitTask({
     background: "#ffffff",
     fontSize: "11px"
   };
-  const fmt = (value) => {
-    const n = Number(value || 0);
-    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
-  };
-
   const collapsibleTitle = (label, isOpen, onToggle, actions = null) => (
     <div
       onClick={onToggle}
@@ -873,10 +782,10 @@ export default function EavesSoffitTask({
         )}
       </section>
 
-      {/* 5. Automatic Eaves & Soffits schedule */}
+      {/* 5. Entered data only; Procurement quantity formulas stay outside EzeFloor. */}
       <section style={sectionCard}>
         {collapsibleTitle(
-          "5. Automatic Eaves & Soffits schedule",
+          `5. Entered Eaves & Soffits${entries.length ? ` (${entries.length})` : ""}`,
           isScheduleOpen,
           () => setIsScheduleOpen((v) => !v),
           <EnteredTaskActions
@@ -891,46 +800,73 @@ export default function EavesSoffitTask({
 
         {isScheduleOpen && (
           <>
-            <div style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "8px", borderBottom: "1px solid #e2e8f0" }}>
-          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{fmt(scheduleState.totalSheetRaw)}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>raw sheet total</span></div>
-          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{scheduleState.joinerQty}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>joiner lengths</span></div>
-          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "13px" }}>{scheduleState.rows.length}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>active items</span></div>
-          <div style={{ padding: "8px", background: "#f8fafc", borderRadius: "6px" }}><strong style={{ display: "block", color: "#0f2744", fontSize: "11px" }}>{sheetBrand || "—"} {sheetThickness || ""}</strong><span style={{ color: "#64748b", fontSize: "9.5px" }}>selected sheet</span></div>
-        </div>
+            <div style={{ padding: "8px 10px", display: "flex", justifyContent: "flex-end", borderBottom: "1px solid #e2e8f0" }}>
+              <button type="button" onClick={handleAddEave} style={{ ...inputStyle, width: "auto", minHeight: "28px", background: "#0f2744", color: "#fff", fontWeight: 700, cursor: "pointer" }}>
+                + Add current form data
+              </button>
+            </div>
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
-            <thead>
-              <tr style={{ background: "#1e293b", color: "#fff", textAlign: "left" }}>
-                <th style={{ padding: "7px 8px" }}>Description</th>
-                <th style={{ padding: "7px 8px", width: "72px", textAlign: "right" }}>Quantity</th>
-                <th style={{ padding: "7px 8px", width: "70px" }}>Unit</th>
-                <th style={{ padding: "7px 8px", width: "90px" }}>Code</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scheduleState.status === "loading" ? (
-                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#64748b" }}>Calculating Eaves &amp; Soffits schedule...</td></tr>
-              ) : scheduleState.status === "error" ? (
-                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#dc2626" }}>{scheduleState.error}</td></tr>
-              ) : scheduleState.rows.length ? scheduleState.rows.map((row, index) => (
-                <tr key={row.key || `${row.code}-${index}`} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                  <td style={{ padding: "7px 8px" }}>{row.description}</td>
-                  <td style={{ padding: "7px 8px", textAlign: "right", fontWeight: 700 }}>{fmt(row.qty)}</td>
-                  <td style={{ padding: "7px 8px" }}>{row.unit}</td>
-                  <td style={{ padding: "7px 8px", fontFamily: "monospace" }}>{row.code}</td>
-                </tr>
-              )) : (
-                <tr><td colSpan={4} style={{ padding: "14px", textAlign: "center", color: "#94a3b8" }}>Enter eaves / soffit quantities to generate the schedule.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
+                <thead>
+                  <tr style={{ background: "#1e293b", color: "#fff", textAlign: "left" }}>
+                    <th style={{ padding: "7px 8px", width: "30px" }}>#</th>
+                    <th style={{ padding: "7px 8px" }}>Level</th>
+                    <th style={{ padding: "7px 8px" }}>Sheet Brand</th>
+                    <th style={{ padding: "7px 8px" }}>Thickness</th>
+                    <th style={{ padding: "7px 8px" }}>Soffit Batten</th>
+                    <th style={{ padding: "7px 8px" }}>Soffit Bead</th>
+                    <th style={{ padding: "7px 8px", minWidth: "260px" }}>Entered values</th>
+                    <th style={{ padding: "7px 8px", width: "38px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.length === 0 ? (
+                    <tr><td colSpan={8} style={{ padding: "14px", textAlign: "center", color: "#94a3b8" }}>No Eaves &amp; Soffits data entered.</td></tr>
+                  ) : groupedEavesByLevel.map(({ level, items }) => (
+                    <React.Fragment key={level}>
+                      <tr data-task-group-row="true"><td colSpan={8}>Level: {level}</td></tr>
+                      {items.map((item) => {
+                        const index = entries.findIndex((entry) => entry.id === item.id);
+                        const isEditing = editingRowId === item.id;
+                        const values = Object.entries(item.inputData || {})
+                          .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+                          .map(([key, value]) => `${key}: ${value}`)
+                          .join(" · ") || "—";
+                        return (
+                          <tr
+                            key={item.id || index}
+                            data-editing-row-id={isEditing ? item.id : undefined}
+                            onDoubleClick={() => !isEditing && handleStartEdit(item)}
+                            style={{ borderBottom: "1px solid #e2e8f0" }}
+                          >
+                            <td style={{ padding: "7px 8px", textAlign: "center" }}>{index + 1}</td>
+                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.floorLevel || "GF"} onChange={(event) => setEditRowData({ ...editRowData, floorLevel: event.target.value })}>{FLOOR_LEVEL_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : level}</td>
+                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.brand || ""} onChange={(event) => setEditRowData({ ...editRowData, brand: event.target.value })}>{SHEET_BRAND_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.brand || "—")}</td>
+                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.thickness || ""} onChange={(event) => setEditRowData({ ...editRowData, thickness: event.target.value })}>{SHEET_THICKNESS_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.thickness || "—")}</td>
+                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.batten || ""} onChange={(event) => setEditRowData({ ...editRowData, batten: event.target.value })}>{SOFFIT_BATTEN_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.batten || "—")}</td>
+                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.bead || ""} onChange={(event) => setEditRowData({ ...editRowData, bead: event.target.value })}>{SOFFIT_BEAD_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.bead || "—")}</td>
+                            <td style={{ padding: "7px 8px", whiteSpace: "normal" }}>{values}</td>
+                            <td style={{ padding: "4px", textAlign: "center" }}>
+                              {isEditing ? (
+                                <button type="button" onClick={() => handleSaveInlineEdit(item.id)} style={{ border: 0, background: "transparent", color: "#16a34a", cursor: "pointer" }} title="Save">✓</button>
+                              ) : (
+                                <button type="button" onClick={() => handleRemoveEntry(item.id)} style={{ border: 0, background: "transparent", color: "#ef4444", cursor: "pointer" }} title="Delete">✕</button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-        <div style={{ padding: "9px 12px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px" }}>
-          {saveStatus === "success" && <span style={{ color: "#16a34a", fontSize: "10.5px", fontWeight: 700 }}>✓ Saved</span>}
-          {saveStatus === "error" && <span style={{ color: "#dc2626", fontSize: "10.5px", fontWeight: 700 }}>Save failed</span>}
-          
+            <div style={{ padding: "9px 12px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+              <span>{entries.length} {entries.length === 1 ? "row" : "rows"} entered</span>
+              {saveStatus === "success" && <span style={{ color: "#16a34a", fontSize: "10.5px", fontWeight: 700 }}>✓ Saved</span>}
+              {saveStatus === "error" && <span style={{ color: "#dc2626", fontSize: "10.5px", fontWeight: 700 }}>Save failed</span>}
             </div>
           </>
         )}

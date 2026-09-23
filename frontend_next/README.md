@@ -1,36 +1,27 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EzeFloor Frontend
 
-## Getting Started
+Frontend chính của EzeFloor, sử dụng Next.js 16 và React 19.
 
-First, run the development server:
+Hướng dẫn cài đặt đầy đủ cho cả backend, frontend, `.env` và AI models nằm trong [README của repository](../README.md).
 
-```bash
+## Chạy development
+
+Backend phải đang chạy tại `http://127.0.0.1:8090`. Sau đó mở terminal tại thư mục này:
+
+```powershell
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Mở <http://127.0.0.1:3011/> hoặc <http://localhost:3011/>.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+Frontend đọc cấu hình từ file `.env` ở thư mục gốc repository, không tạo `frontend_next/.env.local`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Build production
 
-## Learn More
+```powershell
+npm run build
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Lệnh `start` chạy ứng dụng production ở cổng `3011`.

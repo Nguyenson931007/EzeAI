@@ -1,4 +1,5 @@
 import React from "react";
+import TaskTableEnhancer from "@/components/bun-nsw-act/tasks/TaskTableEnhancer";
 
 export default function TaskModulesContainer({
   activeModuleTab,
@@ -236,6 +237,7 @@ export default function TaskModulesContainer({
         )}
       </div>
 
+      <TaskTableEnhancer taskId={activeModuleTab.id}>
       {/* 1. Frame Hardware */}
       {activeModuleTab.id === "frame_hardware" && FrameHardwareTask && (
         <FrameHardwareTask
@@ -287,6 +289,7 @@ export default function TaskModulesContainer({
           cadMetrics={{ externalWallLength: cadMetrics.externalWallLength }}
           entries={claddingWallEntries}
           onSetEntries={setCladdingWallEntries}
+          onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
@@ -503,6 +506,7 @@ onAddDataAI={handleAddDataAI}
           selectedType={selectedType}
         />
       )}
+      </TaskTableEnhancer>
 
     </div>
   );
