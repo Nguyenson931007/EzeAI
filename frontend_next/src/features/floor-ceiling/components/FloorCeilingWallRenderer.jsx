@@ -297,11 +297,11 @@ export default function FloorCeilingWallRenderer({
                   <g transform={`translate(${c.x}, ${c.y})`}>
                     {/* Background pill for zone label */}
                     <rect
-                      x={-90}
-                      y={-24}
-                      width={180}
-                      height={22}
-                      rx={5}
+                      x={-115}
+                      y={-30}
+                      width={230}
+                      height={28}
+                      rx={6}
                       fill="#0f172a"
                       fillOpacity={isSelected ? 0.95 : 0.88}
                       stroke={isSelected ? "#60a5fa" : stroke}
@@ -310,9 +310,9 @@ export default function FloorCeilingWallRenderer({
                     {/* Zone main label + area */}
                     <text
                       x={0}
-                      y={-12}
+                      y={-15}
                       fill="#ffffff"
-                      fontSize={10}
+                      fontSize={13.5}
                       fontWeight={700}
                       textAnchor="middle"
                       dominantBaseline="middle"
@@ -323,20 +323,20 @@ export default function FloorCeilingWallRenderer({
 
                     {/* Sub badge below */}
                     <rect
-                      x={isSelected ? -46 : -40}
-                      y={2}
-                      width={isSelected ? 92 : 80}
-                      height={18}
-                      rx={9}
+                      x={isSelected ? -58 : -52}
+                      y={4}
+                      width={isSelected ? 116 : 104}
+                      height={22}
+                      rx={11}
                       fill={isSelected ? "#2563eb" : subBadgeBg}
                       stroke={isSelected ? "#ffffff" : "none"}
                       strokeWidth={isSelected ? 1.5 : 0}
                     />
                     <text
                       x={0}
-                      y={12}
+                      y={16}
                       fill="#ffffff"
-                      fontSize={9.5}
+                      fontSize={11.5}
                       fontWeight={800}
                       textAnchor="middle"
                       dominantBaseline="middle"
@@ -348,19 +348,19 @@ export default function FloorCeilingWallRenderer({
                     {/* Delete button when zone is selected */}
                     {isSelected && onDeleteZone && (
                       <g
-                        transform="translate(94, -13)"
+                        transform="translate(122, -16)"
                         style={{ cursor: "pointer", pointerEvents: "all" }}
                         onClick={(e) => {
                           e.stopPropagation();
                           onDeleteZone(zone.id);
                         }}
                       >
-                        <circle cx={0} cy={0} r={9} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                        <circle cx={0} cy={0} r={10} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
                         <text
                           x={0}
-                          y={3}
+                          y={4}
                           fill="#ffffff"
-                          fontSize={11}
+                          fontSize={12}
                           fontWeight={900}
                           textAnchor="middle"
                           dominantBaseline="middle"

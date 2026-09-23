@@ -1433,7 +1433,9 @@ export function scanZonesToggle({
   mmPerPx = 18.0,
   lowerCode = "GF",
   upperCode = "FF",
-  autoAdjustWalls = true
+  autoAdjustWalls = true,
+  isBottomLevel = true,
+  isTopLevel = false
 }) {
   const isLowerMulti = Array.isArray(polyLower) && Array.isArray(polyLower[0]) && Array.isArray(polyLower[0][0]);
   const isUpperMulti = Array.isArray(polyUpper) && Array.isArray(polyUpper[0]) && Array.isArray(polyUpper[0][0]);
@@ -1622,36 +1624,38 @@ export function scanZonesToggle({
   const zones = [];
 
   // =========================================================================
-  // 1. Tầng 1 (Lower / GF):
+  // =========================================================================
+  // 1. Tầng Dưới (Lower / GF):
   // =========================================================================
   // 1.1 GF Overlap Floor:
-  // "ở GF, thì phần overlap cho floor sẽ không được tính vào (xóa nó đi)"
+  // Ở Ground Floor, sàn được xem như bề mặt slab nên không tính vào floor treo.
   // -> Do NOT add any floor overlap zone for GF!
 
-  // 1.2 GF Extension Floor:
-  // "còn lại giữ các phần extension của tầng 1, tuy nhiên khi giữ, các nút ("Toggle Floor inclusion")
-  //  được toogle off (có nghĩa mặc định là không tính vào, tùy trường hợp nó sẽ define nó là floor), còn lại giữ nguyên"
-  const lowerOnlyFloorZones = extractZonesFromMultiPoly({
-    multiPoly: lowerOnlyMulti,
-    geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
-    targetType: "floor",
-    defaultUserType: ZONE_USER_TYPES.FLOOR,
-    defaultFloorEnabled: false, // Default toggled OFF per user request!
-    defaultFloorLevel: lowerCode || "GF",
-    defaultFloorLabel: `${lowerCode || "GF"} Floor (Extension)`,
-    defaultCeilingEnabled: false,
-    defaultCeilingLevel: lowerCode || "GF",
-    defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
-    labelPrefix: `${lowerCode} Extension (Floor)`,
-    note: `Floor (${lowerCode}) - Default OFF`,
-    levelCodes: [lowerCode],
-    levelCode: lowerCode || "GF",
-    mmPerPx
-  });
-  zones.push(...lowerOnlyFloorZones);
+  // 1.2 GF Extension Floor (chỉ tạo cho tầng đáy, ví dụ GF):
+  // Giữ các phần lowerOnly ở GF, vẫn hiện nhưng toggle mặc định là OFF
+  if (isBottomLevel) {
+    const lowerOnlyFloorZones = extractZonesFromMultiPoly({
+      multiPoly: lowerOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
+      targetType: "floor",
+      defaultUserType: ZONE_USER_TYPES.FLOOR,
+      defaultFloorEnabled: false, // Default toggled OFF per user request!
+      defaultFloorLevel: lowerCode || "GF",
+      defaultFloorLabel: `${lowerCode || "GF"} Floor (Extension)`,
+      defaultCeilingEnabled: false,
+      defaultCeilingLevel: lowerCode || "GF",
+      defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+      labelPrefix: `${lowerCode} Extension (Floor)`,
+      note: `Ground floor slab-on-ground / Default OFF`,
+      levelCodes: [lowerCode],
+      levelCode: lowerCode || "GF",
+      mmPerPx
+    });
+    zones.push(...lowerOnlyFloorZones);
+  }
 
-  // 1.3 GF Overlap Ceiling:
-  // "ở ceiling,. giữ nguyên hiện trạng trên cho các tầng"
+  // 1.3 Lower Overlap Ceiling:
+  // Trần của tầng dưới ở phần nhà chính tiếp giáp tầng trên -> Mặc định ON
   const overlapLowerCeilZones = extractZonesFromMultiPoly({
     multiPoly: overlapMulti,
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
@@ -1671,8 +1675,8 @@ export function scanZonesToggle({
   });
   zones.push(...overlapLowerCeilZones);
 
-  // 1.4 GF Extension Ceiling:
-  // "ở ceiling,. giữ nguyên hiện trạng trên cho các tầng" (có thể toggle thành Balcony cho tầng trên)
+  // 1.4 Lower Extension Ceiling:
+  // Toàn bộ khung ngoài tầng 1 tạo thành ceiling (mái hiên / porch) -> Mặc định ON
   const lowerOnlyCeilZones = extractZonesFromMultiPoly({
     multiPoly: lowerOnlyMulti,
     geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
@@ -1692,10 +1696,33 @@ export function scanZonesToggle({
   });
   zones.push(...lowerOnlyCeilZones);
 
+  // 1.5 Lower Soffit Ceiling (dưới đáy phần tầng 2 đua ra / Cantilever Soffit):
+  // Thêm vùng giao giữa tầng 2 và tầng 1 (phần extend của tầng 2) nhìn từ dưới lên
+  if (upperOnlyMulti && upperOnlyMulti.length > 0) {
+    const lowerSoffitCeilZones = extractZonesFromMultiPoly({
+      multiPoly: upperOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+      targetType: "ceiling",
+      defaultUserType: ZONE_USER_TYPES.CEILING,
+      defaultFloorEnabled: false,
+      defaultFloorLevel: lowerCode || "GF",
+      defaultFloorLabel: `${lowerCode || "GF"} Floor`,
+      defaultCeilingEnabled: true, // Default toggle ON per user requirement to keep and show the cantilever intersection ceiling zone
+      defaultCeilingLevel: lowerCode || "GF",
+      defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+      labelPrefix: `${lowerCode} Under-${upperCode} Cantilever (Ceiling)`,
+      note: `Exterior soffit ceiling (${lowerCode}) under ${upperCode} cantilever`,
+      levelCodes: [lowerCode],
+      levelCode: lowerCode || "GF",
+      mmPerPx
+    });
+    zones.push(...lowerSoffitCeilZones);
+  }
+
   // =========================================================================
-  // 2. Tầng 2 (Upper / FF):
-  // "lên các tầng tiếp theo ờ phần floor logic sẽ vẫn giữ nguyên"
-  // "ở ceiling,. giữ nguyên hiện trạng trên cho các tầng"
+  // 2. Tầng Trên (Upper / FF):
+  // "FF Floor: Sẽ là toàn bộ, nhớ chia theo giao giữa tầng một và tầng 2"
+  // "Ceiling: tương tự là all, nhưng lần này toogle sẽ chuyển về off (vì có thể ngta cần hoặc không)"
   // =========================================================================
   // 2.1 FF Overlap Floor:
   const overlapUpperFloorZones = extractZonesFromMultiPoly({
@@ -1703,7 +1730,7 @@ export function scanZonesToggle({
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
     targetType: "floor",
     defaultUserType: ZONE_USER_TYPES.FLOOR,
-    defaultFloorEnabled: true,
+    defaultFloorEnabled: true, // Floor is ALL ON!
     defaultFloorLevel: upperCode || "FF",
     defaultFloorLabel: `${upperCode || "FF"} Floor`,
     defaultCeilingEnabled: false,
@@ -1723,7 +1750,7 @@ export function scanZonesToggle({
     geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
     targetType: "floor",
     defaultUserType: ZONE_USER_TYPES.FLOOR,
-    defaultFloorEnabled: true,
+    defaultFloorEnabled: true, // Cantilever/Balcony floor is ON!
     defaultFloorLevel: upperCode || "FF",
     defaultFloorLabel: `${upperCode || "FF"} Floor (Cantilever)`,
     defaultCeilingEnabled: false,
@@ -1738,6 +1765,8 @@ export function scanZonesToggle({
   zones.push(...upperOnlyFloorZones);
 
   // 2.3 FF Overlap Ceiling:
+  // Nếu là tầng đỉnh (isTopLevel): toggle chuyển về OFF (vì là trần áp mái, ai cần mới bật)
+  // Nếu là tầng trung gian: toggle mặc định là ON
   const overlapUpperCeilZones = extractZonesFromMultiPoly({
     multiPoly: overlapMulti,
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
@@ -1746,16 +1775,38 @@ export function scanZonesToggle({
     defaultFloorEnabled: false,
     defaultFloorLevel: upperCode || "FF",
     defaultFloorLabel: `${upperCode || "FF"} Floor`,
-    defaultCeilingEnabled: true,
+    defaultCeilingEnabled: isTopLevel ? false : true,
     defaultCeilingLevel: upperCode || "FF",
     defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
     labelPrefix: `${upperCode} Overlap (Ceiling)`,
-    note: `Ceiling (${upperCode})`,
+    note: isTopLevel ? `Top ceiling (${upperCode}) - Default OFF` : `Ceiling (${upperCode})`,
     levelCodes: [upperCode],
     levelCode: upperCode || "FF",
     mmPerPx
   });
   zones.push(...overlapUpperCeilZones);
+
+  // 2.4 FF Cantilever Ceiling (Upper Only):
+  if (upperOnlyMulti && upperOnlyMulti.length > 0) {
+    const upperOnlyCeilZones = extractZonesFromMultiPoly({
+      multiPoly: upperOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+      targetType: "ceiling",
+      defaultUserType: ZONE_USER_TYPES.CEILING,
+      defaultFloorEnabled: false,
+      defaultFloorLevel: upperCode || "FF",
+      defaultFloorLabel: `${upperCode || "FF"} Floor`,
+      defaultCeilingEnabled: false, // Default toggle OFF
+      defaultCeilingLevel: upperCode || "FF",
+      defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+      labelPrefix: `${upperCode} Cantilever (Ceiling)`,
+      note: `Ceiling (${upperCode}) - Default OFF`,
+      levelCodes: [upperCode],
+      levelCode: upperCode || "FF",
+      mmPerPx
+    });
+    zones.push(...upperOnlyCeilZones);
+  }
 
   // Sort zones: largest first
   zones.sort((a, b) => b.areaM2 - a.areaM2);
@@ -2175,6 +2226,8 @@ export function scanFloorAndCeiling({
     for (let i = 0; i < orderKeys.length - 1; i++) {
       const lowerOrder = orderKeys[i];
       const upperOrder = orderKeys[i + 1];
+      const isBottomLevel = (i === 0);
+      const isTopLevel = (i === orderKeys.length - 2);
       const loopsLower = levelLoops[lowerOrder] || [];
       const loopsUpper = levelLoops[upperOrder] || [];
 
@@ -2198,7 +2251,9 @@ export function scanFloorAndCeiling({
           mmPerPx,
           lowerCode: levelCodes[lowerOrder],
           upperCode: levelCodes[upperOrder],
-          autoAdjustWalls
+          autoAdjustWalls,
+          isBottomLevel,
+          isTopLevel
         });
 
         // Tag each zone with the pair info and extension defaults
@@ -2240,7 +2295,9 @@ export function scanFloorAndCeiling({
           mmPerPx,
           lowerCode: levelCodes[lowerOrder],
           upperCode: levelCodes[upperOrder],
-          autoAdjustWalls
+          autoAdjustWalls,
+          isBottomLevel,
+          isTopLevel
         });
 
         // For secondary upper loops: we only want the Upper-specific zones (Balcony floor/ceiling)
@@ -2263,6 +2320,146 @@ export function scanFloorAndCeiling({
       }
     }
   }
+
+  // Subtract any intersection / cantilever / overlap zones from encompassing lower ceiling zones
+  // (e.g. GF Ceiling covering Storage + Garage minus the lower Garage intersection under FF)
+  // Per user requirement: keep the intersection zone ("vẫn giữ phần giao"), but subtract it from
+  // the encompassing zone to produce the new notch-cut zone as shown in the image.
+  const pxToM2Factor = Math.pow(mmPerPx, 2) / 1000000;
+
+  const intersectionCeilZones = allZones.filter(z =>
+    z.targetType === "ceiling" &&
+    (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY ||
+     String(z.label || "").includes("Under-") ||
+     String(z.label || "").includes("Cantilever") ||
+     z.geometryType === ZONE_GEOMETRY_TYPES.OVERLAP)
+  );
+
+  if (intersectionCeilZones.length > 0) {
+    allZones = allZones.flatMap(z => {
+      // Only subtract from encompassing lower ceiling zones (LOWER_ONLY or extension/main ceiling)
+      const isEncompassingLower = z.targetType === "ceiling" &&
+        (z.geometryType === ZONE_GEOMETRY_TYPES.LOWER_ONLY || z.isExtensionRegion || String(z.label || "").includes("Ext") || String(z.label || "").includes("Ceiling")) &&
+        !String(z.label || "").includes("Under-") &&
+        !String(z.label || "").includes("Cantilever");
+
+      if (!isEncompassingLower || !z.polygon || z.polygon.length < 3) {
+        return [z];
+      }
+
+      // Find matching intersection cutters on the same level (e.g. GF Under-FF Cantilever on GF)
+      const matchingCutters = intersectionCeilZones.filter(cutter =>
+        cutter.id !== z.id &&
+        (cutter.levelCode === z.levelCode || cutter.ceilingLevel === z.levelCode || (!cutter.levelCode && !z.levelCode)) &&
+        cutter.polygon && cutter.polygon.length >= 3
+      );
+
+      if (matchingCutters.length === 0) return [z];
+
+      let currentGeom = toPcPolygon(z.polygon);
+      if (!currentGeom) return [z];
+
+      let wasCut = false;
+      for (const cutter of matchingCutters) {
+        const cutterGeom = toPcPolygon(cutter.polygon);
+        if (!cutterGeom) continue;
+
+        try {
+          const inter = polygonClipping.intersection(currentGeom, cutterGeom);
+          if (inter && inter.length > 0) {
+            const interAreaPx = inter.reduce((acc, p) => acc + (p[0] ? polygonAreaPx(p[0]) : 0), 0);
+            const interM2 = interAreaPx * pxToM2Factor;
+            // Only cut if meaningful intersection (> 0.05 m2) and not identical polygon
+            if (interM2 > 0.05 && Math.abs(z.areaM2 - interM2) > 0.05) {
+              const diff = polygonClipping.difference(currentGeom, cutterGeom);
+              if (diff && diff.length > 0) {
+                currentGeom = diff;
+                wasCut = true;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[FloorCeilingEngine] Subtraction warning:", e);
+        }
+      }
+
+      if (!wasCut) return [z];
+
+      // Extract resulting pieces from difference
+      const newPieces = [];
+      currentGeom.forEach((poly, pIdx) => {
+        const outerRing = poly[0];
+        if (!outerRing || outerRing.length < 3) return;
+        const areaPx = polygonAreaPx(outerRing);
+        const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
+        if (areaM2 < 0.05) return;
+
+        const cleaned = cleanRing(outerRing);
+        const pathD = ringsToSvgPath([cleaned]);
+        newPieces.push({
+          ...z,
+          id: `${z.id}_cut_${pIdx}`,
+          areaM2,
+          polygon: cleaned,
+          pathD
+        });
+      });
+
+      return newPieces.length > 0 ? newPieces : [z];
+    });
+  }
+
+  // Reclassify any "Under-... Cantilever" zones that actually intersect with lower level footprint to OVERLAP
+  // A cantilever is strictly when the upper level overhangs open air (no lower level underneath).
+  // When there IS a lower level underneath (e.g. lower garage), it is an OVERLAP between the levels!
+  allZones.forEach(z => {
+    if (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY || String(z.label || "").includes("Under-") || String(z.label || "").includes("Cantilever")) {
+      const lowerLoops = Object.values(levelLoops).flat();
+      if (lowerLoops.length > 0 && z.polygon && z.polygon.length >= 3) {
+        const zGeom = toPcPolygon(z.polygon);
+        if (zGeom) {
+          let hasLowerFootprint = false;
+          for (const loop of lowerLoops) {
+            if (!loop || loop.length < 3) continue;
+            const lGeom = toPcPolygon(loop);
+            if (lGeom) {
+              try {
+                const inter = polygonClipping.intersection(zGeom, lGeom);
+                if (inter && inter.length > 0) {
+                  const interArea = inter.reduce((acc, p) => acc + (p[0] ? polygonAreaPx(p[0]) : 0), 0) * pxToM2Factor;
+                  if (interArea > 0.1) {
+                    hasLowerFootprint = true;
+                    break;
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+
+          if (hasLowerFootprint) {
+            z.geometryType = ZONE_GEOMETRY_TYPES.OVERLAP;
+            const lowerCode = z.levelCode || z.ceilingLevel || "GF";
+            const upperCode = z.pairUpper || "FF";
+            if (z.targetType === "ceiling") {
+              z.label = `${lowerCode} Overlap (Ceiling)`;
+              z.ceilingLabel = `${lowerCode} Overlap (Ceiling)`;
+              z.note = `Ceiling (${lowerCode}) - Overlap with ${upperCode}`;
+              z.palette = ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.OVERLAP];
+            } else if (z.targetType === "floor") {
+              z.label = `${upperCode} Overlap (Floor)`;
+              z.floorLabel = `${upperCode} Overlap (Floor)`;
+              z.note = `Floor (${upperCode}) - Overlap with ${lowerCode}`;
+              z.palette = ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.OVERLAP];
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Recalculate areas after subtraction and reclassification
+  const recalculatedAreas = recalcZoneAreas(allZones);
+  allAreas = { ...allAreas, ...recalculatedAreas };
 
   // Zone Splitting by Interior Walls & Dividing Walls drawn on Floor & Ceiling page
   const interiorWalls = walls.filter(w => {
