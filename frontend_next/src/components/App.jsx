@@ -1387,12 +1387,18 @@ export default function App() {
     const hasCategoryAssignments = categoryAssignments && Object.keys(categoryAssignments).length > 0;
     // An import is ONLY for architectural levels if explicitly target is "level" and no category assignments were selected
     const isLevel = effectiveTarget === "level" && !hasCategoryAssignments;
-    const selectedData = importSelectedPages.sort((a, b) => a - b).map(idx => {
+    const existingArchitecturalCount = isAddingPagesMode
+      ? (pages || []).filter((page) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace).length
+      : 0;
+    const selectedData = importSelectedPages.sort((a, b) => a - b).map((idx, selectedOrder) => {
       const p = pendingPages[idx];
       if (isLevel) {
+        const architecturalOrder = existingArchitecturalCount + selectedOrder;
+        const levelCode = ["GF", "FF", "SF", "TF"][architecturalOrder] || `${architecturalOrder}F`;
         return {
           ...p,
           id: p?.id || `level_pg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
+          code: levelCode,
           category: null,
           source: "design",
           pageNumber: p?.pageNumber || (idx + 1)

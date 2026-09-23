@@ -17,7 +17,7 @@ export default function EnteredTaskActions({
   const isSaveError = saveStatus === "error";
 
   return (
-    <div className="entered-task-actions" style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap" }}>
+    <div className="entered-task-actions" style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", marginLeft: "auto" }}>
       {onAutoFill && (
         <button
           className="entered-task-action entered-task-action--autofill"
@@ -106,13 +106,13 @@ export default function EnteredTaskActions({
           className="entered-task-toggle"
           type="button"
           style={{
-            width: "28px",
+            width: "12px",
             height: "28px",
-            minWidth: "28px",
+            minWidth: "12px",
             border: 0,
             background: "transparent",
             color: "#64748b",
-            borderRadius: "5px",
+            borderRadius: "3px",
             cursor: "pointer",
             fontSize: "12px",
             fontWeight: 800,

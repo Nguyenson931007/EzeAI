@@ -398,6 +398,11 @@ export default function TaskTableEnhancer({ children, taskId }) {
       applyStickyIdentityColumns(table);
       applyFilters(table);
       applyCellEditView(table);
+
+      table.querySelectorAll("tbody button").forEach((button) => {
+        const actionLabel = String(button.title || button.getAttribute("aria-label") || "").trim();
+        button.classList.toggle("task-row-edit-action", /^edit\b/i.test(actionLabel));
+      });
     });
 
     root.querySelectorAll(".entered-task-actions").forEach((actions) => {
@@ -611,6 +616,7 @@ export default function TaskTableEnhancer({ children, taskId }) {
         }
         .task-module-enhanced .task-ui-section-header,
         .task-module-enhanced .task-entered-section-header {
+          width: 100% !important;
           min-height: 38px !important;
           box-sizing: border-box !important;
           padding: 5px 8px !important;
@@ -620,6 +626,26 @@ export default function TaskTableEnhancer({ children, taskId }) {
           font-size: 12px !important;
           font-weight: 800 !important;
           line-height: 1.25 !important;
+        }
+        .task-module-enhanced .task-entered-section-header .entered-task-actions {
+          margin-left: auto !important;
+          margin-right: 0 !important;
+        }
+        .task-module-enhanced .task-entered-section-header {
+          padding-right: 0 !important;
+        }
+        .task-module-enhanced .task-entered-section-header .entered-task-toggle {
+          width: 12px !important;
+          min-width: 12px !important;
+          height: 24px !important;
+          padding: 0 !important;
+          margin-left: -1px !important;
+          margin-right: 0 !important;
+        }
+        .task-module-enhanced .task-row-edit-action,
+        .task-module-enhanced table tbody button[title^="Edit" i],
+        .task-module-enhanced table tbody button[aria-label^="Edit" i] {
+          display: none !important;
         }
         .task-module-enhanced button.task-ui-section-header-button {
           width: 100% !important;

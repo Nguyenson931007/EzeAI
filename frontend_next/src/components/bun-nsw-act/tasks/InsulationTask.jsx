@@ -6,6 +6,9 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
 
 export const DEFAULT_WALL_PRODUCTS = {
   "R2.0": [
@@ -131,87 +134,21 @@ export default function InsulationTask({
     const archIndices = archPages.map(p => p.originalIndex);
     const archIdx = archIndices.indexOf(idx);
     const effectiveIdx = archIdx >= 0 ? archIdx : idx;
-
-    if (pages && pages[idx]) {
-      const name = (pages[idx].floor_name || pages[idx].name || "").trim().toUpperCase();
-      if (name && !name.startsWith("PAGE ") && !name.startsWith("CLADDING") && !name.startsWith("IMAGE")) {
-        if (name === "LEVEL 1" || name === "GROUND FLOOR" || name === "GROUND" || name === "GF" || name === "TRỆT" || name === "TẦNG TRỆT") return "GF";
-        if (name === "LEVEL 2" || name === "FIRST FLOOR" || name === "FIRST" || name === "FF" || name === "TẦNG 1" || name === "1F") return "FF";
-        if (name === "LEVEL 3" || name === "SECOND FLOOR" || name === "SECOND" || name === "SF" || name === "TẦNG 2" || name === "2F") return "SF";
-        if (name === "LEVEL 4" || name === "THIRD FLOOR" || name === "THIRD" || name === "TF" || name === "TẦNG 3" || name === "3F") return "TF";
-        if (name.startsWith("LEVEL ")) {
-          const num = parseInt(name.replace("LEVEL ", "").trim(), 10);
-          if (num === 1) return "GF";
-          if (num === 2) return "FF";
-          if (num === 3) return "SF";
-          if (num === 4) return "TF";
-          return `${num - 1}F`;
-        }
-      }
-    }
-    const labels = ["GF", "FF", "SF", "TF"];
-    return effectiveIdx < labels.length ? labels[effectiveIdx] : `${effectiveIdx}F`;
+    return normalizeFloorLevel(pages?.[idx], effectiveIdx);
   };
 
-  const LEVEL_SORT_ORDER = {
-    GF: 1, "G/F": 1, "GROUND FLOOR": 1, GROUND: 1, "LEVEL 1": 1, "0F": 1,
-    FF: 2, "1/F": 2, "1F": 2, "FIRST FLOOR": 2, FIRST: 2, "LEVEL 2": 2,
-    SF: 3, "2/F": 3, "2F": 3, "SECOND FLOOR": 3, SECOND: 3, "LEVEL 3": 3,
-    TF: 4, "3/F": 4, "3F": 4, "THIRD FLOOR": 4, THIRD: 4, "LEVEL 4": 4,
-    "4F": 5, "4/F": 5, "FOURTH FLOOR": 5, FOURTH: 5, "LEVEL 5": 5,
-    "5F": 6, "5/F": 6, "FIFTH FLOOR": 6, FIFTH: 6, "LEVEL 6": 6
-  };
+  // Level sort order + display name + grouping now live in
+  // "@/utils/floorLevelDisplay" and are shared by every Entered-items task
+  // table. Do not re-add local copies here.
+  const groupedWallsByLevel = useMemo(
+    () => groupByFloorLevel(wallEntries || [], (item) => normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF")),
+    [wallEntries]
+  );
 
-  const getFloorLevelDisplayName = (lvl) => {
-    const raw = String(lvl || "").trim().toUpperCase();
-    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") return "Ground Floor";
-    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") return "First Floor";
-    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") return "Second Floor";
-    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") return "Third Floor";
-    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") return "Fourth Floor";
-    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") return "Fifth Floor";
-    return `${lvl} Floor`;
-  };
-
-  const groupedWallsByLevel = useMemo(() => {
-    const groups = {};
-    (wallEntries || []).forEach(item => {
-      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
-      if (!groups[lvl]) groups[lvl] = [];
-      groups[lvl].push(item);
-    });
-
-    const sortedLevels = Object.keys(groups).sort((a, b) => {
-      const orderA = LEVEL_SORT_ORDER[a] || 99;
-      const orderB = LEVEL_SORT_ORDER[b] || 99;
-      return orderA - orderB;
-    });
-
-    return sortedLevels.map(lvl => ({
-      level: lvl,
-      items: groups[lvl]
-    }));
-  }, [wallEntries]);
-
-  const groupedAreasByLevel = useMemo(() => {
-    const groups = {};
-    (areaEntries || []).forEach(item => {
-      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
-      if (!groups[lvl]) groups[lvl] = [];
-      groups[lvl].push(item);
-    });
-
-    const sortedLevels = Object.keys(groups).sort((a, b) => {
-      const orderA = LEVEL_SORT_ORDER[a] || 99;
-      const orderB = LEVEL_SORT_ORDER[b] || 99;
-      return orderA - orderB;
-    });
-
-    return sortedLevels.map(lvl => ({
-      level: lvl,
-      items: groups[lvl]
-    }));
-  }, [areaEntries]);
+  const groupedAreasByLevel = useMemo(
+    () => groupByFloorLevel(areaEntries || [], (item) => normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF")),
+    [areaEntries]
+  );
 
   const normalizeRValue = (value) => {
     const raw = String(value ?? "").trim().toUpperCase();
@@ -1495,11 +1432,7 @@ export default function InsulationTask({
                   <tbody>
                     {groupedAreasByLevel.map(({ level, items }) => (
                       <React.Fragment key={`area-lvl-${level}`}>
-                        <tr style={{ background: "#f8fafc", borderTop: "1px solid #cbd5e1", borderBottom: "1px solid #e2e8f0" }}>
-                          <td colSpan={7} style={{ padding: "4px 8px", fontWeight: 800, fontSize: "10.5px", color: "#475569" }}>
-                            Level: <span style={{ color: "#2563eb" }}>{level}</span> ({getFloorLevelDisplayName(level)})
-                          </td>
-                        </tr>
+                        <FloorLevelGroupRow level={level} colSpan={7} count={items.length} unitLabel="area" />
                         {items.map((a, idx) => {
                           const isAreaRowEditing = editingAreaRowId === a.id;
                           const isCeiling = String(a.type).toLowerCase() === "ceiling";
@@ -1717,39 +1650,9 @@ export default function InsulationTask({
             </thead>
             <tbody>
               {groupedWallsByLevel.map(({ level, items }) => {
-                const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
                 return (
                   <React.Fragment key={level}>
-                    <tr style={{
-                      background: isLower ? "#f0fdf4" : "#fefce8",
-                      borderTop: "2px solid #cbd5e1",
-                      borderBottom: "1px solid #e2e8f0"
-                    }}>
-                      <td colSpan={9} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                            <span style={{
-                              background: isLower ? "#dcfce7" : "#fef08a",
-                              color: isLower ? "#15803d" : "#854d0e",
-                              border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              fontWeight: 800,
-                              fontSize: "10.5px",
-                              letterSpacing: "0.5px"
-                            }}>
-                              {level}
-                            </span>
-                            <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                              {getFloorLevelDisplayName(level)}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                            {items.length} {items.length === 1 ? "wall entry" : "wall entries"}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
+                    <FloorLevelGroupRow level={level} colSpan={9} count={items.length} unitLabel="wall entry" unitLabelPlural="wall entries" />
                     {items.map((w) => {
                       const globalIdx = (wallEntries || []).findIndex(item => item.id === w.id);
                       const idx = globalIdx >= 0 ? globalIdx : 0;

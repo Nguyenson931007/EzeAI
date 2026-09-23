@@ -6,6 +6,7 @@ import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane
 import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import {
   LOCKUP_HEIGHTS,
   LOCKUP_WIDTHS,
@@ -2423,11 +2424,7 @@ export default function LockupTask({
                     return (
                       <React.Fragment key={row.id || `${rowFloor}-${idx}`}>
                       {showFloorHeader && (
-                        <tr data-task-group-row="true" style={{ background: "#eaf2ff", borderTop: "2px solid #93c5fd" }}>
-                          <td colSpan={18} style={{ padding: "6px 10px", fontSize: "10.5px", fontWeight: 800, color: "#1e3a5f" }}>
-                            Level: <span style={{ color: "#2563eb" }}>{rowFloor}</span>
-                          </td>
-                        </tr>
+                        <FloorLevelGroupRow level={rowFloor} colSpan={18} />
                       )}
                       <tr
                         data-floor-level={rowFloor}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
+import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel } from "@/utils/procurementAutoFill";
 
 /**
  * FrameworkJobsModal – Modal bóc tách khối lượng tường & phân loại sàn theo FrameWork Jobs (MSSQL emsflow)
@@ -176,10 +177,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
   /** Chi tiết bóc tách từng tầng / từng trang bản vẽ (Tầng 1, Tầng 2, Tầng 3, Tầng 4, Tầng 5...) */
   const perPageBreakdown = useMemo(() => {
-    const pageIndices = new Set([
-      ...pages.map((_, i) => i),
-      ...Object.keys(wallsByPage || {}).map(Number)
-    ]);
+    const architecturalPageIndices = getArchitecturalPageIndices(pages);
+    const wallPageIndices = Object.keys(wallsByPage || {}).map(Number).filter(Number.isFinite);
+    const pageIndices = new Set(architecturalPageIndices.length > 0 ? architecturalPageIndices : wallPageIndices);
 
     if (pageIndices.size === 0) pageIndices.add(0);
     const sortedIndices = Array.from(pageIndices).sort((a, b) => a - b);
@@ -219,6 +219,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
       return {
         pageIndex: pIdx,
+        architecturalOrder: architecturalPageIndices.indexOf(pIdx) >= 0 ? architecturalPageIndices.indexOf(pIdx) : pIdx,
         pageName: pageTitle,
         pageScale,
         wallsCount: pageWalls.length,
@@ -229,6 +230,8 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       };
     });
   }, [pages, wallsByPage, scalesByPage, walls, scaleValue, realScale]);
+
+  const floorLevelsByPage = useMemo(() => buildArchitecturalFloorLevelMap(pages), [pages]);
 
   /** Tổng hợp khối lượng của TẤT CẢ các tầng cộng lại */
   const grandTotalAllFloorsSummary = useMemo(() => {
@@ -613,12 +616,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         const hKey = `${row.floorType === "Slab" ? "Slab" : "Timber"}_${rowHeight}`;
 
         let sumAllPagesMm = 0;
-        perPageBreakdown.forEach((p, pIdx) => {
+        const lengthsByPage = perPageBreakdown.map((p, pIdx) => {
           let pageMm = (p.groupsMap && p.groupsMap[hKey]) ? p.groupsMap[hKey] : 0;
           if (pIdx === 0 && pageMm === 0 && row.dbLength != null && row.dbLength !== 0 && row.dbLength !== "0") {
             pageMm = parseFloat(row.dbLength) || 0;
           }
           sumAllPagesMm += pageMm;
+          return { ...p, pageMm };
         });
 
         if (sumAllPagesMm > 0) {
@@ -628,23 +632,33 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             wall_height: rowHeight
           };
 
-          const spacingMm = 900;
-          const demand = (sumAllPagesMm / spacingMm).toFixed(2);
-          const rodCount = Math.ceil(sumAllPagesMm / spacingMm) || 1;
-          const rodLength = rowHeight <= 2440 ? 2700 : (rowHeight <= 2740 ? 3000 : 3600);
-          const baseTypeStr = row.floorType === "Slab" ? "Concrete Slab" : "Timber Floor";
+          // The task table is a per-floor input view. Keep each plan page as
+          // its own row; the old code summed all pages here and emitted one
+          // row without a floor code, so GF and FF were irreversibly merged
+          // and the task later defaulted the result to GF.
+          lengthsByPage.forEach(({ pageIndex, architecturalOrder, pageMm }) => {
+            if (!(pageMm > 0)) return;
+            const spacingMm = 900;
+            const demand = (pageMm / spacingMm).toFixed(2);
+            const rodCount = Math.ceil(pageMm / spacingMm) || 1;
+            const rodLength = rowHeight <= 2440 ? 2700 : (rowHeight <= 2740 ? 3000 : 3600);
+            const baseTypeStr = row.floorType === "Slab" ? "Concrete Slab" : "Timber Floor";
+            const floorLevel = floorLevelsByPage.get(pageIndex) || normalizeFloorLevel(pages?.[pageIndex], architecturalOrder);
 
-          wallEntriesForTask.push({
-            id: `frm-ai-${row.floorType}-${rowHeight}-${Date.now()}-${idx}`,
-            baseType: baseTypeStr,
-            theWallAbove: row.floorType === "Slab" ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
-            height: `${rowHeight} mm`,
-            length: `${Math.round(sumAllPagesMm)} mm`,
-            spacing: `${spacingMm} mm`,
-            rodSize: "M12",
-            rodDemand: demand,
-            rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
-            rodsQty: `${rodCount} pcs`
+            wallEntriesForTask.push({
+              id: `frm-ai-page-${pageIndex}-${row.floorType}-${rowHeight}-${idx}`,
+              sourcePageIndex: pageIndex,
+              floorLevel,
+              baseType: baseTypeStr,
+              theWallAbove: row.floorType === "Slab" ? "ON CONCRETE SLAB FLOOR" : "ON TIMBER FLOOR",
+              height: `${rowHeight} mm`,
+              length: `${Math.round(pageMm)} mm`,
+              spacing: `${spacingMm} mm`,
+              rodSize: "M12",
+              rodDemand: demand,
+              rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
+              rodsQty: `${rodCount} pcs`
+            });
           });
         }
       });

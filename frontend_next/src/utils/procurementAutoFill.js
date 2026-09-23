@@ -25,8 +25,19 @@ const lower = (v) => text(v).toLowerCase();
 const finite = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
 
 export const normalizeFloorLevel = (page, index = 0) => {
-  const raw = text(page?.floor_name || page?.name).toUpperCase();
+  const explicitCode = text(page?.code || page?.levelCode || page?.level_code || page?.floorCode || page?.floor_code).toUpperCase();
+  if (/^(GF|FF|SF|TF|\d+F)$/.test(explicitCode)) return explicitCode;
+  const rawToken = text(page?.floor_name || page?.name).toUpperCase();
   const fallback = ["GF", "FF", "SF", "TF"][index] || `${index}F`;
+  // Internal page values use a zero-based naming convention that differs
+  // from normal English floor names: first_floor=GF, upper_floor=FF.
+  if (/^(FIRST_FLOOR|GROUND_FLOOR|FLOOR_0|LEVEL_0)$/.test(rawToken)) return "GF";
+  if (/^(UPPER_FLOOR|FLOOR_1)$/.test(rawToken)) return "FF";
+  if (/^(THIRD_FLOOR|FLOOR_2)$/.test(rawToken)) return "SF";
+  if (/^(FOURTH_FLOOR|FLOOR_3)$/.test(rawToken)) return "TF";
+  const higherFloor = rawToken.match(/^FLOOR_(\d+)$/);
+  if (higherFloor) return ["GF", "FF", "SF", "TF"][Number(higherFloor[1])] || `${higherFloor[1]}F`;
+  const raw = rawToken.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   if (/^(GF|G\/F|GROUND|GROUND FLOOR|0F)$/.test(raw)) return "GF";
   if (/^(FF|1\/F|1F|FIRST|FIRST FLOOR)$/.test(raw)) return "FF";
   if (/^(SF|2\/F|2F|SECOND|SECOND FLOOR)$/.test(raw)) return "SF";
@@ -41,6 +52,28 @@ export const normalizeFloorLevel = (page, index = 0) => {
     return n - 1 === index ? namedLevel : fallback;
   }
   return fallback;
+};
+
+export const getArchitecturalPageIndices = (pages = []) => (pages || [])
+  .map((page, pageIndex) => ({ page, pageIndex }))
+  .filter(({ page }) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace)
+  .map(({ pageIndex }) => pageIndex);
+
+export const buildArchitecturalFloorLevelMap = (pages = []) => {
+  const pageIndices = getArchitecturalPageIndices(pages);
+  const result = new Map();
+  const used = new Set();
+  pageIndices.forEach((pageIndex, architecturalOrder) => {
+    const fallback = ["GF", "FF", "SF", "TF"][architecturalOrder] || `${architecturalOrder}F`;
+    const candidate = normalizeFloorLevel(pages?.[pageIndex], architecturalOrder);
+    // Imported/cache data can contain the same stale floor_name/code on every
+    // page. A building level list cannot contain the same code twice, so keep
+    // the first valid code and resolve later duplicates by architectural order.
+    const level = used.has(candidate) ? fallback : candidate;
+    result.set(pageIndex, level);
+    used.add(level);
+  });
+  return result;
 };
 
 export const wallLengthMm = (wall, scale = 1) => {
@@ -253,14 +286,12 @@ export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") =>
 
 export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, fallbackScale = 1) => {
   const groups = new Map();
-  const architecturalIndices = (pages || [])
-    .map((page, pageIndex) => ({ page, pageIndex }))
-    .filter(({ page }) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace)
-    .map(({ pageIndex }) => pageIndex);
+  const architecturalIndices = getArchitecturalPageIndices(pages);
+  const floorLevelsByPage = buildArchitecturalFloorLevelMap(pages);
   Object.entries(wallsByPage || {}).forEach(([pageKey, walls]) => {
     const pageIndex = Number(pageKey);
     const architecturalOrder = architecturalIndices.indexOf(pageIndex);
-    const level = normalizeFloorLevel(pages?.[pageIndex], architecturalOrder >= 0 ? architecturalOrder : pageIndex);
+    const level = floorLevelsByPage.get(pageIndex) || normalizeFloorLevel(pages?.[pageIndex], architecturalOrder >= 0 ? architecturalOrder : pageIndex);
     const scale = finite(scalesByPage?.[pageIndex]) || fallbackScale;
     (walls || []).forEach((w) => {
       const rawClass = lower(w?.class_name || w?.wall_type);
@@ -275,8 +306,10 @@ export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, 
       const floorTypeRaw = lower(w?.floor_type || w?.floorType || w?.base_construction);
       const slab = /slab|concrete/.test(floorTypeRaw);
       const wallClass = isExt ? "exterior_wall" : "interior_wall";
-      const key = `${level}|${slab ? "Slab" : "Timber"}|${wallClass}|${snappedH}`;
-      const prev = groups.get(key) || { floorLevel: level, floorType: slab ? "Slab" : "Timber", wallClass, heightMm: snappedH, totalMm: 0, wallIds: [] };
+      // Page identity must be part of the key. Imported pages can carry the
+      // same generic floor label; grouping only by label merged two floors.
+      const key = `${pageIndex}|${level}|${slab ? "Slab" : "Timber"}|${wallClass}|${snappedH}`;
+      const prev = groups.get(key) || { sourcePageIndex: pageIndex, floorLevel: level, floorType: slab ? "Slab" : "Timber", wallClass, heightMm: snappedH, totalMm: 0, wallIds: [] };
       prev.totalMm += len;
       if (w?.id) prev.wallIds.push(w.id);
       groups.set(key, prev);
@@ -294,6 +327,7 @@ export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, 
     rodMapping: "",
     rodsQty: `${Math.ceil(g.totalMm / 900)} pcs`,
     floorLevel: g.floorLevel,
+    sourcePageIndex: g.sourcePageIndex,
     wallClass: g.wallClass,
     wallIds: g.wallIds,
     isCanvasWall: true,

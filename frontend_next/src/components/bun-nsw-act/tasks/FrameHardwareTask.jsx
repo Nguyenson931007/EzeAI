@@ -6,8 +6,10 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
+import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
 
 const parseFrameExtras = (value) => {
   try {
@@ -61,6 +63,25 @@ export default function FrameHardwareTask({
   const wallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : wallsByPageCtx;
   const scalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : scalesByPageCtx;
   const realScale = realScaleProp || realScaleCtx;
+
+  const architecturalPageIndices = useMemo(() => getArchitecturalPageIndices(pages), [pages]);
+
+  const floorLevelByPage = useMemo(() => buildArchitecturalFloorLevelMap(pages), [pages]);
+
+  const wallPageById = useMemo(() => {
+    const result = new Map();
+    Object.entries(wallsByPage || {}).forEach(([pageKey, pageWalls]) => {
+      const pageIndex = Number(pageKey);
+      (pageWalls || []).forEach((wall) => {
+        if (wall?.id === undefined || wall?.id === null) return;
+        const wallId = String(wall.id);
+        const pageSet = result.get(wallId) || new Set();
+        pageSet.add(pageIndex);
+        result.set(wallId, pageSet);
+      });
+    });
+    return result;
+  }, [wallsByPage]);
 
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
@@ -143,13 +164,8 @@ export default function FrameHardwareTask({
   // Tính toán tất cả các tường từ AI Canvas của tất cả các trang
   const aiCanvasWallsGrouped = useMemo(() => {
     // ONLY take architectural floor pages (exclude pdf_tools / task category pages)
-    const architecturalPages = (pages || [])
-      .map((p, originalIndex) => ({ ...p, originalIndex }))
-      .filter((p) => !p?.category && p?.source !== "pdf_tools");
-
-    const architecturalIndices = architecturalPages.map(p => p.originalIndex);
-    const validArchitecturalIndices = architecturalIndices.length > 0
-      ? architecturalIndices
+    const validArchitecturalIndices = architecturalPageIndices.length > 0
+      ? architecturalPageIndices
       : ((pages || []).length > 0 && !pages[0]?.category && pages[0]?.source !== "pdf_tools" ? [0] : []);
 
     const pageIndices = new Set([
@@ -160,9 +176,9 @@ export default function FrameHardwareTask({
 
     // Helper: determine FloorLevel label from page index
     const _getFloorLevelByPage = (idx) => {
-      const archOrderIdx = architecturalIndices.indexOf(idx);
+      const archOrderIdx = architecturalPageIndices.indexOf(idx);
       const effectiveOrderIdx = archOrderIdx >= 0 ? archOrderIdx : idx;
-      return normalizeFloorLevel(pages?.[idx], effectiveOrderIdx);
+      return floorLevelByPage.get(idx) || normalizeFloorLevel(pages?.[idx], effectiveOrderIdx);
     };
 
     const groupsMap = {};
@@ -193,9 +209,10 @@ export default function FrameHardwareTask({
         const hMm = Number(w.height_mm || w.height || 2400);
         const wallClass = qInfo.wallClass;
 
-        const key = `${floorLevel}_${floorType}_${wallClass}_${hMm}`;
+        const key = `${pIdx}_${floorLevel}_${floorType}_${wallClass}_${hMm}`;
         if (!groupsMap[key]) {
           groupsMap[key] = {
+            sourcePageIndex: pIdx,
             floorLevel,
             floorType,
             baseType: isSlab ? "Concrete Slab" : "Timber Floor",
@@ -225,7 +242,7 @@ export default function FrameHardwareTask({
       }
       return a.heightMm - b.heightMm;
     });
-  }, [pages, wallsByPage, scalesByPage, realScale]);
+  }, [pages, wallsByPage, scalesByPage, realScale, architecturalPageIndices, floorLevelByPage]);
 
   // ── Tự động đồng bộ các thay đổi từ properties / AI Canvas vào bảng Entered walls ──
   useEffect(() => {
@@ -234,7 +251,7 @@ export default function FrameHardwareTask({
     const newCanvasEntries = aiCanvasWallsGrouped.map((g) => {
       const isSlab = g.floorType === "Slab";
       const spacingMm = 900;
-      const stableId = `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`;
+      const stableId = `canvas-page-${g.sourcePageIndex}-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`;
 
       const existing = (entries || []).find(e =>
         e.id === stableId ||
@@ -262,6 +279,7 @@ export default function FrameHardwareTask({
         rodMapping: `${curRodCount} x ${curRodSize} Rod ${rodLen}`,
         rodsQty: `${curRodCount} pcs`,
         floorLevel: g.floorLevel || "GF",
+        sourcePageIndex: g.sourcePageIndex,
         wallClass: g.wallClass,
         isCanvasWall: true,
         wallIds: g.wallIds
@@ -271,7 +289,7 @@ export default function FrameHardwareTask({
     const manualEntries = (entries || []).filter(e => e.isManual || (e.id && String(e.id).startsWith("manual-")));
     const merged = [...newCanvasEntries, ...manualEntries];
 
-    const serializeKey = (list) => (list || []).map(e => `${e.id}_${e.length}_${e.height}_${e.baseType}_${e.wallClass}_${e.floorLevel}_${e.rodSize}_${e.spacing}`).join("|");
+    const serializeKey = (list) => (list || []).map(e => `${e.id}_${e.sourcePageIndex ?? ""}_${e.length}_${e.height}_${e.baseType}_${e.wallClass}_${e.floorLevel}_${e.rodSize}_${e.spacing}`).join("|");
     if (serializeKey(merged) !== serializeKey(entries)) {
       if (onSetEntries) {
         onSetEntries(merged);
@@ -297,129 +315,36 @@ export default function FrameHardwareTask({
       if (!cls) return true;
       const c = String(cls).toLowerCase().trim();
       return c === "exterior_wall" || c === "interior_wall";
+    }).map((entry) => {
+      const explicitPageIndex = Number(entry.sourcePageIndex ?? entry.source_page_index ?? entry.__sourcePageIndex);
+      const linkedWallIds = entry.wallIds?.length ? entry.wallIds : (entry.wallId ? [entry.wallId] : []);
+      const resolvedPageSets = linkedWallIds
+        .map((wallId) => wallPageById.get(String(wallId)))
+        .filter((pageSet) => pageSet?.size === 1);
+      const resolvedPages = Array.from(new Set(resolvedPageSets.map((pageSet) => Array.from(pageSet)[0])));
+      const sourcePageIndex = Number.isFinite(explicitPageIndex)
+        ? explicitPageIndex
+        : (resolvedPages.length === 1 ? resolvedPages[0] : null);
+      if (!Number.isFinite(sourcePageIndex)) return entry;
+      const sourceFloorLevel = floorLevelByPage.get(sourcePageIndex);
+      if (!sourceFloorLevel) return entry;
+      return {
+        ...entry,
+        floorLevel: sourceFloorLevel,
+        __sourcePageIndex: sourcePageIndex,
+      };
     });
-  }, [entries]);
+  }, [entries, wallPageById, floorLevelByPage]);
 
-  const LEVEL_SORT_ORDER = {
-    GF: 1,
-    "G/F": 1,
-    "GROUND FLOOR": 1,
-    GROUND: 1,
-    "LEVEL 1": 1,
-    "0F": 1,
-    FF: 2,
-    "1/F": 2,
-    "1F": 2,
-    "FIRST FLOOR": 2,
-    FIRST: 2,
-    "LEVEL 2": 2,
-    SF: 3,
-    "2/F": 3,
-    "2F": 3,
-    "SECOND FLOOR": 3,
-    SECOND: 3,
-    "LEVEL 3": 3,
-    TF: 4,
-    "3/F": 4,
-    "3F": 4,
-    "THIRD FLOOR": 4,
-    THIRD: 4,
-    "LEVEL 4": 4,
-    "4F": 5,
-    "4/F": 5,
-    "FOURTH FLOOR": 5,
-    FOURTH: 5,
-    "LEVEL 5": 5,
-    "5F": 6,
-    "5/F": 6,
-    "FIFTH FLOOR": 6,
-    FIFTH: 6,
-    "LEVEL 6": 6,
-    "6F": 7,
-    "6/F": 7,
-    "SIXTH FLOOR": 7,
-    SIXTH: 7,
-    "LEVEL 7": 7,
-    "7F": 8,
-    "7/F": 8,
-    "SEVENTH FLOOR": 8,
-    SEVENTH: 8,
-    "LEVEL 8": 8,
-    "8F": 9,
-    "8/F": 9,
-    "EIGHTH FLOOR": 9,
-    EIGHTH: 9,
-    "LEVEL 9": 9,
-    "9F": 10,
-    "9/F": 10,
-    "NINTH FLOOR": 10,
-    NINTH: 10,
-    "LEVEL 10": 10,
-    "10F": 11,
-    "10/F": 11,
-    "TENTH FLOOR": 11,
-    TENTH: 11,
-    "LEVEL 11": 11
-  };
-
-  const getFloorLevelDisplayName = (lvl) => {
-    const raw = String(lvl || "").trim().toUpperCase();
-    if (raw === "GF" || raw === "G/F" || raw === "GROUND" || raw === "GROUND FLOOR" || raw === "LEVEL 1" || raw === "0F") {
-      return "Ground Floor";
-    }
-    if (raw === "FF" || raw === "1/F" || raw === "1F" || raw === "FIRST" || raw === "FIRST FLOOR" || raw === "LEVEL 2") {
-      return "First Floor";
-    }
-    if (raw === "SF" || raw === "2/F" || raw === "2F" || raw === "SECOND" || raw === "SECOND FLOOR" || raw === "LEVEL 3") {
-      return "Second Floor";
-    }
-    if (raw === "TF" || raw === "3/F" || raw === "3F" || raw === "THIRD" || raw === "THIRD FLOOR" || raw === "LEVEL 4") {
-      return "Third Floor";
-    }
-    if (raw === "4F" || raw === "4/F" || raw === "FOURTH" || raw === "FOURTH FLOOR" || raw === "LEVEL 5") {
-      return "Fourth Floor";
-    }
-    if (raw === "5F" || raw === "5/F" || raw === "FIFTH" || raw === "FIFTH FLOOR" || raw === "LEVEL 6") {
-      return "Fifth Floor";
-    }
-    if (raw === "6F" || raw === "6/F" || raw === "SIXTH" || raw === "SIXTH FLOOR" || raw === "LEVEL 7") {
-      return "Sixth Floor";
-    }
-    if (raw === "7F" || raw === "7/F" || raw === "SEVENTH" || raw === "SEVENTH FLOOR" || raw === "LEVEL 8") {
-      return "Seventh Floor";
-    }
-    if (raw === "8F" || raw === "8/F" || raw === "EIGHTH" || raw === "EIGHTH FLOOR" || raw === "LEVEL 9") {
-      return "Eighth Floor";
-    }
-    if (raw === "9F" || raw === "9/F" || raw === "NINTH" || raw === "NINTH FLOOR" || raw === "LEVEL 10") {
-      return "Ninth Floor";
-    }
-    if (raw === "10F" || raw === "10/F" || raw === "TENTH" || raw === "TENTH FLOOR" || raw === "LEVEL 11") {
-      return "Tenth Floor";
-    }
-    return `${lvl} Floor`;
-  };
-
+  // Level sort order + display name + grouping now live in
+  // "@/utils/floorLevelDisplay" and are shared by every Entered-items task
+  // table (see that file for why). Do not re-add local copies here.
   const groupedWallsByLevel = useMemo(() => {
-    const groups = {};
-    (qualifiedWalls || []).forEach(w => {
-      const lvl = normalizeFloorLevelCode(w.floorLevel || w.floor_level || "GF");
-      if (!groups[lvl]) {
-        groups[lvl] = [];
-      }
-      groups[lvl].push(w);
-    });
-
-    const sortedLevels = Object.keys(groups).sort((a, b) => {
-      const orderA = LEVEL_SORT_ORDER[a] || 99;
-      const orderB = LEVEL_SORT_ORDER[b] || 99;
-      return orderA - orderB;
-    });
-
-    return sortedLevels.map(lvl => ({
-      level: lvl,
-      walls: groups[lvl]
-    }));
+    const grouped = groupByFloorLevel(
+      qualifiedWalls || [],
+      (w) => normalizeFloorLevelCode(w.floorLevel || w.floor_level || "GF")
+    );
+    return grouped.map(({ level, items }) => ({ level, walls: items }));
   }, [qualifiedWalls]);
 
   // ── Listen for Auto-Calculate & Fill event from FrameworkJobsModal ──
@@ -434,60 +359,6 @@ export default function FrameHardwareTask({
     window.addEventListener("ezefloor:apply_ai_walls_to_framework", handleAutoApplyFramework);
     return () => window.removeEventListener("ezefloor:apply_ai_walls_to_framework", handleAutoApplyFramework);
   }, [onSetEntries]);
-
-  // ── Tự động tải dữ liệu tường đã lưu từ ProcurementApp.dbo.FrameWork của Job này ──
-  useEffect(() => {
-    async function loadExistingSavedWalls() {
-      if (entries && entries.length > 0) return;
-      try {
-        const res = await ApiService.fetchFrameworkJobs();
-        if (res && res.data) {
-          const target = String(currentProjectName || activeJobNumber || "").trim().toLowerCase();
-          const matchedRows = res.data.filter(j => {
-            const jn = String(j.job_number || "").trim().toLowerCase();
-            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
-            return (jn && jn === target) || (hw && hw === target);
-          });
-
-          const validRows = matchedRows.filter(r => r.wall_length && parseFloat(r.wall_length) > 0);
-          if (validRows.length > 0 && onSetEntries) {
-            const loadedEntries = validRows.map((r, idx) => {
-              const isTimber = (r.wall_above || "").toUpperCase().includes("TIMBER") || (r.floor_type || "").toUpperCase().includes("TIMBER");
-              const hMm = parseInt(r.wall_height, 10) || 2700;
-              const lenMm = Math.round(parseFloat(r.wall_length)) || 0;
-              const spacingMm = parseInt(r.spacing, 10) || 900;
-              const rodSize = r.rod_size ? (String(r.rod_size).startsWith("M") ? r.rod_size : `M${Math.round(parseFloat(r.rod_size))}`) : "M12";
-              const demand = (lenMm / spacingMm).toFixed(2);
-              const rodCount = Math.ceil(lenMm / spacingMm) || 1;
-              const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
-
-              return {
-                id: (isTimber ? "tmb-" : "slab-") + Date.now() + "-" + idx,
-                baseType: isTimber ? "Timber Floor" : "Concrete Slab",
-                theWallAbove: isTimber ? "ON TIMBER FLOOR" : "ON CONCRETE SLAB FLOOR",
-                height: `${hMm} mm`,
-                length: `${lenMm} mm`,
-                spacing: `${spacingMm} mm`,
-                rodSize: rodSize,
-                rodDemand: demand,
-                rodMapping: `${rodCount} x ${rodSize} Rod ${rodLength}`,
-                rodsQty: `${rodCount} pcs`,
-                floorLevel: r.floor_level || "GF",
-                wallClass: "interior_wall"
-              };
-            });
-
-            if (loadedEntries.length > 0) {
-              onSetEntries(loadedEntries);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Auto load existing framework walls error:", e);
-      }
-    }
-    loadExistingSavedWalls();
-  }, [currentProjectName, activeJobNumber]);
 
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
@@ -669,7 +540,7 @@ export default function FrameHardwareTask({
         const rodCount = Math.ceil(g.totalMm / spacingMm) || 1;
         const rodLength = g.heightMm <= 2440 ? 2700 : (g.heightMm <= 2740 ? 3000 : 3600);
         return {
-          id: `canvas-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`,
+          id: `canvas-page-${g.sourcePageIndex}-${g.floorLevel}-${g.floorType}-${g.wallClass}-${g.heightMm}`,
           baseType: g.baseType,
           theWallAbove: g.theWallAbove,
           height: `${g.heightMm} mm`,
@@ -680,6 +551,7 @@ export default function FrameHardwareTask({
           rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
           rodsQty: `${rodCount} pcs`,
           floorLevel: g.floorLevel || "GF",
+          sourcePageIndex: g.sourcePageIndex,
           wallClass: g.wallClass,
           isCanvasWall: true,
           wallIds: g.wallIds
@@ -1531,47 +1403,15 @@ export default function FrameHardwareTask({
                   </tr>
                 </thead>
                 <tbody>
-                  {groupedWallsByLevel.map(({ level, walls }) => {
-                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
-                    return (
-                      <React.Fragment key={level}>
-                        <tr style={{
-                          background: isLower ? "#f0fdf4" : "#fefce8",
-                          borderTop: "2px solid #cbd5e1",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}>
-                          <td colSpan={8} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{
-                                  background: isLower ? "#dcfce7" : "#fef08a",
-                                  color: isLower ? "#15803d" : "#854d0e",
-                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                                  padding: "2px 8px",
-                                  borderRadius: "4px",
-                                  fontWeight: 800,
-                                  fontSize: "10.5px",
-                                  letterSpacing: "0.5px"
-                                }}>
-                                  {level}
-                                </span>
-                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                                  {getFloorLevelDisplayName(level)}
-                                </span>
-                              </div>
-                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                                {walls.length} {walls.length === 1 ? "wall" : "walls"}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                        {walls.map((w) => {
-                          const globalIdx = qualifiedWalls.findIndex(qw => qw.id === w.id);
-                          return renderWallRow(w, globalIdx >= 0 ? globalIdx : 0);
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
+                  {groupedWallsByLevel.map(({ level, walls }) => (
+                    <React.Fragment key={level}>
+                      <FloorLevelGroupRow level={level} colSpan={8} count={walls.length} unitLabel="wall" />
+                      {walls.map((w) => {
+                        const globalIdx = qualifiedWalls.findIndex(qw => qw.id === w.id);
+                        return renderWallRow(w, globalIdx >= 0 ? globalIdx : 0);
+                      })}
+                    </React.Fragment>
+                  ))}
                   {qualifiedWalls.length === 0 && (
                     <tr>
                       <td colSpan={8} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>

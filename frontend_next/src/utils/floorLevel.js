@@ -4,6 +4,14 @@ export function normalizeFloorLevelCode(value, fallback = "GF") {
   const source = String(value ?? fallback).toUpperCase().trim();
   if (!source) return fallback;
 
+  // EzeFloor's persisted page classes are zero-based aliases.
+  if (/^(FIRST_FLOOR|GROUND_FLOOR|FLOOR_0|LEVEL_0)$/.test(source)) return "GF";
+  if (/^(UPPER_FLOOR|FLOOR_1)$/.test(source)) return "FF";
+  if (/^(THIRD_FLOOR|FLOOR_2)$/.test(source)) return "SF";
+  if (/^(FOURTH_FLOOR|FLOOR_3)$/.test(source)) return "TF";
+  const storedFloor = source.match(/^FLOOR_(\d+)$/);
+  if (storedFloor) return LEVEL_NUMBER_CODES[Number(storedFloor[1])] || `${storedFloor[1]}F`;
+
   const numberedLevel = source.match(/(?:LEVEL\s*:?\s*)+(\d+)\s*$/i);
   if (numberedLevel) {
     const levelNumber = Number(numberedLevel[1]);
