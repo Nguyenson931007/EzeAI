@@ -90,7 +90,7 @@ export default function FloorCeilingLevelControlPanel({
   const [isScanning, setIsScanning] = useState(false);
   const [lastScanResult, setLastScanResult] = useState(() => activePage?.lastScanResult || null);
   const [syncStatus, setSyncStatus] = useState(null);
-  const [boundaryMode, setBoundaryMode] = useState("outerline"); // "outerline" or "centerline"
+  const [boundaryMode, setBoundaryMode] = useState("centerline"); // "centerline" or "outerline"
   const [adjustStatus, setAdjustStatus] = useState(null);
 
   // Restore cached scan results from activePage when navigating back
@@ -281,7 +281,7 @@ export default function FloorCeilingLevelControlPanel({
         scaleValue,
         realScale,
         rooms,
-        boundaryMode: "outerline",
+        boundaryMode: boundaryMode || "centerline",
         autoAdjustWalls: true
       });
 

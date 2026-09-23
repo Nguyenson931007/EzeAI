@@ -3466,6 +3466,29 @@ export default function CanvasView({
     }
   }, [isFloorCeilingWorkspace, fcSelectedZoneId, pushFcSnapshot, fcDetectedZones, activePage, setFloorCeilingTakeoffData, selectedWallIds, selectedId, selectedType, wallsByPage, currentPage, walls, setWallsByPage, setSelectedWallIds, setSelectedId, setSelectedType]);
 
+  const handleDeleteFcZone = useCallback((zoneId) => {
+    if (!zoneId) return;
+    pushFcSnapshot();
+    const updated = (fcDetectedZones || []).filter(z => z.id !== zoneId);
+    setFcDetectedZones(updated);
+    if (activePage) {
+      activePage.detectedZones = updated;
+      if (activePage.lastScanResult) {
+        activePage.lastScanResult = {
+          ...activePage.lastScanResult,
+          zones: updated,
+          areas: recalcZoneAreas(updated, activePage.lastScanResult.levelFootprints)
+        };
+        if (setFloorCeilingTakeoffData) {
+          setFloorCeilingTakeoffData(activePage.lastScanResult);
+        }
+      }
+    }
+    if (fcSelectedZoneId === zoneId) {
+      setFcSelectedZoneId(null);
+    }
+  }, [fcDetectedZones, pushFcSnapshot, activePage, setFloorCeilingTakeoffData, fcSelectedZoneId, setFcDetectedZones, setFcSelectedZoneId]);
+
   // Snap Align target walls: underlay walls (floor k-1) for Step 1, current walls (floor k) for Step 2
   const snapTargetWalls = useMemo(() => {
     if (interactionMode !== "snap-align-pdf") return [];
@@ -5754,6 +5777,7 @@ export default function CanvasView({
                 detectedZones={fcDetectedZones}
                 selectedZoneId={fcSelectedZoneId}
                 onSelectZone={setFcSelectedZoneId}
+                onDeleteZone={handleDeleteFcZone}
                 fcAlignMode={fcAlignMode}
                 fcViewMode={fcViewMode}
               />

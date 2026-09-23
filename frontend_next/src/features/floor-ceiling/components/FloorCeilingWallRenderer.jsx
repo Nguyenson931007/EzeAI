@@ -50,9 +50,15 @@ export default function FloorCeilingWallRenderer({
   detectedZones = [],
   selectedZoneId = null,
   onSelectZone = null,
+  onDeleteZone = null,
   fcAlignMode = false,
   fcViewMode = "floor"
 }) {
+  const isDrawingMode = interactionMode === "draw-wall" ||
+    interactionMode === "cut-wall" ||
+    (typeof interactionMode === "string" && interactionMode.startsWith("draw-")) ||
+    fcAlignMode;
+
   // 1. Group walls by sourceLevelCode
   const wallsByLevel = useMemo(() => {
     const grouped = {};
@@ -196,7 +202,7 @@ export default function FloorCeilingWallRenderer({
     <g id="FloorCeilingWorkspaceLayer">
       {/* ===== LAYER 1: DETECTED ZONES (UNIFIED FLOOR / CEILING COLORING) ===== */}
       {!fcAlignMode && visibleCanvasZones && visibleCanvasZones.length > 0 && (
-        <g id="FloorCeilingDetectedZones" pointerEvents="auto">
+        <g id="FloorCeilingDetectedZones" pointerEvents={isDrawingMode ? "none" : "auto"}>
           {visibleCanvasZones.map((zone, zIdx) => {
             if (!zone.polygon || zone.polygon.length < 3) return null;
 
@@ -217,7 +223,7 @@ export default function FloorCeilingWallRenderer({
               mainLabel = `Overlap: ${zone.areaM2} m²`;
               const lowerTag = zone.pairLower || zone.levelCode || "GF";
               const upperTag = zone.pairUpper || "FF";
-              subBadgeLabel = `⚡ ${lowerTag}↔${upperTag} Overlap`;
+              subBadgeLabel = `${lowerTag}↔${upperTag} Overlap`;
               subBadgeBg = pal.badgeBg;
             } else if (effectiveViewMode === "floor") {
               const pal = TAKEOFF_COLORS.floor;
@@ -260,10 +266,11 @@ export default function FloorCeilingWallRenderer({
               <g
                 key={`fc-zone-${zone.id || zIdx}`}
                 onClick={(e) => {
+                  if (isDrawingMode) return;
                   e.stopPropagation();
                   if (onSelectZone) onSelectZone(isSelected ? null : zone.id);
                 }}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: isDrawingMode ? "crosshair" : "pointer" }}
               >
                 {/* Zone polygon or path fill */}
                 {zone.pathD ? (
@@ -337,6 +344,31 @@ export default function FloorCeilingWallRenderer({
                     >
                       {subBadgeLabel}
                     </text>
+
+                    {/* Delete button when zone is selected */}
+                    {isSelected && onDeleteZone && (
+                      <g
+                        transform="translate(94, -13)"
+                        style={{ cursor: "pointer", pointerEvents: "all" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteZone(zone.id);
+                        }}
+                      >
+                        <circle cx={0} cy={0} r={9} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                        <text
+                          x={0}
+                          y={3}
+                          fill="#ffffff"
+                          fontSize={11}
+                          fontWeight={900}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                        >
+                          ✕
+                        </text>
+                      </g>
+                    )}
                   </g>
                 )}
               </g>
@@ -368,7 +400,7 @@ export default function FloorCeilingWallRenderer({
               {chains.map((chain, chainIdx) => {
                 const isClosed = chain.points.length > 2 &&
                   Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                             chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                    chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
                 let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
                 if (isClosed) pathData += " Z";
 
@@ -398,7 +430,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -420,7 +452,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -442,7 +474,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -494,8 +526,8 @@ export default function FloorCeilingWallRenderer({
                       strokeWidth={Math.max((w.thickness_px || 20) + 24, 36)}
                       strokeLinecap="round"
                       style={{
-                        cursor: fcAlignMode ? "crosshair" : "pointer",
-                        pointerEvents: fcAlignMode ? "none" : "auto"
+                        cursor: isDrawingMode ? "crosshair" : "pointer",
+                        pointerEvents: isDrawingMode ? "none" : "auto"
                       }}
                       onMouseEnter={() => setHoverId && setHoverId(w.id)}
                       onMouseLeave={() => setHoverId && setHoverId(null)}
@@ -505,6 +537,7 @@ export default function FloorCeilingWallRenderer({
                         if (onWallContextMenu) onWallContextMenu(e, w);
                       }}
                       onClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (selectWall) {
                           selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -514,10 +547,12 @@ export default function FloorCeilingWallRenderer({
                         }
                       }}
                       onDoubleClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (handleWallDoubleClick) handleWallDoubleClick(w.id);
                       }}
                       onMouseDown={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (e.button === 0 && startDrag) {
                           if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -541,8 +576,8 @@ export default function FloorCeilingWallRenderer({
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       style={{
-                        cursor: fcAlignMode ? "crosshair" : "pointer",
-                        pointerEvents: fcAlignMode ? "none" : "auto",
+                        cursor: isDrawingMode ? "crosshair" : "pointer",
+                        pointerEvents: isDrawingMode ? "none" : "auto",
                         filter: isSelected ? "drop-shadow(0 0 6px rgba(2, 132, 199, 0.85))" : undefined
                       }}
                       onMouseEnter={() => setHoverId && setHoverId(w.id)}
@@ -553,6 +588,7 @@ export default function FloorCeilingWallRenderer({
                         if (onWallContextMenu) onWallContextMenu(e, w);
                       }}
                       onClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (selectWall) {
                           selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -562,10 +598,12 @@ export default function FloorCeilingWallRenderer({
                         }
                       }}
                       onDoubleClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (handleWallDoubleClick) handleWallDoubleClick(w.id);
                       }}
                       onMouseDown={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (e.button === 0 && startDrag) {
                           if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);
