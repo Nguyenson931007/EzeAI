@@ -555,17 +555,25 @@ export default function InsulationTask({
       if (wallsByPage && Object.keys(wallsByPage).length > 0) {
         Object.keys(wallsByPage).forEach(pIdxStr => {
           const pIdx = parseInt(pIdxStr, 10);
-          const pWalls = wallsByPage[pIdx] || [];
+          const pageObj = pages && pages[pIdx];
+          if (pageObj && (pageObj.isFloorCeilingWorkspace || pageObj.source === "floor_ceiling_page" || pageObj.source === "floor_ceiling_workspace" || pageObj.category === "floor_ceiling")) {
+            return;
+          }
+          const pWalls = (wallsByPage[pIdx] || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
           const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
-          const pageName = pages && pages[pIdx] ? (pages[pIdx].floor_name || pages[pIdx].name || `Page ${pIdx + 1}`) : `Page ${pIdx + 1}`;
+          const pageName = pageObj ? (pageObj.floor_name || pageObj.name || `Page ${pIdx + 1}`) : `Page ${pIdx + 1}`;
           const pScale = (scalesByPage && scalesByPage[pIdx]) ? scalesByPage[pIdx] : effScale;
           const pLevelCode = getLevelCode(pIdx);
           processWalls(pWalls, pDoors, pageName, pScale, pLevelCode);
         });
       } else {
-        const pageName = pages && pages[currentPage] ? (pages[currentPage].floor_name || pages[currentPage].name || `Page ${currentPage + 1}`) : `Page ${currentPage + 1}`;
-        const pLevelCode = getLevelCode(currentPage);
-        processWalls(walls, doors, pageName, effScale, pLevelCode);
+        const curPageObj = pages && pages[currentPage];
+        if (!curPageObj || (!curPageObj.isFloorCeilingWorkspace && curPageObj.source !== "floor_ceiling_page" && curPageObj.source !== "floor_ceiling_workspace" && curPageObj.category !== "floor_ceiling")) {
+          const pageName = curPageObj ? (curPageObj.floor_name || curPageObj.name || `Page ${currentPage + 1}`) : `Page ${currentPage + 1}`;
+          const pLevelCode = getLevelCode(currentPage);
+          const validWalls = (walls || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
+          processWalls(validWalls, doors, pageName, effScale, pLevelCode);
+        }
       }
 
       if (payloadWalls.length === 0) {

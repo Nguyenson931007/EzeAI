@@ -161,18 +161,26 @@ export default function FloorCeilingWallRenderer({
 
     // Filter by effectiveViewMode (Floor vs Ceiling)
     if (effectiveViewMode === "floor") {
-      zones = zones.filter(z => z.floorEnabled !== false || z.isBalcony);
+      zones = zones.filter(z => {
+        if (z.targetType && z.targetType !== "floor") return false;
+        return z.floorEnabled !== false || z.isBalcony || z.id === selectedZoneId;
+      });
     } else {
-      zones = zones.filter(z => z.ceilingEnabled === true);
+      zones = zones.filter(z => {
+        if (z.targetType && z.targetType !== "ceiling") return false;
+        return z.ceilingEnabled === true || z.id === selectedZoneId;
+      });
     }
 
-    // When showing ALL levels: deduplicate duplicate 2D polygons (e.g. GF Overlap and FF Overlap share identical geometry)
+    // When showing ALL levels: deduplicate duplicate 2D polygons (e.g. identical geometry across pairs)
     if (activeLevelFilter === "ALL") {
       const seenGeom = new Set();
       const deduped = [];
       zones.forEach(z => {
         const polyFirst = z.polygon?.[0];
-        const geomKey = polyFirst ? `${(polyFirst[0] || 0).toFixed(0)}_${(polyFirst[1] || 0).toFixed(0)}_${z.areaM2}` : z.id;
+        const geomKey = polyFirst
+          ? `${(polyFirst[0] || 0).toFixed(0)}_${(polyFirst[1] || 0).toFixed(0)}_${z.areaM2}_${z.targetType || ""}`
+          : z.id;
         if (!seenGeom.has(geomKey)) {
           seenGeom.add(geomKey);
           deduped.push(z);
@@ -182,7 +190,7 @@ export default function FloorCeilingWallRenderer({
     }
 
     return zones;
-  }, [detectedZones, activeLevelFilter, effectiveViewMode]);
+  }, [detectedZones, activeLevelFilter, effectiveViewMode, selectedZoneId]);
 
   return (
     <g id="FloorCeilingWorkspaceLayer">
@@ -213,14 +221,23 @@ export default function FloorCeilingWallRenderer({
               subBadgeBg = pal.badgeBg;
             } else if (effectiveViewMode === "floor") {
               const pal = TAKEOFF_COLORS.floor;
-              fill = isSelected ? pal.fillSelected : pal.fill;
-              stroke = isSelected ? "#6d28d9" : pal.stroke;
-              if (zone.isBalcony) {
+              if (zone.floorEnabled === false && !zone.isBalcony) {
+                fill = isSelected ? "rgba(148, 163, 184, 0.35)" : "rgba(148, 163, 184, 0.15)";
+                stroke = isSelected ? "#475569" : "#94a3b8";
+                mainLabel = `${zone.floorLabel || zone.label || "Floor"} (OFF): ${zone.areaM2} m²`;
+                const lvlTag = zone.levelCode || zone.floorLevel || "";
+                subBadgeLabel = lvlTag ? `🏢 ${lvlTag} Floor (OFF)` : "🏢 Floor (OFF)";
+                subBadgeBg = "#64748b";
+              } else if (zone.isBalcony) {
+                fill = isSelected ? pal.fillSelected : pal.fill;
+                stroke = isSelected ? "#6d28d9" : pal.stroke;
                 const upperTag = zone.balconyLevel || "FF";
                 mainLabel = `${upperTag} Balcony: ${zone.areaM2} m²`;
                 subBadgeLabel = `🏢 ${upperTag} Balcony`;
                 subBadgeBg = "#059669";
               } else {
+                fill = isSelected ? pal.fillSelected : pal.fill;
+                stroke = isSelected ? "#6d28d9" : pal.stroke;
                 mainLabel = `${zone.floorLabel || zone.label || "Floor"}: ${zone.areaM2} m²`;
                 const lvlTag = zone.levelCode || zone.floorLevel || "";
                 subBadgeLabel = lvlTag ? `🏢 ${lvlTag} Floor` : "🏢 Floor";

@@ -23,7 +23,7 @@ import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { useAppModel } from "@/models/app.context";
 import FloorCeilingWallRenderer from "@/features/floor-ceiling/components/FloorCeilingWallRenderer";
 import FloorCeilingLevelControlPanel from "@/features/floor-ceiling/components/FloorCeilingLevelControlPanel";
-import { shiftWallsByLevel } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
+import { shiftWallsByLevel, recalcZoneAreas } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
 import { formatLintelCalloutText, syncLintelWithDoor } from "../controllers/lintel.controller";
 import { getWallConnectionPoints, findNearestWallJunctionOrVertex } from "../controllers/interaction.controller";
@@ -3300,12 +3300,19 @@ export default function CanvasView({
     wallsByPage = {},
     setWallsByPage,
     scalesByPage = {},
-    setFloorCeilingTakeoffData
+    setFloorCeilingTakeoffData,
+    setPages,
+    pdfOffsetsByPage = {}
   } = useAppModel();
 
   // Floor & Ceiling Workspace state
   const [fcLevelConfigs, setFcLevelConfigs] = useState({});
   const [fcActiveLevelFilter, setFcActiveLevelFilter] = useState("ALL");
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.__fcActiveLevelFilter = fcActiveLevelFilter;
+    }
+  }, [fcActiveLevelFilter]);
   const [fcOtherLevelsGhostOpacity, setFcOtherLevelsGhostOpacity] = useState(0.05);
   const [fcDetectedZones, setFcDetectedZones] = useState([]);
   const [fcSelectedZoneId, setFcSelectedZoneId] = useState(null);
@@ -3333,15 +3340,131 @@ export default function CanvasView({
     return () => window.removeEventListener("ezefloor:clear_floor_ceiling_scan", handleClearScan);
   }, []);
 
-  // When active page changes: reset detected zones and selected zone if switching between workspaces or pages
+  // When active page changes: restore cached zones for Floor & Ceiling workspace, or reset if normal page
   const prevPageIdRef = useRef(activePageId);
   useEffect(() => {
     if (prevPageIdRef.current !== activePageId) {
       prevPageIdRef.current = activePageId;
-      setFcDetectedZones([]);
+      if (isFloorCeilingWorkspace && activePage?.detectedZones && activePage.detectedZones.length > 0) {
+        setFcDetectedZones(activePage.detectedZones);
+      } else if (!isFloorCeilingWorkspace) {
+        setFcDetectedZones([]);
+      }
       setFcSelectedZoneId(null);
     }
-  }, [activePageId]);
+  }, [activePageId, isFloorCeilingWorkspace, activePage]);
+
+  // Floor & Ceiling Isolated Undo / Redo / Delete history stacks
+  const fcHistoryRef = useRef([]);
+  const fcFutureRef = useRef([]);
+
+  const pushFcSnapshot = useCallback(() => {
+    if (!isFloorCeilingWorkspace) return;
+    const curWalls = (wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : (walls || []);
+    const snapshot = {
+      walls: JSON.parse(JSON.stringify(curWalls)),
+      detectedZones: JSON.parse(JSON.stringify(fcDetectedZones || [])),
+      lastScanResult: activePage?.lastScanResult ? JSON.parse(JSON.stringify(activePage.lastScanResult)) : null
+    };
+    fcHistoryRef.current.push(snapshot);
+    if (fcHistoryRef.current.length > 30) fcHistoryRef.current.shift();
+    fcFutureRef.current = [];
+  }, [isFloorCeilingWorkspace, wallsByPage, currentPage, walls, fcDetectedZones, activePage]);
+
+  const undoFc = useCallback(() => {
+    if (!isFloorCeilingWorkspace || fcHistoryRef.current.length === 0) return;
+    const curWalls = (wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : (walls || []);
+    const currentSnapshot = {
+      walls: JSON.parse(JSON.stringify(curWalls)),
+      detectedZones: JSON.parse(JSON.stringify(fcDetectedZones || [])),
+      lastScanResult: activePage?.lastScanResult ? JSON.parse(JSON.stringify(activePage.lastScanResult)) : null
+    };
+    fcFutureRef.current.push(currentSnapshot);
+
+    const prevSnapshot = fcHistoryRef.current.pop();
+    if (prevSnapshot) {
+      if (setWallsByPage && currentPage != null) {
+        setWallsByPage(prev => ({ ...prev, [currentPage]: prevSnapshot.walls || [] }));
+      }
+      setFcDetectedZones(prevSnapshot.detectedZones || []);
+      if (activePage) {
+        activePage.detectedZones = prevSnapshot.detectedZones || [];
+        activePage.lastScanResult = prevSnapshot.lastScanResult || null;
+      }
+      if (setFloorCeilingTakeoffData && prevSnapshot.lastScanResult) {
+        setFloorCeilingTakeoffData(prevSnapshot.lastScanResult);
+      }
+    }
+  }, [isFloorCeilingWorkspace, wallsByPage, currentPage, walls, fcDetectedZones, activePage, setWallsByPage, setFloorCeilingTakeoffData]);
+
+  const redoFc = useCallback(() => {
+    if (!isFloorCeilingWorkspace || fcFutureRef.current.length === 0) return;
+    const curWalls = (wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : (walls || []);
+    const currentSnapshot = {
+      walls: JSON.parse(JSON.stringify(curWalls)),
+      detectedZones: JSON.parse(JSON.stringify(fcDetectedZones || [])),
+      lastScanResult: activePage?.lastScanResult ? JSON.parse(JSON.stringify(activePage.lastScanResult)) : null
+    };
+    fcHistoryRef.current.push(currentSnapshot);
+
+    const nextSnapshot = fcFutureRef.current.pop();
+    if (nextSnapshot) {
+      if (setWallsByPage && currentPage != null) {
+        setWallsByPage(prev => ({ ...prev, [currentPage]: nextSnapshot.walls || [] }));
+      }
+      setFcDetectedZones(nextSnapshot.detectedZones || []);
+      if (activePage) {
+        activePage.detectedZones = nextSnapshot.detectedZones || [];
+        activePage.lastScanResult = nextSnapshot.lastScanResult || null;
+      }
+      if (setFloorCeilingTakeoffData && nextSnapshot.lastScanResult) {
+        setFloorCeilingTakeoffData(nextSnapshot.lastScanResult);
+      }
+    }
+  }, [isFloorCeilingWorkspace, wallsByPage, currentPage, walls, fcDetectedZones, activePage, setWallsByPage, setFloorCeilingTakeoffData]);
+
+  const deleteFc = useCallback(() => {
+    if (!isFloorCeilingWorkspace) return;
+
+    // Case A: If a zone is selected, delete this zone only
+    if (fcSelectedZoneId) {
+      pushFcSnapshot();
+      const updated = (fcDetectedZones || []).filter(z => z.id !== fcSelectedZoneId);
+      setFcDetectedZones(updated);
+      if (activePage) {
+        activePage.detectedZones = updated;
+        if (activePage.lastScanResult) {
+          activePage.lastScanResult = {
+            ...activePage.lastScanResult,
+            zones: updated,
+            areas: recalcZoneAreas(updated, activePage.lastScanResult.levelFootprints)
+          };
+          if (setFloorCeilingTakeoffData) {
+            setFloorCeilingTakeoffData(activePage.lastScanResult);
+          }
+        }
+      }
+      setFcSelectedZoneId(null);
+      return;
+    }
+
+    // Case B: Wall(s) selected on Floor & Ceiling workspace
+    const targetWallIds = (selectedWallIds && selectedWallIds.length > 0)
+      ? selectedWallIds
+      : (selectedId && selectedType === "wall" ? [selectedId] : []);
+
+    if (targetWallIds.length > 0) {
+      pushFcSnapshot();
+      const curWalls = (wallsByPage && wallsByPage[currentPage]) ? wallsByPage[currentPage] : (walls || []);
+      const remainingWalls = curWalls.filter(w => !targetWallIds.includes(w.id));
+      if (setWallsByPage && currentPage != null) {
+        setWallsByPage(prev => ({ ...prev, [currentPage]: remainingWalls }));
+      }
+      if (setSelectedWallIds) setSelectedWallIds([]);
+      if (setSelectedId) setSelectedId(null);
+      if (setSelectedType) setSelectedType(null);
+    }
+  }, [isFloorCeilingWorkspace, fcSelectedZoneId, pushFcSnapshot, fcDetectedZones, activePage, setFloorCeilingTakeoffData, selectedWallIds, selectedId, selectedType, wallsByPage, currentPage, walls, setWallsByPage, setSelectedWallIds, setSelectedId, setSelectedType]);
 
   // Snap Align target walls: underlay walls (floor k-1) for Step 1, current walls (floor k) for Step 2
   const snapTargetWalls = useMemo(() => {
@@ -3431,9 +3554,38 @@ export default function CanvasView({
     return () => window.removeEventListener('ezefloor:toggle-truss-2d', handleToggleTruss2D);
   }, [handleToggleRoofTruss2D]);
 
-  // Distance Tool & Global Escape handler
+  // Distance Tool, Global Escape handler & FC Workspace Isolated Shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Floor & Ceiling Isolated Shortcuts
+      if (isFloorCeilingWorkspace) {
+        if (e.code === "Delete" || e.code === "Backspace") {
+          if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable)) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          deleteFc();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.code === "KeyZ" || e.key === "z")) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.shiftKey) {
+            redoFc();
+          } else {
+            undoFc();
+          }
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.key === "y")) {
+          e.preventDefault();
+          e.stopPropagation();
+          redoFc();
+          return;
+        }
+      }
+
       if (e.key === "Escape" || e.code === "Escape") {
         if (isDistancing) {
           if (setIsDistancing) setIsDistancing(false);
@@ -3452,7 +3604,7 @@ export default function CanvasView({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDistancing, setIsDistancing, setDistancePoints, setInteractionMode, selectedType, selectedId, selectedLintelIds, lintelController, isDrawingLintel, setSelectedId, setSelectedType, setSelectedLintelIds]);
+  }, [isDistancing, setIsDistancing, setDistancePoints, setInteractionMode, selectedType, selectedId, selectedLintelIds, lintelController, isDrawingLintel, setSelectedId, setSelectedType, setSelectedLintelIds, isFloorCeilingWorkspace, deleteFc, undoFc, redoFc]);
 
   // When lintel is deselected or not active, ensure catalog panel is closed
   useEffect(() => {
@@ -4670,6 +4822,21 @@ export default function CanvasView({
                     if (setWallsByPage && currentPage != null) {
                       setWallsByPage(prev => ({ ...prev, [currentPage]: updated }));
                     }
+
+                    // Accumulate and persist level shift for active level in activePage
+                    if (activePage) {
+                      const prevShifts = activePage.levelShifts || {};
+                      const curShift = prevShifts[targetCode] || { x: 0, y: 0 };
+                      const newShifts = {
+                        ...prevShifts,
+                        [targetCode]: { x: (curShift.x || 0) + deltaX, y: (curShift.y || 0) + deltaY }
+                      };
+                      activePage.levelShifts = newShifts;
+                      if (setPages) {
+                        setPages(prevPages => (prevPages || []).map((p, idx) => idx === currentPage ? { ...p, levelShifts: newShifts } : p));
+                      }
+                    }
+
                     alert(`✓ Point-to-Point Align Complete: Shifted ${targetCode} walls by dx: ${Math.round(deltaX)}px, dy: ${Math.round(deltaY)}px`);
                   }
                   setFcAlignMode(false);
@@ -4748,10 +4915,36 @@ export default function CanvasView({
           {/* Main Transformation Matrix */}
           <g transform={`translate(${offset.x},${offset.y}) scale(${scale})`}>
 
-            {/* Memoized Layer 1: Base Floor Image (Suppressed in Floor & Ceiling Workspace) */}
+            {/* Memoized Layer 1: Base Floor Image (Standard Workspaces) */}
             {!isFloorCeilingWorkspace && (
               <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
             )}
+
+            {/* Floor & Ceiling Workspace: Architectural PDF background for active individual level */}
+            {isFloorCeilingWorkspace && fcActiveLevelFilter !== "ALL" && (() => {
+              const matchingMeta = (activePage?.levelMetadata || []).find(l => l.code === fcActiveLevelFilter);
+              const sourcePageIdx = matchingMeta ? matchingMeta.index : (activePage?.sourceLevelIndices?.[0] ?? null);
+              if (sourcePageIdx == null) return null;
+              const sourcePage = pages?.[sourcePageIdx];
+              if (!sourcePage?.image) return null;
+
+              const basePdfOffset = (pdfOffsetsByPage && pdfOffsetsByPage[sourcePageIdx]) || { x: 0, y: 0 };
+              const levelShift = (activePage?.levelShifts && activePage.levelShifts[fcActiveLevelFilter]) || { x: 0, y: 0 };
+              const effectivePdfOffset = {
+                x: (basePdfOffset.x || 0) + (levelShift.x || 0),
+                y: (basePdfOffset.y || 0) + (levelShift.y || 0)
+              };
+
+              return (
+                <FloorImageLayer
+                  image={sourcePage.image}
+                  w={sourcePage.w || activePage?.w || imgSize.w}
+                  h={sourcePage.h || activePage?.h || imgSize.h}
+                  showPDF={showPDF}
+                  pdfOffset={effectivePdfOffset}
+                />
+              );
+            })()}
 
             {/* Underlay Ghost Walls of Previous Page (shown only during align mode or when PDF layer is hidden on Level 2+) */}
             {!isFloorCeilingWorkspace && currentPage > 0 && underlayWalls?.length > 0 && (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf" || !showPDF) && (
@@ -7371,6 +7564,7 @@ export default function CanvasView({
             setFloorCeilingTakeoffData={setFloorCeilingTakeoffData}
             fcViewMode={fcViewMode}
             setFcViewMode={setFcViewMode}
+            pushFcSnapshot={pushFcSnapshot}
           />
         )}
 
@@ -7435,7 +7629,11 @@ export default function CanvasView({
                 lock: null,
                 wallType: wallType,
                 thickness: thickness,
-                wallId: wallContextMenu.wall.id
+                wallId: wallContextMenu.wall.id,
+                sourceLevelCode: wallContextMenu.wall.sourceLevelCode,
+                sourceLevelName: wallContextMenu.wall.sourceLevelName,
+                sourceLevelOrder: wallContextMenu.wall.sourceLevelOrder,
+                sourceColor: wallContextMenu.wall.sourceColor
               });
             }
             if (setDrawingWallEnd) {

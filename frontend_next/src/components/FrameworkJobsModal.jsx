@@ -176,16 +176,22 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
   /** Chi tiết bóc tách từng tầng / từng trang bản vẽ (Tầng 1, Tầng 2, Tầng 3, Tầng 4, Tầng 5...) */
   const perPageBreakdown = useMemo(() => {
+    const architecturalPages = (pages || [])
+      .map((p, originalIndex) => ({ ...p, originalIndex }))
+      .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
+    const validArchIndices = architecturalPages.map(p => p.originalIndex);
+
     const pageIndices = new Set([
-      ...pages.map((_, i) => i),
-      ...Object.keys(wallsByPage || {}).map(Number)
+      ...validArchIndices,
+      ...Object.keys(wallsByPage || {}).map(Number).filter(idx => validArchIndices.includes(idx))
     ]);
 
-    if (pageIndices.size === 0) pageIndices.add(0);
+    if (pageIndices.size === 0 && validArchIndices.length > 0) pageIndices.add(validArchIndices[0]);
     const sortedIndices = Array.from(pageIndices).sort((a, b) => a - b);
 
     return sortedIndices.map(pIdx => {
-      const pageWalls = (wallsByPage && wallsByPage[pIdx]) ? wallsByPage[pIdx] : (pIdx === 0 ? walls : []);
+      const rawWalls = (wallsByPage && wallsByPage[pIdx]) ? wallsByPage[pIdx] : (pIdx === 0 ? walls : []);
+      const pageWalls = (rawWalls || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
       const pageScale = (scalesByPage && scalesByPage[pIdx] !== undefined) ? scalesByPage[pIdx] : scaleValue;
 
       const groupsMap = {};

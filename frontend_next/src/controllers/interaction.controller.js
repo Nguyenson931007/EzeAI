@@ -633,6 +633,34 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     }
   }, [isFloorCeilingWorkspace, currentPage]);
 
+  const resolveTargetLevel = (drawingWallState) => {
+    const activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : "ALL";
+    if (activeFilter && activeFilter !== "ALL") return activeFilter;
+    if (drawingWallState?.sourceLevelCode) return drawingWallState.sourceLevelCode;
+    return curPage?.levelMetadata?.[0]?.code || "GF";
+  };
+
+  const resolveLevelMeta = (targetCode) => {
+    const metaList = curPage?.levelMetadata || [];
+    const found = metaList.find(m => m.code === targetCode);
+    if (found) {
+      return {
+        code: found.code,
+        name: found.name || found.code,
+        orderIndex: found.orderIndex !== undefined ? found.orderIndex : 0,
+        color: found.color || "#10b981",
+        pageIdx: found.index ?? null
+      };
+    }
+    return {
+      code: targetCode || "GF",
+      name: targetCode === "FF" ? "First Floor" : "Ground Floor",
+      orderIndex: targetCode === "FF" ? 1 : 0,
+      color: targetCode === "FF" ? "#3b82f6" : "#10b981",
+      pageIdx: 0
+    };
+  };
+
   // Vertex menu state (click on endpoint circle)
   const [vertexMenu, setVertexMenu] = useState({ visible: false, x: 0, y: 0, vertex: null });
   // Wall body menu state (click on wall body)
@@ -951,7 +979,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const endY = drawingWallEnd.y;
 
           if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
-            const wallId = `man_wall_${Date.now()}`;
+            let wallId;
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = resolveTargetLevel(drawingWall);
+              wallId = `fc_w_${lvlCode}_wall_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+            } else {
+              wallId = `man_wall_${Date.now()}`;
+            }
+
             const thickness = drawingWall.thickness || mmToPx(70, realScale);
             const newWall = {
               id: wallId,
@@ -966,6 +1001,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               height: defaultHeightVal
             };
 
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = resolveTargetLevel(drawingWall);
+              const meta = resolveLevelMeta(lvlCode);
+              Object.assign(newWall, {
+                sourceLevelCode: meta.code,
+                sourceLevelName: meta.name,
+                sourceLevelOrder: meta.orderIndex,
+                sourceColor: meta.color,
+                sourcePageIdx: meta.pageIdx,
+                sourceLevelIdx: meta.pageIdx,
+                isFloorCeilingOnly: true,
+                excludeFromOtherTasks: true
+              });
+            }
+
             const pageWalls = wallsByPage[currentPage] || [];
             const pts = [{ x: drawingWall.startX, y: drawingWall.startY }, { x: endX, y: endY }];
             const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
@@ -979,7 +1029,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             const updatedWalls = [...pageWalls, newWall];
             const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
 
-            pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+            if (!isFloorCeilingWorkspace) {
+              pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+            }
             setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
           }
 
@@ -1010,6 +1062,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if (e.code === "Delete" || e.code === "Backspace") {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         deleteItem();
       }
@@ -1040,6 +1093,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyZ" || e.key === "z")) {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         if (isDrawingRoof && currentPoly.length > 0) {
           setCurrentPoly(prev => prev.slice(0, -1));
@@ -1051,6 +1105,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.key === "y")) {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         redo();
       }
@@ -2290,12 +2345,46 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const snappedToWall = snapToOtherWalls(p, null, pageWalls, 20, true);
         const startPt = { x: snappedToWall.x, y: snappedToWall.y };
         const defaultThickPx = mmToPx(70, realScale);
+
+        let parentWall = null;
+        for (const w of pageWalls) {
+          if (w.centerline && w.centerline.length === 2) {
+            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+            const proj = distancePointToSegment(startPt, a, b);
+            if (proj.dist <= 25) {
+              parentWall = w;
+              break;
+            }
+          }
+        }
+
+        let targetLevelMeta = null;
+        if (isFloorCeilingWorkspace) {
+          const activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : "ALL";
+          let targetLevelCode;
+          if (activeFilter && activeFilter !== "ALL") {
+            targetLevelCode = activeFilter;
+          } else if (parentWall?.sourceLevelCode) {
+            targetLevelCode = parentWall.sourceLevelCode;
+          } else {
+            targetLevelCode = curPage?.levelMetadata?.[0]?.code || "GF";
+          }
+          targetLevelMeta = resolveLevelMeta(targetLevelCode);
+        }
+
         setDrawingWall({
           startX: startPt.x,
           startY: startPt.y,
           lock: null,
-          wallType: "interior_wall",
-          thickness: defaultThickPx
+          wallType: parentWall?.class_name || "interior_wall",
+          thickness: parentWall?.thickness_px || defaultThickPx,
+          ...(isFloorCeilingWorkspace && targetLevelMeta ? {
+            sourceLevelCode: targetLevelMeta.code,
+            sourceLevelName: targetLevelMeta.name,
+            sourceLevelOrder: targetLevelMeta.orderIndex,
+            sourceColor: targetLevelMeta.color
+          } : {})
         });
         setDrawingWallEnd({ x: startPt.x, y: startPt.y });
         return;
@@ -2311,7 +2400,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         let nextWalls = pageWalls;
         if (Math.hypot(endX - startX, endY - startY) > 5) {
-          const wallId = `man_wall_${Date.now()}`;
+          let wallId;
+          if (isFloorCeilingWorkspace) {
+            const lvlCode = resolveTargetLevel(drawingWall);
+            wallId = `fc_w_${lvlCode}_wall_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          } else {
+            wallId = `man_wall_${Date.now()}`;
+          }
+
           const thickness = drawingWall.thickness || defaultThickPx;
           const newWall = {
             id: wallId,
@@ -2326,6 +2422,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             height: defaultHeightVal
           };
 
+          if (isFloorCeilingWorkspace) {
+            const lvlCode = resolveTargetLevel(drawingWall);
+            const meta = resolveLevelMeta(lvlCode);
+            Object.assign(newWall, {
+              sourceLevelCode: meta.code,
+              sourceLevelName: meta.name,
+              sourceLevelOrder: meta.orderIndex,
+              sourceColor: meta.color,
+              sourcePageIdx: meta.pageIdx,
+              sourceLevelIdx: meta.pageIdx,
+              isFloorCeilingOnly: true,
+              excludeFromOtherTasks: true
+            });
+          }
+
           const pts = [{ x: startX, y: startY }, { x: endX, y: endY }];
           const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
           newWall.polygon = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : [
@@ -2338,7 +2449,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const updatedWalls = [...pageWalls, newWall];
           nextWalls = recalculateAllWallsPolygons(updatedWalls);
 
-          pushHistory(rooms, nextWalls, doorsByPage[currentPage] || []);
+          if (!isFloorCeilingWorkspace) {
+            pushHistory(rooms, nextWalls, doorsByPage[currentPage] || []);
+          }
           setWallsByPage(prev => ({ ...prev, [currentPage]: nextWalls }));
         }
 
@@ -2358,7 +2471,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             startY: endY,
             lock: null,
             wallType: drawingWall.wallType || "interior_wall",
-            thickness: drawingWall.thickness || defaultThickPx
+            thickness: drawingWall.thickness || defaultThickPx,
+            sourceLevelCode: drawingWall.sourceLevelCode,
+            sourceLevelName: drawingWall.sourceLevelName,
+            sourceLevelOrder: drawingWall.sourceLevelOrder,
+            sourceColor: drawingWall.sourceColor
           });
           setDrawingWallEnd({ x: endX, y: endY });
         }
@@ -2590,8 +2707,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (Math.hypot(p1[0] - splitPt[0], p1[1] - splitPt[1]) > 5 &&
             Math.hypot(p2[0] - splitPt[0], p2[1] - splitPt[1]) > 5) {
 
-            const w1_id = `man_wall_${Date.now()}_s1`;
-            const w2_id = `man_wall_${Date.now()}_s2`;
+            let w1_id, w2_id;
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = targetWall.sourceLevelCode || resolveTargetLevel(null);
+              w1_id = `fc_w_${lvlCode}_wall_${Date.now()}_s1`;
+              w2_id = `fc_w_${lvlCode}_wall_${Date.now()}_s2`;
+            } else {
+              w1_id = `man_wall_${Date.now()}_s1`;
+              w2_id = `man_wall_${Date.now()}_s2`;
+            }
 
             const w1 = {
               ...targetWall,
@@ -2606,7 +2730,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
             const filteredWalls = pageWalls.filter(w => w.id !== targetWall.id);
             const recalculated = recalculateAllWallsPolygons([...filteredWalls, w1, w2]);
-            pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+            if (!isFloorCeilingWorkspace) {
+              pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+            }
             setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
             setIsAddingPoint(false);
             setDrawingWall({
@@ -2615,7 +2741,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               lock: null,
               wallType: targetWall.class_name || "interior_wall",
               thickness: targetWall.thickness_px || 20,
-              wallId: w1_id
+              wallId: w1_id,
+              sourceLevelCode: targetWall.sourceLevelCode,
+              sourceLevelName: targetWall.sourceLevelName,
+              sourceLevelOrder: targetWall.sourceLevelOrder,
+              sourceColor: targetWall.sourceColor
             });
             setDrawingWallEnd({ x: splitPt[0], y: splitPt[1] });
             if (setInteractionMode) {

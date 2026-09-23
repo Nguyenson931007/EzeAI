@@ -627,6 +627,7 @@ export default function RightPropertyPaneView({
     if (targetPageIndex < 0 && entry.floorLevel && pages && pages.length > 0) {
       const fl = (entry.floorLevel || entry.floor_level || "GF").toUpperCase().trim();
       targetPageIndex = pages.findIndex((p, idx) => {
+        if (p.isFloorCeilingWorkspace || p.source === "floor_ceiling_page" || p.source === "floor_ceiling_workspace") return false;
         const pName = (p.floor_name || p.name || "").toUpperCase().trim();
         if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
         if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
@@ -853,9 +854,12 @@ export default function RightPropertyPaneView({
   const handleAddDataAI = (moduleId) => {
     let aiValues = {};
     const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-    const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
-    const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-    const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
+    const curPageObj = pages && pages[currentPage];
+    const isFCPage = Boolean(curPageObj?.isFloorCeilingWorkspace || curPageObj?.source === "floor_ceiling_page" || curPageObj?.source === "floor_ceiling_workspace");
+    const rawWalls = isFCPage ? [] : ((wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []));
+    const curWalls = rawWalls.filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
+    const curDoors = isFCPage ? [] : ((doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []));
+    const curRooms = isFCPage ? [] : ((roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []));
 
     let extWallLenM = 0;
     let intWallLenM = 0;
