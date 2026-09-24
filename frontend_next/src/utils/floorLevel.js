@@ -31,3 +31,70 @@ export function normalizeFloorLevelCode(value, fallback = "GF") {
   const code = raw.match(/\b(GF|FF|SF|TF|\d+F)\b/);
   return code?.[1] || fallback;
 }
+
+export function getArchitecturalPageIndices(pages = []) {
+  return (pages || [])
+    .map((page, pageIndex) => ({ page, pageIndex }))
+    .filter(({ page }) => !page?.category
+      && page?.source !== "pdf_tools"
+      && !page?.isFloorCeilingWorkspace
+      && page?.source !== "floor_ceiling_workspace"
+      && page?.source !== "floor_ceiling_page"
+      && !page?.isWorkspace)
+    .map(({ pageIndex }) => pageIndex);
+}
+
+/**
+ * Resolve the floor code exactly the same way the left LEVEL rail presents
+ * architectural pages: explicit persisted code first, then architectural
+ * order.  This is the shared source of truth for every task table.
+ */
+export function buildArchitecturalFloorLevelMap(pages = []) {
+  const pageIndices = getArchitecturalPageIndices(pages);
+  const result = new Map();
+  const used = new Set();
+
+  pageIndices.forEach((pageIndex, architecturalOrder) => {
+    const page = pages?.[pageIndex] || {};
+    const fallback = LEVEL_NUMBER_CODES[architecturalOrder] || `${architecturalOrder}F`;
+    const explicit = normalizeFloorLevelCode(
+      page?.code || page?.levelCode || page?.level_code || page?.floorCode || page?.floor_code || "",
+      "",
+    );
+
+    // Persisted imports from older builds sometimes copied GF onto every page.
+    // Never allow that stale duplicate to collapse two architectural pages into
+    // one task-table level.  The left rail already distinguishes pages by order.
+    const candidate = explicit || normalizeFloorLevelCode(page?.floor_name || page?.name || "", fallback);
+    const level = candidate && !used.has(candidate) ? candidate : fallback;
+    result.set(pageIndex, level);
+    used.add(level);
+  });
+
+  return result;
+}
+
+export function resolvePageFloorLevel(pages = [], pageIndex = 0) {
+  const map = buildArchitecturalFloorLevelMap(pages);
+  if (map.has(Number(pageIndex))) return map.get(Number(pageIndex));
+  return normalizeFloorLevelCode(pages?.[pageIndex]?.code || pages?.[pageIndex]?.floor_name || pages?.[pageIndex]?.name, "GF");
+}
+
+/** Prefer an object's explicit level metadata, otherwise resolve from its page. */
+export function resolveObjectFloorLevel(item, pages = [], pageIndex = 0) {
+  // A wall copied into the Floor & Ceiling workspace can deliberately carry a
+  // source level that differs from the workspace page. That metadata is the
+  // strongest signal.
+  const sourceExplicit = item?.sourceLevelCode || item?.source_level_code || item?.levelCode || item?.level_code;
+  if (sourceExplicit) return normalizeFloorLevelCode(sourceExplicit, resolvePageFloorLevel(pages, pageIndex));
+
+  // For a normal architectural page, page identity is more reliable than a
+  // stale object.floorLevel left over from an older UI/autofill build.
+  const pageMap = buildArchitecturalFloorLevelMap(pages);
+  if (pageMap.has(Number(pageIndex))) return pageMap.get(Number(pageIndex));
+
+  const explicit = item?.floorLevel || item?.floor_level;
+  if (explicit) return normalizeFloorLevelCode(explicit, "GF");
+  return resolvePageFloorLevel(pages, pageIndex);
+}
+

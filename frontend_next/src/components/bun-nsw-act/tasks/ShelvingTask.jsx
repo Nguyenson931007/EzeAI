@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import EnteredTaskActions from "./EnteredTaskActions";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { EnteredDataCard, TaskField as Field, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { SHELVING_TYPES, SHELVING_SIZES, SHELVING_EXTRA_FIELDS } from "@/constants/procurementFormParity";
@@ -231,45 +232,6 @@ const S = {
     padding: "6px 2px 2px",
   },
 };
-
-// ══════════════════════════════════════════════════════
-// BASIC SELECT/INPUT FIELD COMPONENT
-// ══════════════════════════════════════════════════════
-
-function Field({ label, type = "text", value, options, flex, minWidth, width, onChange }) {
-  const isSelect = type === "select" || Array.isArray(options);
-  return (
-    <div
-      style={{
-        ...S.fieldWrap,
-        width: width || "auto",
-        flex: flex || (width ? `0 0 ${width}` : "1 1 auto"),
-        minWidth: minWidth || (width || "70px"),
-      }}
-    >
-      <span style={S.fieldLabel}>{label}</span>
-      {isSelect ? (
-        <select
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ ...S.select, width: "100%" }}
-        >
-          {(options || []).map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      ) : (
-        <input
-          type={type === "number" ? "number" : "text"}
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ ...S.input, width: "100%" }}
-          placeholder={label}
-        />
-      )}
-    </div>
-  );
-}
 
 // ══════════════════════════════════════════════════════
 // MAIN SHELVING TASK COMPONENT
@@ -588,32 +550,17 @@ export default function ShelvingTask({
           <div style={{ padding: "12px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
               {/* Floor Level Dropdown */}
-              <div style={{ flex: "1 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor level</span>
-                <select
-                  value={floorLevel}
-                  onChange={(e) => {
-                    setFloorLevel(e.target.value);
-                    if (onChange) onChange("shelving", "floor_level", e.target.value);
-                  }}
-                  className="task-field-select"
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    fontWeight: 700,
-                    background: "#f8fafc",
-                    boxSizing: "border-box",
-                    height: "34px"
-                  }}
-                >
-                  {FLOOR_LEVEL_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
-                  ))}
-                </select>
-              </div>
+              <Field
+                label="Floor level"
+                value={floorLevel}
+                options={FLOOR_LEVEL_OPTIONS.map((opt) => ({ value: opt, label: `${opt} (${getFloorLevelDisplayName(opt)})` }))}
+                flex="1 1 120px"
+                minWidth="120px"
+                onChange={(value) => {
+                  setFloorLevel(value);
+                  onChange?.("shelving", "floor_level", value);
+                }}
+              />
 
               {/* Type Dropdown */}
               <Field
@@ -691,24 +638,17 @@ export default function ShelvingTask({
       </div>
 
       {/* ═══ CARD 3: ENTERED SHELVING TABLE ═══ */}
-      <div style={S.card}>
-        <div onClick={() => setIsSection2Open(!isSection2Open)} style={S.cardTitle}>
-          <span>3. Entered shelving {totalCount > 0 ? `(${totalCount})` : ""}</span>
-          <EnteredTaskActions
-            onAutoFill={() => onAddDataAI?.("shelving")}
-            onClear={onClearData}
-            isOpen={isSection2Open}
-            onToggle={() => setIsSection2Open((v) => !v)}
-          
-            onSave={handleSaveToDatabase}
-            saveDisabled={isSaving}
-            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
-          />
-        </div>
-
-        {isSection2Open && (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", tableLayout: "auto" }}>
+      <EnteredDataCard
+        title={`3. Entered shelving${totalCount > 0 ? ` (${totalCount})` : ""}`}
+        isOpen={isSection2Open}
+        onToggle={() => setIsSection2Open((v) => !v)}
+        onAutoFill={() => onAddDataAI?.("shelving")}
+        onClear={onClearData}
+        onSave={handleSaveToDatabase}
+        saveDisabled={isSaving}
+        saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+      >
+          <TaskSummaryTable minWidth="560px" compact>
               <thead>
                 <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                   <th style={{ padding: "6px 8px", fontWeight: 700, width: "36px", textAlign: "center" }}>#</th>
@@ -720,220 +660,72 @@ export default function ShelvingTask({
               </thead>
               <tbody>
                 {totalCount === 0 ? (
-                  <tr>
-                    <td colSpan={5} style={{ padding: "20px", textAlign: "center", color: "#94a3b8", fontSize: "11px" }}>
-                      No shelving units entered. Fill the inputs above and click <b>+ Add Shelving</b>.
-                    </td>
-                  </tr>
+                  <TaskEmptyRow colSpan={5}>
+                    No shelving units entered. Fill the inputs above and click <b>+ Add Shelving</b>.
+                  </TaskEmptyRow>
                 ) : (
-                  groupedShelvingByLevel.map(({ level, items }) => {
-                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
-                    return (
-                      <React.Fragment key={level}>
-                        <tr style={{
-                          background: isLower ? "#f0fdf4" : "#fefce8",
-                          borderTop: "2px solid #cbd5e1",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}>
-                          <td colSpan={5} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{
-                                  background: isLower ? "#dcfce7" : "#fef08a",
-                                  color: isLower ? "#15803d" : "#854d0e",
-                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                                  padding: "2px 8px",
-                                  borderRadius: "4px",
-                                  fontWeight: 800,
-                                  fontSize: "10.5px",
-                                  letterSpacing: "0.5px"
-                                }}>
-                                  {level}
-                                </span>
-                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                                  {getFloorLevelDisplayName(level)}
-                                </span>
-                              </div>
-                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                                {items.length} {items.length === 1 ? "item" : "items"}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-
-                        {items.map((item) => {
-                          const globalIdx = (entries || []).findIndex(e => e.id === item.id);
-                          const idx = globalIdx >= 0 ? globalIdx : 0;
-                          const isSelected = selectedEntryId === item.id;
-                          const isRowEditing = editingRowId === item.id;
-
-                          return (
-                            <tr
-                              key={item.id || idx}
-                              data-editing-row-id={isRowEditing ? item.id : undefined}
-                              onDoubleClick={(e) => {
-                                if (isRowEditing) return;
-                                if (e.target.closest && e.target.closest("button")) return;
-                                if (editingRowId && editingRowId !== item.id) {
-                                  handleSaveInlineEdit(editingRowId);
-                                }
-                                setSelectedEntryId(item.id);
-                                handleStartEdit(item);
-                              }}
-                              onClick={() => {
-                                if (!isRowEditing) {
-                                  if (editingRowId && editingRowId !== item.id) {
-                                    handleSaveInlineEdit(editingRowId);
-                                  }
-                                  const nextSelected = isSelected ? null : item.id;
-                                  setSelectedEntryId(nextSelected);
-                                  if (!isSelected) {
-                                    setFloorLevel(item.floorLevel || item.floor_level || "GF");
-                                    setTypeDraft(item.type || "Robe");
-                                    setSizeDraft(normalizeShelvingSize(item.size));
-                                    setQtyDraft(String(item.qty || 1));
-                                  }
-                                }
-                              }}
-                              style={{
-                                borderBottom: "1px solid #e2e8f0",
-                                background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
-                                cursor: isRowEditing ? "default" : "pointer",
-                                outline: isSelected ? "2px solid #3b82f6" : "none",
-                                outlineOffset: "-1px",
-                                transition: "background 0.15s ease"
-                              }}
-                            >
-                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}>{idx + 1}</td>
-
-                              {/* Type */}
-                              <td style={{ padding: "4px 8px" }}>
-                                {isRowEditing ? (
-                                  <select
-                                    value={editRowData.type || "Robe"}
-                                    onChange={(e) => setEditRowData({ ...editRowData, type: e.target.value })}
-                                    style={{ width: "100%", padding: "2px 4px", fontSize: "10.5px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                                  >
-                                    {SHELVING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                  </select>
-                                ) : (
-                                  <span style={{ fontWeight: 700, color: item.type === "Linen" ? "#0f766e" : "#1d4ed8" }}>
-                                    {item.type || "Robe"}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Size */}
-                              <td style={{ padding: "4px 8px" }}>
-                                {isRowEditing ? (
-                                  <select
-                                    value={normalizeShelvingSize(editRowData.size)}
-                                    onChange={(e) => setEditRowData({ ...editRowData, size: e.target.value })}
-                                    style={{ width: "100%", padding: "2px 4px", fontSize: "10.5px", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                                  >
-                                    {SHELVING_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-                                  </select>
-                                ) : (
-                                  <span style={{ color: "#334155", fontWeight: 600 }}>{item.size || "—"}</span>
-                                )}
-                              </td>
-
-                              {/* Qty */}
-                              <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                                {isRowEditing ? (
-                                  <input
-                                    type="number"
-                                    value={editRowData.qty !== undefined ? editRowData.qty : item.qty}
-                                    onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
-                                    style={{ width: "45px", padding: "2px 4px", fontSize: "10.5px", textAlign: "center", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                                  />
-                                ) : (
-                                  <span style={{ fontWeight: 700, color: "#2563eb" }}>{item.qty || 1}</span>
-                                )}
-                              </td>
-
-                              {/* Actions: Edit & Remove */}
-                              <td style={{ padding: "4px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                                {isRowEditing ? (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
-                                      style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                                      title="Save"
-                                    >
-                                      ✓
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                                      style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                                      title="Cancel"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStartEdit(item);
-                                      }}
-                                      style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                                      title="Edit"
-                                    >
-                                      ✏️
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handleRemove(item.id); }}
-                                      style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                                      title="Delete"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    );
-                  })
+                  groupedShelvingByLevel.map(({ level, items }) => (
+                    <React.Fragment key={level}>
+                      <FloorLevelGroupRow level={level} colSpan={5} count={items.length} unitLabel="item" unitLabelPlural="items" />
+                      {items.map((item) => {
+                        const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
+                        const idx = globalIdx >= 0 ? globalIdx : 0;
+                        const isSelected = selectedEntryId === item.id;
+                        return (
+                          <tr
+                            key={item.id || idx}
+                            onClick={() => {
+                              const nextSelected = isSelected ? null : item.id;
+                              setSelectedEntryId(nextSelected);
+                              if (!isSelected) {
+                                setFloorLevel(item.floorLevel || item.floor_level || "GF");
+                                setTypeDraft(item.type || "Robe");
+                                setSizeDraft(normalizeShelvingSize(item.size));
+                                setQtyDraft(String(item.qty || 1));
+                              }
+                            }}
+                            style={{
+                              background: isSelected ? "#dbeafe" : undefined,
+                              cursor: "pointer",
+                              outline: isSelected ? "2px solid #3b82f6" : "none",
+                              outlineOffset: "-1px"
+                            }}
+                          >
+                            <td style={{ textAlign: "center", fontWeight: 700 }}>{idx + 1}</td>
+                            <td><strong style={{ color: item.type === "Linen" ? "#0f766e" : "#1d4ed8" }}>{item.type || "Robe"}</strong></td>
+                            <td>{item.size || "—"}</td>
+                            <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>{item.qty || 1}</td>
+                            <td style={{ textAlign: "right" }}>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRemove(item.id);
+                                }}
+                                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                                title="Remove shelving item"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))
                 )}
               </tbody>
-            </table>
-          </div>
-        )}
+          </TaskSummaryTable>
 
         {/* Footer: Save to Database */}
         {totalCount > 0 && (
-          <div style={{
-            padding: "8px 12px",
-            background: "#f8fafc",
-            borderTop: "1px solid #e2e8f0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "8px"
-          }}>
-            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-              {totalCount} {totalCount === 1 ? "shelving item" : "shelving items"} entered
-            </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {saveSuccess && (
-                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 700 }}>
-                  ✓ Saved to SQL!
-                </span>
-              )}
-              
-            </div>
-          </div>
+          <TaskSummaryFooter
+            right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}
+          >
+            {totalCount} {totalCount === 1 ? "shelving item" : "shelving items"} entered
+          </TaskSummaryFooter>
         )}
-      </div>
+      </EnteredDataCard>
 
     </div>
   );

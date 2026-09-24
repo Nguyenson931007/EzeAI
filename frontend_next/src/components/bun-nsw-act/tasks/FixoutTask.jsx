@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import EnteredTaskActions from "./EnteredTaskActions";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
 import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
@@ -578,34 +579,6 @@ function SearchDropdown({
 }
 
 // ══════════════════════════════════════════════════════
-// BASIC SELECT / INPUT FIELD COMPONENT
-// ══════════════════════════════════════════════════════
-
-function Field({ label, type = "text", value, options, labels, width, onChange, placeholder }) {
-  const isSelect = type === "select" || Array.isArray(options);
-  return (
-    <div style={{ ...S.fieldWrap, width: width || "auto", flex: width ? `0 0 ${width}` : "1 1 0" }}>
-      {label && <span style={S.fieldLabel}>{label}</span>}
-      {isSelect ? (
-        <select value={value || ""} onChange={(e) => onChange(e.target.value)} style={S.select}>
-          {(options || []).map((opt) => (
-            <option key={opt} value={opt}>{labels?.[opt] || opt || "—"}</option>
-          ))}
-        </select>
-      ) : (
-        <input
-          type={type === "number" ? "number" : "text"}
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ ...S.input, width: "100%" }}
-          placeholder={placeholder || label}
-        />
-      )}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════
 // CATEGORY SECTION (Cavity / Prehung / Loose-Jamb)
 // ══════════════════════════════════════════════════════
 
@@ -825,7 +798,7 @@ function CategorySection({
                 type="select"
                 value={draft.configuration}
                 options={["single", "double"]}
-                labels={{ single: "SINGLE", double: "DBL" }}
+                optionLabels={{ single: "SINGLE", double: "DBL" }}
                 width="80px"
                 onChange={(v) => updateDraft({ configuration: v })}
               />
@@ -936,12 +909,15 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
     persistRows("fixout_smart_robe_rows", next);
     setRobeDraft({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
   };
+  const removeRobe = (index) => persistRows("fixout_smart_robe_rows", robeRows.filter((_, rowIndex) => rowIndex !== index));
+
   const addReveal = () => {
     if (!String(revealDraft.height).trim() || !String(revealDraft.width).trim()) return;
     const next = [...revealRows, { ...revealDraft, id: `reveal-${Date.now()}` }];
     persistRows("fixout_reveal_openings", next);
     setRevealDraft({ type: "window", height: "", width: "", blockWork: "No" });
   };
+  const removeReveal = (index) => persistRows("fixout_reveal_openings", revealRows.filter((_, rowIndex) => rowIndex !== index));
 
   const fieldStyle = { display: "flex", flexDirection: "column", gap: "3px", minWidth: "90px", flex: "1 1 110px" };
   const labelStyle = { fontSize: "10px", color: "#475569", fontWeight: 700 };
@@ -964,19 +940,36 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
           <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>
         </div>
         {isRobeOpen && (
-          <>
+          <div className="fixout-procurement-card-body">
             <div style={{ padding: "10px", display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={fieldStyle}><span style={labelStyle}>Label</span><input list="fixout-room-labels-parity" style={inputStyle} value={robeDraft.label} onChange={(e) => setRobeDraft({ ...robeDraft, label: e.target.value })}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Unit Height</span><select style={inputStyle} value={robeDraft.unitHeight} onChange={(e) => setRobeDraft({ ...robeDraft, unitHeight: e.target.value })}>{FIXOUT_SMART_ROBE_HEIGHTS.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <label style={fieldStyle}><span style={labelStyle}>Unit Size</span><input style={inputStyle} inputMode="numeric" value={robeDraft.unitSize} onChange={(e) => setRobeDraft({ ...robeDraft, unitSize: e.target.value })}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Wall</span><select style={inputStyle} value={robeDraft.wall} onChange={(e) => setRobeDraft({ ...robeDraft, wall: e.target.value })}>{FIXOUT_SMART_ROBE_WALLS.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <label style={{ ...fieldStyle, flex: "2 1 150px" }}><span style={labelStyle}>Type</span><input list="fixout-door-types-parity" style={inputStyle} value={robeDraft.type} onChange={(e) => setRobeDraft({ ...robeDraft, type: e.target.value })}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Thicks</span><input style={inputStyle} inputMode="numeric" value={robeDraft.thicks} onChange={(e) => setRobeDraft({ ...robeDraft, thicks: e.target.value })}/></label>
-          <button type="button" onClick={addRobe} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add robe door</button>
-          <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v}/>)}</datalist>
-          <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v}/>)}</datalist>
-        </div>
-          </>
+              <label style={fieldStyle}><span style={labelStyle}>Label</span><input list="fixout-room-labels-parity" style={inputStyle} value={robeDraft.label} onChange={(e) => setRobeDraft({ ...robeDraft, label: e.target.value })}/></label>
+              <label style={fieldStyle}><span style={labelStyle}>Unit Height</span><select style={inputStyle} value={robeDraft.unitHeight} onChange={(e) => setRobeDraft({ ...robeDraft, unitHeight: e.target.value })}>{FIXOUT_SMART_ROBE_HEIGHTS.map((v) => <option key={v}>{v}</option>)}</select></label>
+              <label style={fieldStyle}><span style={labelStyle}>Unit Size</span><input style={inputStyle} inputMode="numeric" value={robeDraft.unitSize} onChange={(e) => setRobeDraft({ ...robeDraft, unitSize: e.target.value })}/></label>
+              <label style={fieldStyle}><span style={labelStyle}>Wall</span><select style={inputStyle} value={robeDraft.wall} onChange={(e) => setRobeDraft({ ...robeDraft, wall: e.target.value })}>{FIXOUT_SMART_ROBE_WALLS.map((v) => <option key={v}>{v}</option>)}</select></label>
+              <label style={{ ...fieldStyle, flex: "2 1 150px" }}><span style={labelStyle}>Type</span><input list="fixout-door-types-parity" style={inputStyle} value={robeDraft.type} onChange={(e) => setRobeDraft({ ...robeDraft, type: e.target.value })}/></label>
+              <label style={fieldStyle}><span style={labelStyle}>Thicks</span><input style={inputStyle} inputMode="numeric" value={robeDraft.thicks} onChange={(e) => setRobeDraft({ ...robeDraft, thicks: e.target.value })}/></label>
+              <button type="button" onClick={addRobe} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add robe door</button>
+              <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v}/>)}</datalist>
+              <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v}/>)}</datalist>
+            </div>
+
+            <TaskInlineEnteredSection title="Entered robe door">
+              <TaskSummaryTable className="fixout-summary-robe" compact>
+                <thead><tr><th style={{ width: "30px" }}>#</th><th>Label</th><th>Unit Height</th><th>Unit Size</th><th>Wall</th><th>Type</th><th>Thicks</th><th style={{ width: "38px" }}></th></tr></thead>
+                <tbody>
+                  {robeRows.length === 0 ? (
+                    <TaskEmptyRow colSpan={8}>No robe doors entered.</TaskEmptyRow>
+                  ) : robeRows.map((row, index) => (
+                    <tr key={row.id || index}>
+                      <td style={{ textAlign: "center" }}>{index + 1}</td>
+                      <td>{row.label || "—"}</td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
+                      <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeRobe(index)} style={S.deleteBtn} title="Delete robe door">✕</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TaskSummaryTable>
+            </TaskInlineEnteredSection>
+          </div>
         )}
       </div>
 
@@ -986,27 +979,67 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
           <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
         </div>
         {isTrimOpen && (
-          <>
-        <div style={{ padding: "10px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={fieldStyle}><span style={labelStyle}>Type</span><select style={inputStyle} value={revealDraft.type} onChange={(e) => setRevealDraft({ ...revealDraft, type: e.target.value })}>{FIXOUT_REVEAL_TYPES.map((v) => <option key={v} value={v}>{v === "window" ? "Window" : "Door"}</option>)}</select></label>
-          <label style={fieldStyle}><span style={labelStyle}>Height</span><input style={inputStyle} inputMode="numeric" value={revealDraft.height} onChange={(e) => setRevealDraft({ ...revealDraft, height: e.target.value })}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Width</span><input style={inputStyle} inputMode="numeric" value={revealDraft.width} onChange={(e) => setRevealDraft({ ...revealDraft, width: e.target.value })}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
-        </div>
-        <div style={{ padding: "8px 10px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "8px", borderTop: "1px solid #f1f5f9" }}>
-          <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)}/></label>
-          {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
-          <label style={fieldStyle}><span style={labelStyle}>Skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_skirting_lm", "0")} onChange={(e) => write("fixout_skirting_lm", e.target.value)}/></label>
-          {trimSelect("Skirting Type", "fixout_skirting_description", "MDF DAR PRIMED++67X18MM 5.4M")}
-          <label style={fieldStyle}><span style={labelStyle}>Robe Count</span><input style={inputStyle} inputMode="numeric" value={read("fixout_robe_count", "0")} onChange={(e) => write("fixout_robe_count", e.target.value)}/></label>
-          <label style={fieldStyle}><span style={labelStyle}>Robe/Linen jamb size</span><select style={inputStyle} value={read("fixout_robe_jamb_size", "112x19")} onChange={(e) => write("fixout_robe_jamb_size", e.target.value)}>{FIXOUT_ROBE_JAMB_SIZES.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <label style={fieldStyle}><span style={labelStyle}>Wet-area architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_arch_lengths", "0")} onChange={(e) => write("fixout_wet_arch_lengths", e.target.value)}/></label>
-          {trimSelect("Wet-area Architrave Type", "fixout_arch-wet_description", "MDF DAR PRIMED++42X18MM 5.4M")}
-          <label style={fieldStyle}><span style={labelStyle}>Wet-area skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_skirting_lm", "0")} onChange={(e) => write("fixout_wet_skirting_lm", e.target.value)}/></label>
-          {trimSelect("Wet-area Skirting Type", "fixout_skirting-wet_description", "MDF DAR PRIMED++67X18MM 5.4M")}
-        </div>
-          </>
+          <div className="fixout-trim-groups-eze">
+            <section className="fixout-trim-group-eze">
+              <div className="fixout-trim-group-title-eze">Reveals</div>
+              <div className="fixout-trim-group-grid-eze is-reveals">
+                <label style={fieldStyle}><span style={labelStyle}>Type</span><select style={inputStyle} value={revealDraft.type} onChange={(e) => setRevealDraft({ ...revealDraft, type: e.target.value })}>{FIXOUT_REVEAL_TYPES.map((v) => <option key={v} value={v}>{v === "window" ? "Window" : "Door"}</option>)}</select></label>
+                <label style={fieldStyle}><span style={labelStyle}>Height</span><input style={inputStyle} inputMode="numeric" value={revealDraft.height} onChange={(e) => setRevealDraft({ ...revealDraft, height: e.target.value })}/></label>
+                <label style={fieldStyle}><span style={labelStyle}>Width</span><input style={inputStyle} inputMode="numeric" value={revealDraft.width} onChange={(e) => setRevealDraft({ ...revealDraft, width: e.target.value })}/></label>
+                <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
+                <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
+              </div>
+              <TaskInlineEnteredSection title="Entered reveals">
+                <TaskSummaryTable className="fixout-summary-openings" compact>
+                  <thead><tr><th style={{ width: "30px" }}>#</th><th>Type</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
+                  <tbody>
+                    {revealRows.length === 0 ? (
+                      <TaskEmptyRow colSpan={6}>No window/door openings entered.</TaskEmptyRow>
+                    ) : revealRows.map((row, index) => (
+                      <tr key={row.id || index}>
+                        <td style={{ textAlign: "center" }}>{index + 1}</td><td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td><td>{row.height || "—"}</td><td>{row.width || "—"}</td><td>{row.blockWork || "—"}</td>
+                        <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeReveal(index)} style={S.deleteBtn} title="Delete opening">✕</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TaskSummaryTable>
+              </TaskInlineEnteredSection>
+            </section>
+
+            <section className="fixout-trim-group-eze">
+              <div className="fixout-trim-group-title-eze">Architrave</div>
+              <div className="fixout-trim-group-grid-eze">
+                <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)}/></label>
+                {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+              </div>
+            </section>
+
+            <section className="fixout-trim-group-eze">
+              <div className="fixout-trim-group-title-eze">Skirting</div>
+              <div className="fixout-trim-group-grid-eze">
+                <label style={fieldStyle}><span style={labelStyle}>Skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_skirting_lm", "0")} onChange={(e) => write("fixout_skirting_lm", e.target.value)}/></label>
+                {trimSelect("Skirting Type", "fixout_skirting_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+              </div>
+            </section>
+
+            <section className="fixout-trim-group-eze">
+              <div className="fixout-trim-group-title-eze">Robe &amp; Linen</div>
+              <div className="fixout-trim-group-grid-eze">
+                <label style={fieldStyle}><span style={labelStyle}>Robe Count</span><input style={inputStyle} inputMode="numeric" value={read("fixout_robe_count", "0")} onChange={(e) => write("fixout_robe_count", e.target.value)}/></label>
+                <label style={fieldStyle}><span style={labelStyle}>Robe/Linen jamb size</span><select style={inputStyle} value={read("fixout_robe_jamb_size", "112x19")} onChange={(e) => write("fixout_robe_jamb_size", e.target.value)}>{FIXOUT_ROBE_JAMB_SIZES.map((v) => <option key={v}>{v}</option>)}</select></label>
+              </div>
+            </section>
+
+            <section className="fixout-trim-group-eze">
+              <div className="fixout-trim-group-title-eze">Wet Areas</div>
+              <div className="fixout-trim-group-grid-eze">
+                <label style={fieldStyle}><span style={labelStyle}>Wet-area architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_arch_lengths", "0")} onChange={(e) => write("fixout_wet_arch_lengths", e.target.value)}/></label>
+                {trimSelect("Wet-area Architrave Type", "fixout_arch-wet_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+                <label style={fieldStyle}><span style={labelStyle}>Wet-area skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_skirting_lm", "0")} onChange={(e) => write("fixout_wet_skirting_lm", e.target.value)}/></label>
+                {trimSelect("Wet-area Skirting Type", "fixout_skirting-wet_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+              </div>
+            </section>
+          </div>
         )}
       </div>
     </>
@@ -1033,7 +1066,6 @@ export default function FixoutTask({
 
   const [floorLevel, setFloorLevel] = useState("GF");
   const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(true);
-  const [isScheduleOpen, setIsScheduleOpen] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
@@ -1051,31 +1083,6 @@ export default function FixoutTask({
   const [looseJambDoors, setLooseJambDoors] = useState(FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
 
   const totalCount = (entries || []).length;
-  const smartRobeRows = useMemo(
-    () => safeParseJson(formData?.fixout_smart_robe_rows, []),
-    [formData?.fixout_smart_robe_rows]
-  );
-  const revealRows = useMemo(
-    () => safeParseJson(formData?.fixout_reveal_openings, []),
-    [formData?.fixout_reveal_openings]
-  );
-  const trimRows = useMemo(() => ([
-    ["Extras architrave", formData?.fixout_arch_extra_lengths ?? "0"],
-    ["Architrave Type", formData?.fixout_arch_description ?? ""],
-    ["Skirting", formData?.fixout_skirting_lm ?? "0"],
-    ["Skirting Type", formData?.fixout_skirting_description ?? ""],
-    ["Robe Count", formData?.fixout_robe_count ?? "0"],
-    ["Robe/Linen jamb size", formData?.fixout_robe_jamb_size ?? "112x19"],
-    ["Wet-area architrave", formData?.fixout_wet_arch_lengths ?? "0"],
-    ["Wet-area Architrave Type", formData?.["fixout_arch-wet_description"] ?? ""],
-    ["Wet-area skirting", formData?.fixout_wet_skirting_lm ?? "0"],
-    ["Wet-area Skirting Type", formData?.["fixout_skirting-wet_description"] ?? ""],
-  ]), [formData]);
-
-  const removeCachedRow = (key, rows, index) => {
-    if (onChange) onChange("fixout", key, JSON.stringify(rows.filter((_, rowIndex) => rowIndex !== index)));
-  };
-
   useEffect(() => {
     editingRowIdRef.current = editingRowId;
   }, [editingRowId]);
@@ -1400,37 +1407,29 @@ export default function FixoutTask({
             >
               {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
             </button>
+            <TaskActionButtons
+              onAutoFill={() => onAddDataAI?.("fixout")}
+              onClear={onClearData}
+              onSave={handleSave}
+              saveDisabled={isSaving}
+              saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            />
             <span style={{ fontSize: "11px", color: "#64748b" }}>{isDoorInformationOpen ? "▲" : "▼"}</span>
           </div>
         </div>
 
         {isDoorInformationOpen && (
           <div style={{ padding: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-              <span style={{ fontSize: "11px", color: "#334155", fontWeight: 700 }}>Floor level:</span>
-              <select
+            <div style={{ maxWidth: "240px", marginBottom: "8px" }}>
+              <Field
+                label="Floor level"
                 value={floorLevel}
-                onChange={(e) => {
-                  setFloorLevel(e.target.value);
-                  if (onChange) onChange("fixout", "floor_level", e.target.value);
+                options={FLOOR_LEVEL_OPTIONS.map((opt) => ({ value: opt, label: `${opt} (${getFloorLevelDisplayName(opt)})` }))}
+                onChange={(value) => {
+                  setFloorLevel(value);
+                  onChange?.("fixout", "floor_level", value);
                 }}
-                className="task-field-select"
-                style={{
-                  padding: "5px 8px",
-                  fontSize: "11px",
-                  borderRadius: "5px",
-                  border: "1px solid #cbd5e1",
-                  fontWeight: 700,
-                  background: "#f8fafc",
-                  minWidth: "140px",
-                  boxSizing: "border-box",
-                  height: "30px"
-                }}
-              >
-                {FLOOR_LEVEL_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
-                ))}
-              </select>
+              />
             </div>
 
             <CategorySection
@@ -1460,612 +1459,97 @@ export default function FixoutTask({
               floorLevel={floorLevel}
               doorOptions={looseJambDoors}
             />
+
+            <TaskInlineEnteredSection
+              title="Entered doors"
+              footer={(
+                <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
+                  {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
+                </TaskSummaryFooter>
+              )}
+            >
+              <TaskSummaryTable className="fixout-summary-main">
+                <thead>
+                  <tr>
+                    <th style={{ width: "34px", textAlign: "center" }}>#</th>
+                    <th>Category</th>
+                    <th>Label / Door</th>
+                    <th>Size</th>
+                    <th>Wall</th>
+                    <th>Frame</th>
+                    <th>Door details</th>
+                    <th style={{ width: "45px", textAlign: "center" }}>Qty</th>
+                    <th style={{ width: "38px" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {totalCount === 0 ? (
+                    <TaskEmptyRow colSpan={9}>No Fixout doors entered. Fill the inputs above and add doors.</TaskEmptyRow>
+                  ) : groupedDoorsByLevel.map(({ level, items }) => (
+                    <React.Fragment key={level}>
+                      <FloorLevelGroupRow level={level} colSpan={9} count={items.length} unitLabel="door" unitLabelPlural="doors" />
+                      {items.map((item) => {
+                        const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
+                        const idx = globalIdx >= 0 ? globalIdx : 0;
+                        const isSelected = selectedEntryId === item.id;
+                        const isCavity = item.category === "cavity";
+                        const isPrehung = item.category === "prehung";
+                        const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
+                        const wallStr = item.wall_width ? `${item.wall_width}` : "—";
+
+                        let ezyJambDisplay = "—";
+                        if (isCavity) {
+                          const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
+                          ezyJambDisplay = isEzy ? "Eze Jamb" : "—";
+                        } else if (item.door_frame && !["Timber Jamb", "None", "-"].includes(item.door_frame)) {
+                          ezyJambDisplay = item.door_frame;
+                        }
+
+                        const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
+                        const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
+                        const holeStr = isPrehung && item.hole && item.hole !== "None" ? item.hole : "—";
+                        const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
+                        const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
+                        const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
+
+                        return (
+                          <tr
+                            key={item.id || idx}
+                            onClick={() => {
+                              const nextSelected = isSelected ? null : item.id;
+                              setSelectedEntryId(nextSelected);
+                              onSelectEntry?.(isSelected ? null : item);
+                            }}
+                            style={{
+                              background: isSelected ? "#dbeafe" : undefined,
+                              cursor: "pointer",
+                              outline: isSelected ? "2px solid #3b82f6" : "none",
+                              outlineOffset: "-1px"
+                            }}
+                          >
+                            <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                            <td style={{ fontWeight: 600 }}>{modeLabel(item.category)}</td>
+                            <td><strong style={{ color: "#0f172a", marginRight: "6px" }}>{item.door_label || "—"}</strong><span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>{item.door_type || ""}</span></td>
+                            <td>{sizeStr}</td><td>{wallStr}</td>
+                            <td style={{ color: ezyJambDisplay === "Eze Jamb" ? "#0284c7" : "#64748b", fontWeight: ezyJambDisplay === "Eze Jamb" ? 700 : 500 }}>{ezyJambDisplay}</td>
+                            <td><div className="task-ui-summary-meta"><span><b>Lift:</b> {liftOffStr}</span><span><b>Hand:</b> {handingStr}</span><span><b>Hole:</b> {holeStr}</span><span><b>Finish:</b> {finishStr}</span><span><b>Furniture:</b> {furnitureStr}</span><span><b>Stop:</b> {doorStopStr}</span></div></td>
+                            <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>{item.qty || 1}</td>
+                            <td style={{ textAlign: "center" }}><button type="button" onClick={(event) => { event.stopPropagation(); handleRemoveEntry(item.id); }} style={S.deleteBtn} title="Remove door from entered data">✕</button></td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </TaskSummaryTable>
+            </TaskInlineEnteredSection>
           </div>
         )}
       </div>
 
       <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} />
 
-      <div style={S.card}>
-        <div
-          onClick={() => setIsScheduleOpen((v) => !v)}
-          style={{ ...S.cardTitle, cursor: "pointer", userSelect: "none" }}
-        >
-          <span>4. Entered Fixout data</span>
-          <EnteredTaskActions
-            onAutoFill={() => onAddDataAI?.("fixout")}
-            onClear={onClearData}
-            onSave={handleSave}
-            saveDisabled={isSaving}
-            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
-            isOpen={isScheduleOpen}
-            onToggle={() => setIsScheduleOpen((v) => !v)}
-          />
-        </div>
 
-        {isScheduleOpen && (
-          <>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", tableLayout: "auto" }}>
-              <thead>
-                <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "24px", textAlign: "center" }}>#</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "90px" }}>Category</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "140px" }}>Label / Door</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "100px" }}>Size</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "80px" }}>Wall</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "85px" }}>EzyJamb</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Lift Off</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "65px" }}>Handing</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "50px" }}>Hole</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "55px" }}>Finish</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "115px" }}>Furniture</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", minWidth: "80px" }}>Door Stop</th>
-                  <th style={{ padding: "6px 8px", fontWeight: 700, fontSize: "10px", width: "40px", textAlign: "center" }}>Qty</th>
-                  <th style={{ padding: "6px 8px", width: "50px", textAlign: "center" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {totalCount === 0 ? (
-                  <tr>
-                    <td colSpan={14} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                      No Fixout doors entered. Fill the inputs above and add doors.
-                    </td>
-                  </tr>
-                ) : (
-                  groupedDoorsByLevel.map(({ level, items }) => {
-                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
-                    return (
-                      <React.Fragment key={level}>
-                        <tr style={{
-                          background: isLower ? "#f0fdf4" : "#fefce8",
-                          borderTop: "2px solid #cbd5e1",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}>
-                          <td colSpan={14} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{
-                                  background: isLower ? "#dcfce7" : "#fef08a",
-                                  color: isLower ? "#15803d" : "#854d0e",
-                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                                  padding: "2px 8px",
-                                  borderRadius: "4px",
-                                  fontWeight: 800,
-                                  fontSize: "10.5px",
-                                  letterSpacing: "0.5px"
-                                }}>
-                                  {level}
-                                </span>
-                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                                  {getFloorLevelDisplayName(level)}
-                                </span>
-                              </div>
-                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                                {items.length} {items.length === 1 ? "door" : "doors"}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-
-                        {items.map((item) => {
-                          const globalIdx = (entries || []).findIndex((e) => e.id === item.id);
-                          const idx = globalIdx >= 0 ? globalIdx : 0;
-                          const isSelected = selectedEntryId === item.id;
-                          const isRowEditing = editingRowId === item.id;
-                          const isCavity = (isRowEditing ? editRowData.category : item.category) === "cavity";
-                          const isPrehung = (isRowEditing ? editRowData.category : item.category) === "prehung";
-                          const isLooseJamb = (isRowEditing ? editRowData.category : item.category) === "loose-jamb";
-
-                          if (isRowEditing) {
-                            const currentDoorOptions = isPrehung ? prehungDoors : looseJambDoors;
-                            return (
-                              <tr
-                                key={item.id || idx}
-                                data-editing-row-id={item.id}
-                                style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}
-                              >
-                                <td style={{ padding: "4px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
-                                <td style={{ padding: "4px" }}>
-                                  <select
-                                    value={editRowData.category || "cavity"}
-                                    onChange={(e) => setEditRowData({ ...editRowData, category: e.target.value })}
-                                    style={{ ...S.select, width: "95px", fontSize: "10px" }}
-                                  >
-                                    <option value="cavity">Cavity sliding</option>
-                                    <option value="prehung">Prehung</option>
-                                    <option value="loose-jamb">Loose Jamb</option>
-                                  </select>
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  <div style={{ display: "flex", gap: "2px" }}>
-                                    <SearchDropdown
-                                      value={editRowData.door_label || ""}
-                                      options={ROOM_LABELS}
-                                      width="60px"
-                                      onChange={(v) => {
-                                        const mode = editRowData.category || "prehung";
-                                        const patch = roomSuggestionPatch(mode, v, editRowData.handing || "");
-                                        setEditRowData({
-                                          ...editRowData,
-                                          door_label: v,
-                                          ...(patch.furniture ? { door_furniture: patch.furniture } : {}),
-                                          ...(patch.stop !== undefined ? { door_stop: patch.stop } : {}),
-                                          ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
-                                        });
-                                      }}
-                                      placeholder="Label"
-                                    />
-                                    <SearchDropdown
-                                      value={editRowData.door_type || ""}
-                                      options={currentDoorOptions}
-                                      width="90px"
-                                      onChange={(v) => setEditRowData({ ...editRowData, door_type: v })}
-                                      placeholder="Type"
-                                    />
-                                  </div>
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-                                    <input
-                                      type="number"
-                                      value={editRowData.height || 2040}
-                                      onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
-                                      style={{ ...S.input, width: "45px", fontSize: "10px" }}
-                                    />
-                                    <span>×</span>
-                                    <input
-                                      type="number"
-                                      value={editRowData.width || 820}
-                                      onChange={(e) => setEditRowData({ ...editRowData, width: e.target.value })}
-                                      style={{ ...S.input, width: "40px", fontSize: "10px" }}
-                                    />
-                                    <span>×</span>
-                                    <select
-                                      value={editRowData.thicks || "35"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, thicks: e.target.value })}
-                                      style={{ ...S.select, width: "40px", fontSize: "10px" }}
-                                    >
-                                      {OPT.thicks.map((o) => <option key={o}>{o}</option>)}
-                                    </select>
-                                  </div>
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {isCavity ? (
-                                    <select
-                                      value={editRowData.wall_width || "90"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, wall_width: e.target.value })}
-                                      style={{ ...S.select, width: "50px", fontSize: "10px" }}
-                                    >
-                                      {OPT.wallWidth.map((o) => <option key={o}>{o}</option>)}
-                                    </select>
-                                  ) : (
-                                    <input
-                                      value={editRowData.wall_width || ""}
-                                      onChange={(e) => setEditRowData({ ...editRowData, wall_width: e.target.value })}
-                                      style={{ ...S.input, width: "65px", fontSize: "10px" }}
-                                      placeholder="Jamb/Wall"
-                                    />
-                                  )}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {isCavity ? (
-                                    <select
-                                      value={editRowData.ezyJamb || (editRowData.door_frame === "Ezy Jamb" || editRowData.door_frame === "Eze Jamb" ? "Yes" : "No")}
-                                      onChange={(e) => setEditRowData({
-                                        ...editRowData,
-                                        ezyJamb: e.target.value,
-                                        door_frame: e.target.value === "Yes" ? "Ezy Jamb" : "Timber Jamb",
-                                      })}
-                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
-                                    >
-                                      <option value="No">No</option>
-                                      <option value="Yes">Yes</option>
-                                    </select>
-                                  ) : (
-                                    <select
-                                      value={editRowData.door_frame || "None"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, door_frame: e.target.value })}
-                                      style={{ ...S.select, width: "80px", fontSize: "10px" }}
-                                    >
-                                      {OPT.frame.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  )}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {!isCavity ? (
-                                    <select
-                                      value={editRowData.lift_off_pivot || "None"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, lift_off_pivot: e.target.value })}
-                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
-                                    >
-                                      {OPT.liftOff.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {isPrehung ? (
-                                    <select
-                                      value={editRowData.handing || "None"}
-                                      onChange={(e) => {
-                                        const handing = e.target.value;
-                                        const mode = editRowData.category || "prehung";
-                                        const patch = roomSuggestionPatch(mode, editRowData.door_label || "", handing);
-                                        setEditRowData({
-                                          ...editRowData,
-                                          handing,
-                                          ...(patch.furniture ? { door_furniture: patch.furniture } : {}),
-                                          ...(patch.stop !== undefined ? { door_stop: patch.stop } : {}),
-                                          ...(patch.hole !== undefined ? { hole: patch.hole } : {}),
-                                        });
-                                      }}
-                                      style={{ ...S.select, width: "65px", fontSize: "10px" }}
-                                    >
-                                      {OPT.handing.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {isPrehung ? (
-                                    <select
-                                      value={editRowData.hole || "None"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, hole: e.target.value })}
-                                      style={{ ...S.select, width: "50px", fontSize: "10px" }}
-                                    >
-                                      {OPT.hole.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {isPrehung ? (
-                                    <select
-                                      value={editRowData.finish || "None"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, finish: e.target.value })}
-                                      style={{ ...S.select, width: "55px", fontSize: "10px" }}
-                                    >
-                                      {OPT.finish.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  <select
-                                    value={editRowData.door_furniture || (isCavity ? "CSD Passage Set" : "None")}
-                                    onChange={(e) => setEditRowData({ ...editRowData, door_furniture: e.target.value })}
-                                    style={{ ...S.select, width: "115px", fontSize: "10px" }}
-                                  >
-                                    {(FURNITURE_OPTIONS_BY_MODE[editRowData.category] || FURNITURE_OPTIONS_BY_MODE.prehung).map((o) => (
-                                      <option key={o} value={o}>{o}</option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td style={{ padding: "4px" }}>
-                                  {!isCavity ? (
-                                    <select
-                                      value={editRowData.door_stop || "None"}
-                                      onChange={(e) => setEditRowData({ ...editRowData, door_stop: e.target.value })}
-                                      style={{ ...S.select, width: "75px", fontSize: "10px" }}
-                                    >
-                                      {OPT.stop.map((o) => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                  ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                                </td>
-                                <td style={{ padding: "4px", textAlign: "center" }}>
-                                  <input
-                                    type="number"
-                                    value={editRowData.qty !== undefined ? editRowData.qty : item.qty}
-                                    onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
-                                    style={{ ...S.input, width: "35px", fontSize: "10px", textAlign: "center" }}
-                                  />
-                                </td>
-                                <td style={{ padding: "4px", textAlign: "center" }}>
-                                  <div style={{ display: "inline-flex", gap: "3px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(item.id); }}
-                                      style={{ ...S.editBtn, background: "#dcfce7", color: "#16a34a", borderColor: "#86efac" }}
-                                      title="Save"
-                                    >
-                                      ✓
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); setEditingRowId(null); setEditRowData({}); }}
-                                      style={S.deleteBtn}
-                                      title="Cancel"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          // ── Display Mode Row ──
-                          const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
-                          const wallStr = item.wall_width ? `${item.wall_width}` : "—";
-                          
-                          let ezyJambDisplay = "—";
-                          if (isCavity) {
-                            const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
-                            ezyJambDisplay = isEzy ? "Eze Jamb" : "—";
-                          } else {
-                            if (item.door_frame && item.door_frame !== "Timber Jamb" && item.door_frame !== "None" && item.door_frame !== "-") {
-                              ezyJambDisplay = item.door_frame;
-                            } else {
-                              ezyJambDisplay = "—";
-                            }
-                          }
-
-                          const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
-                          const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
-                          const holeStr = isPrehung && item.hole && item.hole !== "None" ? item.hole : "—";
-                          const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
-                          const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
-                          const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
-
-                          return (
-                            <tr
-                              key={item.id || idx}
-                              data-editing-row-id={isRowEditing ? item.id : undefined}
-                              onDoubleClick={(e) => {
-                                if (isRowEditing) return;
-                                if (e.target.closest && e.target.closest("button")) return;
-                                if (editingRowId && editingRowId !== item.id) {
-                                  handleSaveInlineEdit(editingRowId);
-                                }
-                                setSelectedEntryId(item.id);
-                                if (onSelectEntry) onSelectEntry(item);
-                                handleStartEdit(item);
-                              }}
-                              onClick={() => {
-                                if (!isRowEditing) {
-                                  if (editingRowId && editingRowId !== item.id) {
-                                    handleSaveInlineEdit(editingRowId);
-                                  }
-                                  const nextSelected = isSelected ? null : item.id;
-                                  setSelectedEntryId(nextSelected);
-                                  if (onSelectEntry) onSelectEntry(isSelected ? null : item);
-                                }
-                              }}
-                              style={{
-                                borderBottom: "1px solid #f1f5f9",
-                                background: isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc"),
-                                cursor: "pointer",
-                                outline: isSelected ? "2px solid #3b82f6" : "none",
-                                outlineOffset: "-1px",
-                                transition: "background 0.15s ease"
-                              }}
-                            >
-                              {/* # */}
-                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
-                                {idx + 1}
-                              </td>
-
-                              {/* Category */}
-                              <td style={{ padding: "6px 8px", fontWeight: 600, color: "#334155" }}>
-                                {modeLabel(item.category)}
-                              </td>
-
-                              {/* Label / door */}
-                              <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
-                                <span style={{ fontWeight: 700, color: "#0f172a", marginRight: "6px" }}>
-                                  {item.door_label || "—"}
-                                </span>
-                                <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>
-                                  {item.door_type || ""}
-                                </span>
-                              </td>
-
-                              {/* Size */}
-                              <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                                {sizeStr}
-                              </td>
-
-                              {/* Wall */}
-                              <td style={{ padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                                {wallStr}
-                              </td>
-
-                              {/* EzyJamb */}
-                              <td style={{
-                                padding: "6px 8px",
-                                whiteSpace: "nowrap",
-                                color: ezyJambDisplay === "Eze Jamb" ? "#0284c7" : (ezyJambDisplay === "—" ? "#94a3b8" : "#334155"),
-                                fontWeight: ezyJambDisplay === "Eze Jamb" ? 700 : 500
-                              }}>
-                                {ezyJambDisplay}
-                              </td>
-
-                              {/* Lift off */}
-                              <td style={{ padding: "6px 8px", color: liftOffStr === "—" ? "#94a3b8" : "#334155" }}>
-                                {liftOffStr}
-                              </td>
-
-                              {/* Handing */}
-                              <td style={{ padding: "6px 8px", color: handingStr === "—" ? "#94a3b8" : "#334155" }}>
-                                {handingStr}
-                              </td>
-
-                              {/* Hole */}
-                              <td style={{ padding: "6px 8px", color: holeStr === "—" ? "#94a3b8" : "#334155" }}>
-                                {holeStr}
-                              </td>
-
-                              {/* Finish */}
-                              <td style={{ padding: "6px 8px", color: finishStr === "—" ? "#94a3b8" : "#334155" }}>
-                                {finishStr}
-                              </td>
-
-                              {/* Furniture */}
-                              <td style={{ padding: "6px 8px", color: furnitureStr === "None" ? "#94a3b8" : "#0f766e", fontWeight: 500 }}>
-                                {furnitureStr}
-                              </td>
-
-                              {/* Door stop */}
-                              <td style={{ padding: "6px 8px", color: doorStopStr === "None" || doorStopStr === "—" ? "#94a3b8" : "#0369a1" }}>
-                                {doorStopStr}
-                              </td>
-
-                              {/* Qty */}
-                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
-                                {item.qty || 1}
-                              </td>
-
-                              {/* Action: Edit & Delete */}
-                              <td style={{ padding: "6px 8px", textAlign: "center", whiteSpace: "nowrap" }}>
-                                <div style={{ display: "inline-flex", gap: "4px", alignItems: "center" }}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoveEntry(item.id);
-                                    }}
-                                    style={S.deleteBtn}
-                                    title="Delete door"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ borderTop: "1px solid #cbd5e1" }}>
-            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
-              Smart Robe Door
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-                <thead>
-                  <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
-                    <th style={{ padding: "6px 8px", width: "28px" }}>#</th>
-                    <th style={{ padding: "6px 8px" }}>Label</th>
-                    <th style={{ padding: "6px 8px" }}>Unit Height</th>
-                    <th style={{ padding: "6px 8px" }}>Unit Size</th>
-                    <th style={{ padding: "6px 8px" }}>Wall</th>
-                    <th style={{ padding: "6px 8px" }}>Type</th>
-                    <th style={{ padding: "6px 8px" }}>Thicks</th>
-                    <th style={{ padding: "6px 8px" }}>Finger Grips</th>
-                    <th style={{ padding: "6px 8px", width: "38px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {smartRobeRows.length === 0 ? (
-                    <tr><td colSpan={9} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>No Smart Robe Door data entered.</td></tr>
-                  ) : smartRobeRows.map((row, index) => (
-                    <tr key={row.id || index} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "6px 8px", textAlign: "center" }}>{index + 1}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.label || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.unitHeight || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.unitSize || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.wall || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.type || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.thicks || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{formData?.fixout_smart_robe_finger_grips || "No"}</td>
-                      <td style={{ padding: "4px", textAlign: "center" }}>
-                        <button type="button" onClick={() => removeCachedRow("fixout_smart_robe_rows", smartRobeRows, index)} style={S.deleteBtn} title="Delete robe door">✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #cbd5e1" }}>
-            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
-              Additional trim openings
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-                <thead>
-                  <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
-                    <th style={{ padding: "6px 8px", width: "28px" }}>#</th>
-                    <th style={{ padding: "6px 8px" }}>Type</th>
-                    <th style={{ padding: "6px 8px" }}>Height</th>
-                    <th style={{ padding: "6px 8px" }}>Width</th>
-                    <th style={{ padding: "6px 8px" }}>Block Work</th>
-                    <th style={{ padding: "6px 8px", width: "38px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {revealRows.length === 0 ? (
-                    <tr><td colSpan={6} style={{ padding: "10px", textAlign: "center", color: "#94a3b8" }}>No opening data entered.</td></tr>
-                  ) : revealRows.map((row, index) => (
-                    <tr key={row.id || index} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "6px 8px", textAlign: "center" }}>{index + 1}</td>
-                      <td style={{ padding: "6px 8px", textTransform: "capitalize" }}>{row.type || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.height || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.width || "—"}</td>
-                      <td style={{ padding: "6px 8px" }}>{row.blockWork || "—"}</td>
-                      <td style={{ padding: "4px", textAlign: "center" }}>
-                        <button type="button" onClick={() => removeCachedRow("fixout_reveal_openings", revealRows, index)} style={S.deleteBtn} title="Delete opening">✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div style={{ borderTop: "1px solid #cbd5e1" }}>
-            <div style={{ padding: "6px 8px", background: "#eef4ff", color: "#1e3a5f", fontSize: "11px", fontWeight: 800 }}>
-              Additional trim values
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-              <thead>
-                <tr style={{ background: "#1e3a5f", color: "#fff", textAlign: "left" }}>
-                  <th style={{ padding: "6px 8px" }}>Field</th>
-                  <th style={{ padding: "6px 8px" }}>Entered value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trimRows.map(([label, value]) => (
-                  <tr key={label} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                    <td style={{ padding: "6px 8px", fontWeight: 700, color: "#334155" }}>{label}</td>
-                    <td style={{ padding: "6px 8px", color: "#475569" }}>{String(value || "—")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-        {/* Footer: Save */}
-        {totalCount > 0 && (
-          <div style={{
-            padding: "8px 12px",
-            background: "#f8fafc",
-            borderTop: "1px solid #e2e8f0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "8px"
-          }}>
-            <span style={{ fontSize: "11px", color: "#475569", fontWeight: 600 }}>
-              {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
-            </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {saveSuccess && (
-                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 700 }}>
-                  ✓ Saved to SQL!
-                </span>
-              )}
-              
-            </div>
-          </div>
-        )}
-          </>
-        )}
-      </div>
     </div>
   );
 }

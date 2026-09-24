@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -807,7 +808,7 @@ export default function EavesSoffitTask({
                     <tr><td colSpan={8} style={{ padding: "14px", textAlign: "center", color: "#94a3b8" }}>No Eaves &amp; Soffits data entered.</td></tr>
                   ) : groupedEavesByLevel.map(({ level, items }) => (
                     <React.Fragment key={level}>
-                      <tr data-task-group-row="true"><td colSpan={8}>Level: {level}</td></tr>
+                      <FloorLevelGroupRow level={level} colSpan={8} count={items.length} unitLabel="item" />
                       {items.map((item) => {
                         const index = entries.findIndex((entry) => entry.id === item.id);
                         const isEditing = editingRowId === item.id;

@@ -6,20 +6,9 @@ import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 const DATA_ROW_SELECTOR = "tbody tr";
 const NON_FILTERABLE_HEADERS = new Set(["#", "stt", "số thứ tự", "no", "no.", "label"]);
 const NON_EDITABLE_HEADERS = new Set(["#", "stt", "số thứ tự", "no", "no."]);
-const SHARED_CELL_EDIT_TASKS = new Set([
-  "frame_hardware",
-  "flooring_decking",
-  "hebel_flooring",
-  "insulation",
-  "cladding",
-  "timber_posts",
-  "shelving",
-  "fow_plumbing",
-  "power_truss_braces",
-  "fixout",
-  "hardies_fire_walls",
-  "eaves_soffit",
-]);
+// Entered/result tables are read-only summaries. Inputs/dropdowns live in the
+// task forms above; this enhancer must never turn summary cells into editors.
+const SHARED_CELL_EDIT_TASKS = new Set();
 
 function isGroupRow(row) {
   const cells = Array.from(row?.cells || []);
@@ -406,10 +395,19 @@ export default function TaskTableEnhancer({ children, taskId }) {
     });
 
     root.querySelectorAll(".entered-task-actions").forEach((actions) => {
-      const header = actions.parentElement;
-      const card = header?.parentElement;
+      const header = actions.closest(".task-ui-section-header") || actions.parentElement;
+      const card = header?.closest(".task-ui-entered-card") || header?.parentElement;
       header?.classList.add("task-entered-section-header");
       card?.classList.add("task-ui-card", "task-ui-entered-card");
+      card?.querySelectorAll("table").forEach((table) => {
+        table.classList.add("task-summary-readonly");
+        table.dataset.taskSummaryReadonly = "true";
+      });
+    });
+
+    root.querySelectorAll(".task-ui-entered-card table").forEach((table) => {
+      table.classList.add("task-summary-readonly");
+      table.dataset.taskSummaryReadonly = "true";
     });
 
     root.querySelectorAll("div").forEach((element) => {
@@ -500,6 +498,19 @@ export default function TaskTableEnhancer({ children, taskId }) {
     root.addEventListener("click", handleEditableCellClick, true);
     return () => root.removeEventListener("click", handleEditableCellClick, true);
   }, [beginSharedCellEdit, taskId]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const blockSummaryDoubleClick = (event) => {
+      const table = event.target?.closest?.("table.task-summary-readonly");
+      if (!table || !root.contains(table)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    root.addEventListener("dblclick", blockSummaryDoubleClick, true);
+    return () => root.removeEventListener("dblclick", blockSummaryDoubleClick, true);
+  }, [taskId]);
 
   useEffect(() => {
     setMenu(null);

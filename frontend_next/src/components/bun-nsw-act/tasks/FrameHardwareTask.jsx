@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import EnteredTaskActions from "./EnteredTaskActions";
 import { ApiService } from "@/models/api.service";
 import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS } from "@/constants/procurementFormParity";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
-import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { normalizeFloorLevelCode, resolveObjectFloorLevel } from "@/utils/floorLevel";
 import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { EnteredDataCard, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
 
 const parseFrameExtras = (value) => {
   try {
@@ -186,7 +186,7 @@ export default function FrameHardwareTask({
     Array.from(pageIndices).forEach(pIdx => {
       const pageWalls = (wallsByPage && wallsByPage[pIdx]) ? wallsByPage[pIdx] : [];
       const pageScale = (scalesByPage && scalesByPage[pIdx] !== undefined) ? scalesByPage[pIdx] : null;
-      const floorLevel = _getFloorLevelByPage(pIdx);
+      const pageFloorLevel = _getFloorLevelByPage(pIdx);
 
       pageWalls.forEach(w => {
         const qInfo = getQualifiedWallInfo(w);
@@ -209,6 +209,10 @@ export default function FrameHardwareTask({
         const hMm = Number(w.height_mm || w.height || 2400);
         const wallClass = qInfo.wallClass;
 
+        // Prefer level metadata carried by a generated wall (for example
+        // sourceLevelCode from the Floor & Ceiling engine).  Otherwise use the
+        // architectural page -> level map that also drives the left GF/FF rail.
+        const floorLevel = resolveObjectFloorLevel(w, pages, pIdx) || pageFloorLevel;
         const key = `${pIdx}_${floorLevel}_${floorType}_${wallClass}_${hMm}`;
         if (!groupsMap[key]) {
           groupsMap[key] = {
@@ -712,13 +716,10 @@ export default function FrameHardwareTask({
       (effWallIds.length > 0 && effWallIds.some(id => hasMatch(id))) ||
       (effType === "wall" && hasMatch(effId));
     const isHovered = effHovered && hasMatch(effHovered);
-    const isRowEditing = editingRowId === w.id;
     const rawAbove = w.theWallAbove || "";
     const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
     const wallAboveLabel = isTimber ? "Timber" : "Slab";
     const rodSizeVal = w.rodSize || (isTimber ? (formData.timber_rod_size || "M12") : (formData.slab_rod_size || "M12"));
-    const flVal = (w.floorLevel || w.floor_level || "GF").toUpperCase();
-    const isLower = flVal === "GF" || flVal === "LEVEL 1" || flVal === "GROUND FLOOR" || flVal === "GROUND";
     const wallCls = w.wallClass || w.wall_class || "exterior_wall";
     const isExternal = wallCls === "exterior_wall";
 
@@ -739,21 +740,10 @@ export default function FrameHardwareTask({
         }
 
         if (targetPageIndex < 0 && pages && pages.length > 0) {
-          const fl = (targetWall.floorLevel || targetWall.floor_level || "GF").toUpperCase().trim();
-          targetPageIndex = pages.findIndex((p, idx) => {
-            const pName = (p.floor_name || p.name || "").toUpperCase().trim();
-            if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
-            if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
-            if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("TẦNG 2") || pName.includes("2F") || idx === 2)) return true;
-            if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("TẦNG 3") || pName.includes("3F") || idx === 3)) return true;
-            if (pName.includes(fl)) return true;
-            return false;
-          });
-          if (targetPageIndex < 0) {
-            if (fl === "GF") targetPageIndex = 0;
-            else if (fl === "FF" && pages.length > 1) targetPageIndex = 1;
-            else if (fl === "SF" && pages.length > 2) targetPageIndex = 2;
-            else if (fl === "TF" && pages.length > 3) targetPageIndex = 3;
+          const fl = normalizeFloorLevelCode(targetWall.floorLevel || targetWall.floor_level || "GF");
+          const preferredIndex = fl === "GF" ? 0 : fl === "FF" ? 1 : fl === "SF" ? 2 : fl === "TF" ? 3 : Number.parseInt(fl, 10);
+          if (Number.isInteger(preferredIndex) && preferredIndex >= 0 && preferredIndex < pages.length) {
+            targetPageIndex = preferredIndex;
           }
         }
 
@@ -763,45 +753,23 @@ export default function FrameHardwareTask({
         }
       }
 
-      if (onSelectEntry) {
-        onSelectEntry(nextSelected);
-      }
+      onSelectEntry?.(nextSelected);
     };
 
     return (
       <tr
         key={w.id || rowIdx}
-        data-editing-row-id={isRowEditing ? w.id : undefined}
-        onDoubleClick={(e) => {
-          if (isRowEditing) return;
-          if (e.target.closest && e.target.closest("button")) return;
-          if (editingRowId && editingRowId !== w.id) {
-            handleSaveInlineEdit(editingRowId);
-          }
-          handleSelectWallRow(w);
-          handleStartEdit(w);
-        }}
-        onClick={() => {
-          if (!isRowEditing) {
-            if (editingRowId && editingRowId !== w.id) {
-              handleSaveInlineEdit(editingRowId);
-            }
-            handleSelectWallRow(w);
-          }
-        }}
+        onClick={() => handleSelectWallRow(w)}
         style={{
-          borderBottom: "1px solid #e2e8f0",
-          background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : (rowIdx % 2 === 0 ? "#ffffff" : "#f8fafc"))),
-          cursor: isRowEditing ? "default" : "pointer",
+          background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : undefined),
+          cursor: "pointer",
           outline: isSelected ? "2px solid #3b82f6" : "none",
           outlineOffset: "-1px",
           transition: "background 0.15s ease"
         }}
       >
-        <td style={{ padding: "6px 8px", fontWeight: 700, width: "24px" }}>{rowIdx + 1}</td>
-
-        {/* The Wall Above */}
-        <td style={{ padding: "6px 8px" }}>
+        <td style={{ fontWeight: 700, width: "24px" }}>{rowIdx + 1}</td>
+        <td>
           <span style={{
             background: isTimber ? "#fef3c7" : "#fee2e2",
             color: isTimber ? "#92400e" : "#991b1b",
@@ -816,168 +784,35 @@ export default function FrameHardwareTask({
             {wallAboveLabel}
           </span>
         </td>
-
-        {/* Wall Type */}
-        <td style={{ padding: "6px 8px" }}>
-          {isRowEditing ? (
-            <select
-              value={editRowData.wallClass || "exterior_wall"}
-              onChange={(e) => setEditRowData({ ...editRowData, wallClass: e.target.value })}
-              style={{ padding: "2px 4px", fontSize: "10px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-            >
-              {WALL_CLASS_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          ) : (
-            <span style={{
-              background: isExternal ? "#ecfdf5" : "#f5f3ff",
-              color: isExternal ? "#047857" : "#6d28d9",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              fontWeight: 700,
-              fontSize: "9.5px",
-              whiteSpace: "nowrap"
-            }}>
-              {isExternal ? "External" : "Load Bearing Wall"}
-            </span>
-          )}
+        <td>
+          <span style={{
+            background: isExternal ? "#ecfdf5" : "#f5f3ff",
+            color: isExternal ? "#047857" : "#6d28d9",
+            padding: "2px 6px",
+            borderRadius: "4px",
+            fontWeight: 700,
+            fontSize: "9.5px",
+            whiteSpace: "nowrap"
+          }}>
+            {isExternal ? "External" : "Load Bearing Wall"}
+          </span>
         </td>
-
-        {/* Wall Height */}
-        <td style={{ padding: "6px 8px" }}>
-          {isRowEditing ? (
-            <select
-              value={editRowData.height ? String(editRowData.height).replace("mm", "").trim() : "2700"}
-              onChange={(e) => setEditRowData({ ...editRowData, height: e.target.value })}
-              style={{ padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-            >
-              {WALL_HEIGHT_OPTIONS.filter(opt => opt !== "Select...").map(opt => (
-                <option key={opt} value={opt}>{opt} mm</option>
-              ))}
-            </select>
-          ) : (
-            w.height
-          )}
-        </td>
-
-        {/* Wall Length */}
-        <td style={{ padding: "6px 8px" }}>
-          {isRowEditing ? (
-            <input
-              type="text"
-              value={editRowData.length || ""}
-              onChange={(e) => setEditRowData({ ...editRowData, length: e.target.value })}
-              style={{ width: "75px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-            />
-          ) : (
-            w.length
-          )}
-        </td>
-
-        {/* Tiedown Spacing */}
-        <td style={{ padding: "6px 8px" }}>
-          {isRowEditing ? (
-            <input
-              type="text"
-              value={editRowData.spacing || ""}
-              onChange={(e) => setEditRowData({ ...editRowData, spacing: e.target.value })}
-              style={{ width: "60px", padding: "2px 4px", fontSize: "10.5px", border: "1px solid #3b82f6", borderRadius: "3px" }}
-            />
-          ) : (
-            w.spacing
-          )}
-        </td>
-
-        {/* Rod Size */}
-        <td style={{ padding: "4px 8px" }} onClick={(e) => e.stopPropagation()}>
-          {isRowEditing ? (
-            <select
-              value={editRowData.rodSize !== undefined ? editRowData.rodSize : (rodSizeVal || "M12")}
-              onChange={(e) => setEditRowData({ ...editRowData, rodSize: e.target.value })}
-              style={{
-                padding: "3px 6px",
-                fontSize: "11px",
-                fontWeight: 700,
-                border: "1.5px solid #3b82f6",
-                borderRadius: "4px",
-                background: "#eff6ff",
-                color: "#1e3a5f",
-                cursor: "pointer",
-                outline: "none"
-              }}
-            >
-              {ROD_SIZE_OPTIONS.map(opt => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={rodSizeVal || "M12"}
-              onChange={(e) => handleUpdateEntryRodSize(w.id, e.target.value)}
-              style={{
-                padding: "3px 6px",
-                fontSize: "11px",
-                fontWeight: 700,
-                color: "#1e3a5f",
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
-                borderRadius: "4px",
-                cursor: "pointer",
-                outline: "none"
-              }}
-            >
-              {ROD_SIZE_OPTIONS.map(opt => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          )}
-        </td>
-
-        {/* Actions */}
-        <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
-          {isRowEditing ? (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleSaveInlineEdit(w.id); }}
-                style={{ background: "none", border: "none", color: "#16a34a", cursor: "pointer", fontWeight: 800, fontSize: "13px", padding: "0 2px" }}
-                title="Save"
-              >
-                ✓
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setEditingRowId(null); }}
-                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontWeight: 800, fontSize: "11px", padding: "0 2px" }}
-                title="Cancel"
-              >
-                ✕
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleStartEdit(w);
-                }}
-                style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                title="Edit wall"
-              >
-                ✏️
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
-                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                title="Remove wall"
-              >
-                ✕
-              </button>
-            </div>
-          )}
+        <td>{w.height || "—"}</td>
+        <td>{w.length || "—"}</td>
+        <td>{w.spacing || "—"}</td>
+        <td><strong style={{ color: "#1e3a5f" }}>{rodSizeVal || "—"}</strong></td>
+        <td style={{ textAlign: "right" }}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleRemoveEntry(w.id);
+            }}
+            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+            title="Remove wall from entered data"
+          >
+            ✕
+          </button>
         </td>
       </tr>
     );
@@ -1355,41 +1190,18 @@ export default function FrameHardwareTask({
 
 
       {/* ── CARD 3: ENTERED WALLS (GROUPED BY LEVEL: GF vs FF+) ── */}
-      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden" }}>
-        <div
-          onClick={() => setIsSection2Open((v) => !v)}
-          style={{
-            padding: "9px 12px",
-            background: "#f8fafc",
-            borderBottom: isSection2Open ? "1px solid #e2e8f0" : "none",
-            fontWeight: "800",
-            fontSize: "12px",
-            color: "#0f2744",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "6px",
-            cursor: "pointer",
-            userSelect: "none"
-          }}
-        >
-          <span>3. Entered walls ({qualifiedWalls.length})</span>
-          <EnteredTaskActions
-            onAutoFill={() => onAddDataAI?.("frame_hardware")}
-            onClear={onClearData}
-            isOpen={isSection2Open}
-            onToggle={() => setIsSection2Open((v) => !v)}
-          
-            onSave={handleSaveToDatabase}
-            saveDisabled={isSaving}
-            saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
-          />
-        </div>
-
-        {isSection2Open && (
-          <>
-            <div style={{ padding: "8px", overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10.5px" }}>
+      <EnteredDataCard
+        title={`3. Entered walls (${qualifiedWalls.length})`}
+        isOpen={isSection2Open}
+        onToggle={() => setIsSection2Open((v) => !v)}
+        onAutoFill={() => onAddDataAI?.("frame_hardware")}
+        onClear={onClearData}
+        onSave={handleSaveToDatabase}
+        saveDisabled={isSaving}
+        saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+      >
+            <div style={{ padding: "8px" }}>
+              <TaskSummaryTable minWidth="760px" compact>
                 <thead>
                   <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
                     <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
@@ -1413,38 +1225,21 @@ export default function FrameHardwareTask({
                     </React.Fragment>
                   ))}
                   {qualifiedWalls.length === 0 && (
-                    <tr>
-                      <td colSpan={8} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                        No walls entered. Enter wall specifications above or click Auto Fill (AI).
-                      </td>
-                    </tr>
+                    <TaskEmptyRow colSpan={8}>
+                      No walls entered. Enter wall specifications above or click Auto Fill (AI).
+                    </TaskEmptyRow>
                   )}
                 </tbody>
-              </table>
+              </TaskSummaryTable>
             </div>
 
             {/* ── ACTION BUTTONS: SAVE & COUNT (MATCHING IMAGE 3) ── */}
             {qualifiedWalls.length > 0 && (
-              <div style={{
-                padding: "8px 12px",
-                background: "#f8fafc",
-                borderTop: "1px solid #e2e8f0",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px"
-              }}>
-                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                  {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} entered
-                </span>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  
-                </div>
-              </div>
+              <TaskSummaryFooter>
+                {qualifiedWalls.length} {qualifiedWalls.length === 1 ? "wall" : "walls"} entered
+              </TaskSummaryFooter>
             )}
-          </>
-        )}
-      </div>
+      </EnteredDataCard>
 
     </div>
   );

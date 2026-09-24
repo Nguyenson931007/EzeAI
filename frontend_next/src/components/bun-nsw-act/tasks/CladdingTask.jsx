@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
+import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -669,40 +670,10 @@ const claddingManualRows = (() => {
                 </thead>
                 <tbody>
                   {groupedWallsByLevel.map(({ level, items }) => {
-                    const isLower = level === "GF" || level === "LEVEL 1" || level === "GROUND FLOOR" || level === "GROUND";
-                    return (
-                      <React.Fragment key={level}>
-                        <tr style={{
-                          background: isLower ? "#f0fdf4" : "#fefce8",
-                          borderTop: "2px solid #cbd5e1",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}>
-                          <td colSpan={4} style={{ padding: "6px 10px", fontWeight: 800, fontSize: "11px" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{
-                                  background: isLower ? "#dcfce7" : "#fef08a",
-                                  color: isLower ? "#15803d" : "#854d0e",
-                                  border: isLower ? "1px solid #bbf7d0" : "1px solid #fef08a",
-                                  padding: "2px 8px",
-                                  borderRadius: "4px",
-                                  fontWeight: 800,
-                                  fontSize: "10.5px",
-                                  letterSpacing: "0.5px"
-                                }}>
-                                  {level}
-                                </span>
-                                <span style={{ color: "#1e293b", fontWeight: 800, fontSize: "11.5px" }}>
-                                  {getFloorLevelDisplayName(level)}
-                                </span>
-                              </div>
-                              <span style={{ fontSize: "10.5px", color: "#64748b", fontWeight: 600 }}>
-                                {items.length} {items.length === 1 ? "wall" : "walls"}
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                        {items.map((w) => {
+                  return (
+                    <React.Fragment key={level}>
+                      <FloorLevelGroupRow level={level} colSpan={4} count={items.length} unitLabel="wall" unitLabelPlural="walls" />
+                      {items.map((w) => {
                           const globalIdx = (entries || []).findIndex(e => e.id === w.id);
                           const idx = globalIdx >= 0 ? globalIdx : 0;
                           const isSelected = selectedEntryId === w.id;

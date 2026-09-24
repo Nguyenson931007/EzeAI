@@ -1,26 +1,32 @@
 import React from "react";
+import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import "./taskUi.css";
 
 /**
- * Standard floor-level separator row for "Entered ..." task tables
- * (Frame Hardware, Lock Up, Insulation, Cladding, Fixout, Flooring &
- * Decking, Hebel Flooring, FOW/Plumbing, Power Truss & Braces, Shelving,
- * Timber Posts, Eaves & Soffits).
- *
- * Every task previously rendered this row with its own slightly different
- * markup ("Level: {level}", "Level: {level} ({name})", colored badges,
- * with/without an item count...). Use this component instead so every task
- * table shows the exact same compact "Level: GF" format.
- *
- * `data-task-group-row="true"` is required — TaskTableEnhancer relies on it
- * to recognize a manually-rendered group row and leave it alone.
+ * Shared separator row for every "Entered ..." task table.
+ * Keep the visible floor format identical across tasks: "Level: GF",
+ * "Level: FF", ... . TaskTableEnhancer also recognises this row through
+ * data-task-group-row and only adds filtering/collapse behaviour.
  */
 export default function FloorLevelGroupRow({ level, colSpan, count, unitLabel = "item", unitLabelPlural }) {
+  const code = normalizeFloorLevelCode(level || "GF");
   const plural = unitLabelPlural || `${unitLabel}s`;
+  const levelLabel = `Level: ${code}`;
+
   return (
-    <tr data-task-group-row="true" data-floor-level={level} style={{ background: "#eaf2ff", borderTop: "2px solid #93c5fd" }}>
-      <td colSpan={colSpan} style={{ padding: "6px 10px", fontSize: "10.5px", fontWeight: 800, color: "#1e3a5f" }}>
+    <tr
+      data-task-group-row="true"
+      data-floor-level={code}
+      data-task-floor-level={code}
+      className="task-floor-level-row"
+    >
+      <td
+        colSpan={colSpan}
+        data-task-level-code={code}
+        data-task-level-label={levelLabel}
+      >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span>Level: {level}</span>
+          <span>{levelLabel}</span>
           {typeof count === "number" && (
             <span style={{ color: "#64748b", fontWeight: 600 }}>
               {count} {count === 1 ? unitLabel : plural}

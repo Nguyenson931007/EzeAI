@@ -2,6 +2,7 @@
 import React from "react";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
+import { buildArchitecturalFloorLevelMap } from "@/utils/floorLevel";
 
 export default function LeftRailView({
   interactionMode,
@@ -48,15 +49,17 @@ export default function LeftRailView({
     .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
 
   const displayLevels = architecturalPages;
+  // The level rail and every task table must resolve page -> floor code from
+  // exactly the same map; otherwise the rail can show GF/FF while a task
+  // silently groups both pages under GF.
+  const floorLevelByPage = React.useMemo(
+    () => buildArchitecturalFloorLevelMap(currentPages),
+    [currentPages],
+  );
 
   const getFloorCode = (p, idx) => {
-    if (p.code) return p.code;
-    const raw = (p.floor_name || p.name || p.player_name || "").toUpperCase().trim();
-    if (raw.includes("ROOF") || raw.includes("MÁI")) return "RF";
-    if (raw === "GF" || raw.includes("GROUND") || idx === 0) return "GF";
-    if (raw === "FF" || raw.includes("FIRST") || idx === 1) return "FF";
-    if (raw === "SF" || raw.includes("SECOND") || idx === 2) return "SF";
-    return `L${idx + 1}`;
+    const originalIndex = p?.originalIndex ?? idx;
+    return floorLevelByPage.get(originalIndex) || p?.code || `L${idx + 1}`;
   };
 
   const getFloorName = (p, idx) => {

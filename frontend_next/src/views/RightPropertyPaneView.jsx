@@ -93,9 +93,9 @@ import {
   buildFrameRows,
   buildShelvingRows,
   buildFinalFitPatch,
-  normalizeFloorLevel,
   roomAreaM2,
 } from "@/utils/procurementAutoFill";
+import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
 
 function getPlanObjectBounds(objects = []) {
   const points = [];
@@ -401,6 +401,10 @@ export default function RightPropertyPaneView({
   const setPages = setPagesProp || setPagesContext;
   const effectiveWallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : (wallsByPageCtx || {});
   const effectiveScalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : (scalesByPageCtx || {});
+  const floorLevelByPage = React.useMemo(() => buildArchitecturalFloorLevelMap(pages), [pages]);
+  const floorLevelForPage = React.useCallback((pageIndex) => (
+    floorLevelByPage.get(Number(pageIndex)) || resolvePageFloorLevel(pages, Number(pageIndex))
+  ), [floorLevelByPage, pages]);
 
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
@@ -1006,10 +1010,17 @@ export default function RightPropertyPaneView({
     const allDoors = doorsByPageProp && Object.keys(doorsByPageProp).length
       ? Object.entries(doorsByPageProp).flatMap(([pageKey, pageDoors]) => {
           const pIdx = Number(pageKey);
-          const floorLevel = normalizeFloorLevel(pages?.[pIdx], pIdx);
-          return (pageDoors || []).map((door) => ({ ...door, __floorLevel: door.floorLevel || door.floor_level || floorLevel }));
+          return (pageDoors || []).map((door) => ({
+            ...door,
+            __floorLevel: resolveObjectFloorLevel(door, pages, pIdx),
+            __sourcePageIndex: pIdx,
+          }));
         })
-      : (currentDoors || []).map((door) => ({ ...door, __floorLevel: door.floorLevel || door.floor_level || normalizeFloorLevel(pages?.[currentPage], currentPage) }));
+      : (currentDoors || []).map((door) => ({
+          ...door,
+          __floorLevel: resolveObjectFloorLevel(door, pages, currentPage),
+          __sourcePageIndex: currentPage,
+        }));
 
     let formPatch = {};
     let generatedCount = 0;
@@ -1041,7 +1052,7 @@ export default function RightPropertyPaneView({
       Object.entries(roomPages).forEach(([pageKey, pageRooms]) => {
         const pIdx = Number(pageKey);
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
-        perPage.push(...buildFlooringRows(pageRooms || [], pageScale, normalizeFloorLevel(pages?.[pIdx], pIdx)));
+        perPage.push(...buildFlooringRows(pageRooms || [], pageScale, floorLevelForPage(pIdx)));
       });
 
       const dry = perPage.filter((r) => r.typeArea === "Dry").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
@@ -1069,7 +1080,7 @@ export default function RightPropertyPaneView({
       Object.entries(wallPages).forEach(([pageKey, pageWalls]) => {
         const pIdx = Number(pageKey);
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
-        allRows.push(...buildInsulationRows(pageWalls || [], pageScale, normalizeFloorLevel(pages?.[pIdx], pIdx)));
+        allRows.push(...buildInsulationRows(pageWalls || [], pageScale, floorLevelForPage(pIdx)));
       });
       setInsulationWallEntries(allRows);
 
@@ -1081,7 +1092,7 @@ export default function RightPropertyPaneView({
         const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
         if (area > 0) ceilEntries.push(buildInsulationAreaRow({
           id: `ins-ai-ceil-${pIdx}`,
-          floorLevel: normalizeFloorLevel(pages?.[pIdx], pIdx),
+          floorLevel: floorLevelForPage(pIdx),
           type: "Ceiling",
           rValue: "",
           product: "",
@@ -1113,15 +1124,15 @@ export default function RightPropertyPaneView({
       const length = Number(cadMetrics?.perimeterM || 0);
       setEavesEntries(length > 0 ? [{
         id: "eaves-ai-measured",
-        floorLevel: normalizeFloorLevel(pages?.[currentPage], currentPage),
-        level: normalizeFloorLevel(pages?.[currentPage], currentPage),
+        floorLevel: floorLevelForPage(currentPage),
+        level: floorLevelForPage(currentPage),
         width: "",
         length: Number(length.toFixed(2)),
         area: 0,
         autofill_source: "drawing",
       }] : []);
       generatedCount = length > 0 ? 1 : 0;
-      formPatch = { floor_level: normalizeFloorLevel(pages?.[currentPage], currentPage), total_eave_length: length ? String(length.toFixed(2)) : "" };
+      formPatch = { floor_level: floorLevelForPage(currentPage), total_eave_length: length ? String(length.toFixed(2)) : "" };
     } else if (normalizedModuleId === "cladding") {
       // Build one measured row per explicit exterior wall. No fake opening deduction or product.
       const extWalls = currentWalls.filter((w) => {
@@ -1145,7 +1156,7 @@ export default function RightPropertyPaneView({
         return {
           id: `clad-ai-${w.id || idx}`,
           wallId: w.id,
-          floorLevel: normalizeFloorLevel(pages?.[currentPage], currentPage),
+          floorLevel: floorLevelForPage(currentPage),
           elevation: String(w.elevation || w.label || `Exterior wall ${idx + 1}`),
           height: height || "",
           length: lenMm || "",
@@ -1160,12 +1171,12 @@ export default function RightPropertyPaneView({
       }).filter((row) => row.length);
       setCladdingWallEntries(rows);
       generatedCount = rows.length;
-      formPatch = { floor_level: normalizeFloorLevel(pages?.[currentPage], currentPage) };
+      formPatch = { floor_level: floorLevelForPage(currentPage) };
     } else if (normalizedModuleId === "timber_posts") {
       // Posts cannot be inferred safely from generic wall geometry. Use only explicit post objects.
       const explicitPosts = (cadMetrics?.posts || cadMetrics?.timberPosts || []).map((p, idx) => ({
         id: `post-ai-${p.id || idx}`,
-        floorLevel: p.floorLevel || normalizeFloorLevel(pages?.[currentPage], currentPage),
+        floorLevel: p.floorLevel || floorLevelForPage(currentPage),
         postType: p.postType || p.type || "Please Select",
         postHeight: p.postHeight || p.height || "",
         postSize: p.postSize || p.size || "Please Select",
@@ -1180,7 +1191,7 @@ export default function RightPropertyPaneView({
       // Only consume explicitly detected/entered structural brace geometry.
       const braces = (cadMetrics?.powerTrussBraces || cadMetrics?.braces || []).map((b, idx) => ({
         id: `ptb-ai-${b.id || idx}`,
-        floorLevel: b.floorLevel || normalizeFloorLevel(pages?.[currentPage], currentPage),
+        floorLevel: b.floorLevel || floorLevelForPage(currentPage),
         wallHeight: String(b.wallHeight || b.wall_height || b.height || ""),
         length: String(b.length || b.length_mm || ""),
         type: b.type === "Brace" ? "Brace" : "Column",
