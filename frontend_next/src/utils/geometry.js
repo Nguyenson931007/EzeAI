@@ -60,153 +60,82 @@ export function getWallType(w) {
 }
 
 /**
- * Kiểm tra và gán class exterior_wall cho tường nếu 2 đầu mút (hoặc 2 điểm tiếp xúc) chạm vào điểm cuối của các tường exterior.
- * Quy tắc: Khi một tường tiếp xúc với các tường ext (ở điểm cuối hoặc cắt qua điểm cuối của tường ext), 
- * đoạn tường nằm giữa 2 điểm tiếp xúc của 2 tường ext sẽ được tách ra và thuộc external wall.
+ * Legacy compatibility hook. Semantic wall class is supplied by the backend's
+ * building-envelope analysis (or an explicit user edit), never endpoint contact.
  */
 export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
-  if (!Array.isArray(walls) || walls.length === 0) return walls;
+  // Compatibility no-op.  Exterior/interior is a building-envelope decision
+  // made by the backend.  Endpoint proximity is not semantic evidence: an
+  // interior partition can touch the facade at both ends.  The previous code
+  // split that partition into extra pieces and promoted its middle to exterior,
+  // which reintroduced mixed classes and small "whisker" walls during every
+  // polygon/render recalculation.
+  void snapThresh;
+  return walls;
+}
 
-  // 1. Thu thập tất cả các điểm cuối của tường exterior_wall
-  const extEndpoints = [];
-  walls.forEach(w => {
-    const cls = getWallClass(w);
-    if (cls === "exterior_wall" && w.centerline && w.centerline.length === 2) {
-      const lvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
-      extEndpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id, level: lvl });
-      extEndpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id, level: lvl });
-    }
-  });
+/**
+ * Remove duplicate AI centerlines without collapsing legitimate nearby walls.
+ * A pair is considered duplicate only when it is almost exactly parallel,
+ * lies on the same axis, and overlaps most of the shorter segment.
+ */
+export function dedupeDetectedWallCenterlines(walls) {
+  if (!Array.isArray(walls) || walls.length < 2) return walls || [];
 
-  if (extEndpoints.length === 0) return walls;
-
-  const resultWalls = [];
-
-  walls.forEach(w => {
-    // If wall has been explicitly set or modified by user, do not auto-reclassify it
-    if (w.user_modified || w.manual_type || w.is_manual || w.is_manually_set || w.locked || w.user_set_type) {
-      resultWalls.push(w);
-      return;
-    }
-
-    const cls = getWallClass(w);
-    if (cls === "exterior_wall" || !w.centerline || w.centerline.length !== 2) {
-      resultWalls.push(w);
-      return;
-    }
-
-    const x1 = w.centerline[0][0];
-    const y1 = w.centerline[0][1];
-    const x2 = w.centerline[1][0];
-    const y2 = w.centerline[1][1];
-
-    const dx = x2 - x1;
-    const dy = y2 - y1;
+  const result = [];
+  const metrics = (w) => {
+    const c = w?.centerline;
+    if (!Array.isArray(c) || c.length !== 2) return null;
+    const dx = Number(c[1]?.[0]) - Number(c[0]?.[0]);
+    const dy = Number(c[1]?.[1]) - Number(c[0]?.[1]);
     const len = Math.hypot(dx, dy);
-    if (len < 5) {
-      resultWalls.push(w);
-      return;
+    if (!Number.isFinite(len) || len < 1) return null;
+    return { p: c[0], q: c[1], dx, dy, len, ux: dx / len, uy: dy / len };
+  };
+  const quality = (w, m) => {
+    const envelope = w?.outer_envelope_classified ? 1000 : 0;
+    const ratios = Array.isArray(w?.outside_ratio_sides) ? w.outside_ratio_sides : null;
+    const semantic = ratios?.length === 2 ? Math.abs(Number(ratios[0]) - Number(ratios[1])) * 100 : 0;
+    const confidence = Number(w?.confidence || 0) * 10;
+    return envelope + semantic + confidence + m.len / 10000;
+  };
+
+  for (const candidate of walls) {
+    const cm = metrics(candidate);
+    if (!cm) {
+      result.push(candidate);
+      continue;
     }
 
-    // Tìm tất cả các điểm tiếp xúc của tường ext lên centerline của tường này
-    const touchPoints = [];
-    const curLvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+    let duplicateIndex = -1;
+    for (let i = 0; i < result.length; i++) {
+      const existing = result[i];
+      const em = metrics(existing);
+      if (!em) continue;
 
-    extEndpoints.forEach(ep => {
-      if (curLvl && ep.level && curLvl !== ep.level) return;
-      const t = ((ep.x - x1) * dx + (ep.y - y1) * dy) / (len * len);
-      if (t >= -0.05 && t <= 1.05) {
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-        const dist = Math.hypot(ep.x - projX, ep.y - projY);
-        if (dist <= snapThresh) {
-          const clampedT = Math.max(0, Math.min(1, t));
-          touchPoints.push(clampedT);
-        }
-      }
-    });
+      const dot = Math.abs(cm.ux * em.ux + cm.uy * em.uy);
+      if (dot < 0.998) continue;
 
-    if (touchPoints.length < 2) {
-      resultWalls.push(w);
-      return;
+      const d1 = Math.abs((cm.p[0] - em.p[0]) * em.uy - (cm.p[1] - em.p[1]) * em.ux);
+      const d2 = Math.abs((cm.q[0] - em.p[0]) * em.uy - (cm.q[1] - em.p[1]) * em.ux);
+      const axisTolerance = Math.max(2.5, Math.min(6, Math.min(
+        Number(candidate?.thickness_px || 20),
+        Number(existing?.thickness_px || 20)
+      ) * 0.3));
+      if (Math.max(d1, d2) > axisTolerance) continue;
+
+      const t1 = (cm.p[0] - em.p[0]) * em.ux + (cm.p[1] - em.p[1]) * em.uy;
+      const t2 = (cm.q[0] - em.p[0]) * em.ux + (cm.q[1] - em.p[1]) * em.uy;
+      const overlap = Math.max(0, Math.min(em.len, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)));
+      if (overlap / Math.min(cm.len, em.len) < 0.82) continue;
+
+      duplicateIndex = i;
+      if (quality(candidate, cm) > quality(existing, em)) result[i] = candidate;
+      break;
     }
-
-    // Sắp xếp và loại bỏ các điểm trùng lặp
-    touchPoints.sort((a, b) => a - b);
-    const uniqueT = [];
-    touchPoints.forEach(t => {
-      if (uniqueT.length === 0 || (t - uniqueT[uniqueT.length - 1]) * len > 15) {
-        uniqueT.push(t);
-      }
-    });
-
-    if (uniqueT.length < 2) {
-      resultWalls.push(w);
-      return;
-    }
-
-    const tMin = uniqueT[0];
-    const tMax = uniqueT[uniqueT.length - 1];
-
-    const thickPx = w.thickness_px || 20;
-
-    const makePoly = (pStart, pEnd) => {
-      const segDx = pEnd[0] - pStart[0];
-      const segDy = pEnd[1] - pStart[1];
-      const segLen = Math.hypot(segDx, segDy) || 1;
-      const nx = -segDy / segLen;
-      const ny = segDx / segLen;
-      const half = thickPx / 2;
-      return [
-        [pStart[0] + nx * half, pStart[1] + ny * half],
-        [pEnd[0] + nx * half, pEnd[1] + ny * half],
-        [pEnd[0] - nx * half, pEnd[1] - ny * half],
-        [pStart[0] - nx * half, pStart[1] - ny * half]
-      ];
-    };
-
-    // Đoạn 1: từ đầu tường (0) tới điểm tiếp xúc ext đầu tiên (tMin)
-    if (tMin * len >= 15) {
-      const pStart = [x1, y1];
-      const pEnd = [x1 + tMin * dx, y1 + tMin * dy];
-      resultWalls.push({
-        ...w,
-        id: `${w.id}_int1`,
-        centerline: [pStart, pEnd],
-        polygon: makePoly(pStart, pEnd)
-      });
-    }
-
-    // Đoạn 2: NỐI GIỮA 2 ĐIỂM TIẾP XÚC EXT (ĐOẠN TƯỜNG EXTERNAL MỚI!)
-    if ((tMax - tMin) * len >= 15) {
-      const pStart = [x1 + tMin * dx, y1 + tMin * dy];
-      const pEnd = [x1 + tMax * dx, y1 + tMax * dy];
-      resultWalls.push({
-        ...w,
-        id: (tMin * len < 15 && (1 - tMax) * len < 15) ? w.id : `${w.id}_ext`,
-        class_name: "exterior_wall",
-        wall_type: "ext",
-        is_ext: true,
-        is_exterior: true,
-        centerline: [pStart, pEnd],
-        polygon: makePoly(pStart, pEnd)
-      });
-    }
-
-    // Đoạn 3: từ điểm tiếp xúc ext cuối (tMax) tới hết tường (1)
-    if ((1 - tMax) * len >= 15) {
-      const pStart = [x1 + tMax * dx, y1 + tMax * dy];
-      const pEnd = [x2, y2];
-      resultWalls.push({
-        ...w,
-        id: `${w.id}_int2`,
-        centerline: [pStart, pEnd],
-        polygon: makePoly(pStart, pEnd)
-      });
-    }
-  });
-
-  return resultWalls;
+    if (duplicateIndex < 0) result.push(candidate);
+  }
+  return result;
 }
 
 /**

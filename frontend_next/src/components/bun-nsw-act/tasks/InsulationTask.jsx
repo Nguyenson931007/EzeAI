@@ -539,8 +539,10 @@ export default function InsulationTask({
 
           return {
             id: `ins-ai-${Date.now()}-${idx}`,
+            wallId: Array.isArray(r.wall_ids) && r.wall_ids.length === 1 ? r.wall_ids[0] : undefined,
+            wallIds: Array.isArray(r.wall_ids) ? r.wall_ids : [],
             floorLevel: r.floor_level || "GF",
-            type: r.wall_type,
+            type: String(r.wall_type || "").toLowerCase().includes("partial") ? "Partywall" : r.wall_type,
             height: r.wall_height,
             length: r.wall_length,
             raked: rakedArea,
@@ -548,7 +550,8 @@ export default function InsulationTask({
             rValue: rVal,
             product: prod,
             insulationArea: Number(netArea.toFixed(2)),
-            totalArea: Number(netArea.toFixed(2))
+            totalArea: Number(netArea.toFixed(2)),
+            autofill_source: "drawing",
           };
         });
 

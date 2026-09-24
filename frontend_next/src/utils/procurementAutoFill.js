@@ -41,14 +41,18 @@ export const normalizeFloorLevel = (page, index = 0) => {
 export { getArchitecturalPageIndices, buildArchitecturalFloorLevelMap };
 
 export const wallLengthMm = (wall, scale = 1) => {
+  const c = wall?.centerline;
+  // The live centerline is canonical. Cached length_m/length_mm values can be
+  // stale after a drag, endpoint edit or undo/redo operation.
+  if (Array.isArray(c) && c.length === 2) {
+    const p = (pt, i) => Array.isArray(pt) ? Number(pt[i] || 0) : Number(i === 0 ? pt?.x : pt?.y) || 0;
+    const px = Math.hypot(p(c[1], 0) - p(c[0], 0), p(c[1], 1) - p(c[0], 1));
+    const s = finite(scale) > 0 ? Number(scale) : 1;
+    if (px > 0) return Math.round(s < 0.5 ? px * s * 1000 : px * s);
+  }
   if (finite(wall?.length_m) > 0) return Math.round(Number(wall.length_m) * 1000);
   if (finite(wall?.length_mm) > 0) return Math.round(Number(wall.length_mm));
-  const c = wall?.centerline;
-  if (!Array.isArray(c) || c.length !== 2) return 0;
-  const p = (pt, i) => Array.isArray(pt) ? Number(pt[i] || 0) : Number(i === 0 ? pt?.x : pt?.y) || 0;
-  const px = Math.hypot(p(c[1], 0) - p(c[0], 0), p(c[1], 1) - p(c[0], 1));
-  const s = finite(scale) > 0 ? Number(scale) : 1;
-  return Math.round(s < 0.5 ? px * s * 1000 : px * s);
+  return 0;
 };
 
 const polygonAreaPx = (pts = []) => {
@@ -211,10 +215,11 @@ export const buildFlooringRows = (rooms = [], scale = 1, floorLevel = "GF") => r
   };
 }).filter(Boolean);
 
-export const buildInsulationAreaRow = ({ id, floorLevel = "GF", type = "Ceiling", rValue = "", product = "", areaM2 = 0 }) => {
+export const buildInsulationAreaRow = ({ id, roomIds = [], floorLevel = "GF", type = "Ceiling", rValue = "", product = "", areaM2 = 0 }) => {
   const normalizedArea = Number(finite(areaM2).toFixed(2));
   return {
     id,
+    roomIds: (roomIds || []).filter(Boolean),
     floorLevel,
     type,
     location: type === "Ceiling" ? "Ceiling / Roof Space" : type,
@@ -233,7 +238,11 @@ export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") =>
   walls.forEach((w) => {
     const cls = lower(w?.class_name || w?.wall_type);
     if (!cls) return;
-    const type = cls.includes("exterior") || cls === "ext" ? "Ext wall" : (cls.includes("interior") || cls === "int" ? "Int wall" : "");
+    const type = cls.includes("exterior") || cls === "ext"
+      ? "Ext wall"
+      : (cls.includes("partition") || cls === "part" || cls.includes("party"))
+        ? "Partywall"
+        : (cls.includes("interior") || cls === "int") ? "Int wall" : "";
     if (!type) return;
     const length = wallLengthMm(w, scale);
     if (!length) return;
@@ -307,7 +316,15 @@ export const buildShelvingRows = (rooms = []) => {
     const type = /robe|wir|wardrobe/.test(name) ? "Robe" : (/linen/.test(name) ? "Linen" : "");
     const size = text(r?.shelf_size || r?.shelving_size);
     if (!type || !size) return [];
-    return [{ id: `shelf-ai-${r?.id ?? idx}`, type, size, qty: Math.max(1, finite(r?.shelf_qty) || 1), autofill_source: "drawing" }];
+    return [{
+      id: `shelf-ai-${r?.id ?? idx}`,
+      roomId: r?.id,
+      roomIds: r?.id ? [r.id] : [],
+      type,
+      size,
+      qty: Math.max(1, finite(r?.shelf_qty) || 1),
+      autofill_source: "drawing",
+    }];
   });
 };
 

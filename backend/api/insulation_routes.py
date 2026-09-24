@@ -401,6 +401,7 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
             "wall_length": 0.0,
             "total_area_raked": 0.0,
             "total_area_door": 0.0,
+            "wall_ids": [],
             "page_groups": defaultdict(lambda: {
                 "wall_length": 0.0,
                 "total_area_raked": 0.0,
@@ -452,6 +453,8 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
             groups[key]["wall_length"] += length_mm
             groups[key]["total_area_raked"] += total_area_raked
             groups[key]["total_area_door"] += s_door
+            if w.id is not None:
+                groups[key]["wall_ids"].append(w.id)
 
             # Track page/floor breakdown
             pg = groups[key]["page_groups"][page_name]
@@ -479,6 +482,7 @@ async def calculate_insulation(payload: CalculateInsulationPayload):
                 "wall_length": round(vals["wall_length"], 4),
                 "total_area_raked": round(vals["total_area_raked"], 2),
                 "total_area_door": round(vals["total_area_door"], 2),
+                "wall_ids": vals["wall_ids"],
                 "page_breakdown": page_breakdown
             })
 

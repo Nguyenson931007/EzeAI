@@ -94,8 +94,10 @@ import {
   buildShelvingRows,
   buildFinalFitPatch,
   roomAreaM2,
+  wallLengthMm,
 } from "@/utils/procurementAutoFill";
 import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
+import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
 
 function getPlanObjectBounds(objects = []) {
   const points = [];
@@ -400,7 +402,46 @@ export default function RightPropertyPaneView({
   const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : (pagesContext || []);
   const setPages = setPagesProp || setPagesContext;
   const effectiveWallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : (wallsByPageCtx || {});
+  const effectiveDoorsByPage = (doorsByPageCtx && Object.keys(doorsByPageCtx).length > 0) ? doorsByPageCtx : (doorsByPageProp || {});
   const effectiveScalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : (scalesByPageCtx || {});
+
+  // All task forms commit linked rows back to the same canonical plan maps.
+  // The wallId/doorId/roomId relation is the shared contract; unlinked manual
+  // Procurement rows remain task-only and cannot accidentally mutate geometry.
+  const commitTaskRowsToPlan = React.useCallback((taskId, rows) => {
+    if (!Array.isArray(rows)) return;
+    if (setWallsByPageCtx) {
+      setWallsByPageCtx((prev) => applyTaskRowsToPlan({
+        taskId,
+        rows,
+        wallsByPage: prev || {},
+        doorsByPage: {},
+        roomsByPage: {},
+      }).wallsByPage);
+    }
+    if (setDoorsByPageCtx) {
+      setDoorsByPageCtx((prev) => applyTaskRowsToPlan({
+        taskId,
+        rows,
+        wallsByPage: {},
+        doorsByPage: prev || {},
+        roomsByPage: {},
+      }).doorsByPage);
+    }
+    if (setRoomsByPage) {
+      setRoomsByPage((prev) => applyTaskRowsToPlan({
+        taskId,
+        rows,
+        wallsByPage: {},
+        doorsByPage: {},
+        roomsByPage: prev || {},
+      }).roomsByPage);
+    }
+  }, [setWallsByPageCtx, setDoorsByPageCtx, setRoomsByPage]);
+
+  const queueTaskRowsToPlan = React.useCallback((taskId, rows) => {
+    Promise.resolve().then(() => commitTaskRowsToPlan(taskId, rows));
+  }, [commitTaskRowsToPlan]);
   const floorLevelByPage = React.useMemo(() => buildArchitecturalFloorLevelMap(pages), [pages]);
   const floorLevelForPage = React.useCallback((pageIndex) => (
     floorLevelByPage.get(Number(pageIndex)) || resolvePageFloorLevel(pages, Number(pageIndex))
@@ -1132,6 +1173,7 @@ export default function RightPropertyPaneView({
         const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
         if (area > 0) ceilEntries.push(buildInsulationAreaRow({
           id: `ins-ai-ceil-${pIdx}`,
+          roomIds: (pageRooms || []).map((room) => room?.id).filter(Boolean),
           floorLevel: floorLevelForPage(pIdx),
           type: "Ceiling",
           rValue: "",
@@ -2044,6 +2086,7 @@ export default function RightPropertyPaneView({
   const handleSetFrameWallEntries = React.useCallback((actionOrEntries) => {
     setFrameWallEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("frame_hardware", next);
 
       setTimeout(() => {
         if (Array.isArray(next) && next.length > 0) {
@@ -2080,7 +2123,7 @@ export default function RightPropertyPaneView({
 
       return next;
     });
-  }, [selectedWallIds, selectedWall, updateWallsProperty]);
+  }, [selectedWallIds, selectedWall, updateWallsProperty, queueTaskRowsToPlan]);
 
   // Note: Frame Hardware wall calculation is managed in FrameHardwareTask with full multi-page & load-bearing support
 
@@ -2092,6 +2135,7 @@ export default function RightPropertyPaneView({
   const handleSetFlooringEntries = React.useCallback((actionOrEntries) => {
     setFlooringEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("flooring_decking", next);
 
       setTimeout(() => {
         if (Array.isArray(next) && next.length > 0) {
@@ -2119,12 +2163,15 @@ export default function RightPropertyPaneView({
 
       return next;
     });
-  }, [selectedRoomIds, selectedRoom]);
+  }, [selectedRoomIds, selectedRoom, queueTaskRowsToPlan]);
 
   const handleSetHebelFlooringEntries = React.useCallback((actionOrEntries) => {
-    setHebelFlooringEntries(actionOrEntries);
-    handleSetFlooringEntries(actionOrEntries);
-  }, [handleSetFlooringEntries]);
+    setHebelFlooringEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("hebel_flooring", next);
+      return next;
+    });
+  }, [queueTaskRowsToPlan]);
 
   // When on Flooring or Hebel Flooring task: if rooms are selected -> calculate selected rooms; if clicked outside -> calculate FULL FLOOR
   React.useEffect(() => {
@@ -2267,6 +2314,7 @@ export default function RightPropertyPaneView({
   const handleSetInsulationWallEntries = React.useCallback((actionOrEntries) => {
     setInsulationWallEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("insulation", next);
       setTimeout(() => {
         if (Array.isArray(next) && next.length > 0) {
           const newOverrides = {};
@@ -2295,11 +2343,12 @@ export default function RightPropertyPaneView({
       }, 0);
       return next;
     });
-  }, [selectedWallIds, selectedWall]);
+  }, [selectedWallIds, selectedWall, queueTaskRowsToPlan]);
 
   const handleSetInsulationAreaEntries = React.useCallback((actionOrEntries) => {
     setInsulationAreaEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("insulation_area", next);
       setTimeout(() => {
         if (Array.isArray(next) && next.length > 0) {
           const newOverrides = {};
@@ -2325,7 +2374,7 @@ export default function RightPropertyPaneView({
       }, 0);
       return next;
     });
-  }, [selectedRoomIds, selectedRoom]);
+  }, [selectedRoomIds, selectedRoom, queueTaskRowsToPlan]);
 
   // Listen for sync events from Floor & Ceiling Workspace
   React.useEffect(() => {
@@ -2396,7 +2445,8 @@ export default function RightPropertyPaneView({
 
           const wCls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.wall_type || "interior_wall");
           const isExt = wCls === "exterior_wall";
-          const type = override.type || (isExt ? "Ext wall" : "Int wall");
+          const isParty = String(wCls).includes("partition") || String(wCls).includes("party") || wCls === "part";
+          const type = override.type || (isExt ? "Ext wall" : (isParty ? "Partywall" : "Int wall"));
           const rValue = override.rValue || (isExt ? "R2.5" : "R2.0");
           const h = Number(override.height || w.height_mm || w.height || 2400);
           const prodCode = override.productCode || (isExt ? "0810602" : "0810608");
@@ -2438,7 +2488,8 @@ export default function RightPropertyPaneView({
             raked: 0,
             door: 0,
             insulationArea: areaM2,
-            netArea: areaM2
+            netArea: areaM2,
+            autofill_source: "drawing",
           });
         });
 
@@ -2706,12 +2757,17 @@ export default function RightPropertyPaneView({
 
           return {
             id: `flr-ai-${r.id || idx}-${Date.now()}`,
+            roomId: r.id,
+            roomIds: r.id ? [r.id] : [],
             level: "Ground Floor GF",
             room: roomName,
             type: r.floor_type || flType,
             area: `${areaNum} mÂ²`,
             waste: "10%",
-            totalArea: `${Number((areaNum * 1.1).toFixed(2))} mÂ²`
+            totalArea: `${Number((areaNum * 1.1).toFixed(2))} mÂ²`,
+            areaM2: areaNum,
+            totalM2: areaNum,
+            autofill_source: "drawing",
           };
         });
         setFlooringEntries(generated);
@@ -2754,6 +2810,7 @@ export default function RightPropertyPaneView({
 
           return {
             id: `lck-ai-${d.id || idx}-${Date.now()}`,
+            doorId: d.doorId || d.door_id || d.id,
             // NSW ACT columns
             category: isExt ? "Prehung" : (isLoose ? "Loose Jamb" : (d.category || "Prehung")),
             location: isExt ? "External" : "Internal",
@@ -2773,13 +2830,15 @@ export default function RightPropertyPaneView({
             doorLabel: dLabel,
             configuration: isExt ? "Single Leaf External Entry" : "Single Swing Internal",
             frameMaterial: d.jamb_or_wall || "90mm Timber Stud Frame",
-            weatherstrip: isExt ? "Raven RP4 Door Bottom Seal" : "Internal Draught Strip"
+            weatherstrip: isExt ? "Raven RP4 Door Bottom Seal" : "Internal Draught Strip",
+            autofill_source: "drawing",
           };
         });
 
         setLockupEntries(generated);
         setFixoutDoorEntries(generated.map(g => ({
           id: `fix-${g.id}`,
+          doorId: g.doorId,
           category: g.category === "Cavity" ? "cavity" : (g.mode === "Loose" ? "loose-jamb" : "prehung"),
           door_label: g.doorLabel || g.door || "",
           door_type: g.product || g.type || "ASC",
@@ -2794,7 +2853,8 @@ export default function RightPropertyPaneView({
           finish: g.color || "CHR",
           door_furniture: "passage",
           door_stop: g.stop || "cushion",
-          qty: g.qty || 1
+          qty: g.qty || 1,
+          autofill_source: "drawing",
         })));
       }
 
@@ -2838,6 +2898,8 @@ export default function RightPropertyPaneView({
           const netA = Math.max(0, ((r.wall_height || 2700) / 1000) * ((r.wall_length || 0) / 1000) + (r.total_area_raked || 0) - (r.total_area_door || 0));
           return {
             id: `ins-w-ai-${Date.now()}-${idx}`,
+            wallId: r.wallId || r.wall_id || r.id,
+            wallIds: (r.wallId || r.wall_id || r.id) ? [r.wallId || r.wall_id || r.id] : [],
             type: isExt ? "external" : "internal",
             rValue: isExt ? "R2.5" : "R2.0",
             productCode: isExt ? "0810610" : "0810608",
@@ -2846,7 +2908,8 @@ export default function RightPropertyPaneView({
             length: r.wall_length || 0,
             rakedArea: r.total_area_raked || 0,
             doorArea: r.total_area_door || 0,
-            netArea: Number(netA.toFixed(2))
+            netArea: Number(netA.toFixed(2)),
+            autofill_source: "drawing",
           };
         });
         setInsulationWallEntries(wallRows);
@@ -2954,9 +3017,10 @@ export default function RightPropertyPaneView({
   const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
     setLockupEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("lock_up", next);
       return next;
     });
-  }, []);
+  }, [queueTaskRowsToPlan]);
 
   // When on Lockup task: dynamic door calculation and bidirectional synchronization with canvas selection
   React.useEffect(() => {
@@ -3082,8 +3146,228 @@ export default function RightPropertyPaneView({
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [hardiesFireWallEntries, setHardiesFireWallEntries] = React.useState([]);
   const handleSetHardiesFireWallEntries = React.useCallback((actionOrEntries) => {
-    setHardiesFireWallEntries(prev => (typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries));
-  }, []);
+    setHardiesFireWallEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("hardies_fire_walls", next);
+      return next;
+    });
+  }, [queueTaskRowsToPlan]);
+
+  const handleSetCladdingWallEntries = React.useCallback((actionOrEntries) => {
+    setCladdingWallEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("cladding", next);
+      return next;
+    });
+  }, [queueTaskRowsToPlan]);
+
+  const handleSetFixoutDoorEntries = React.useCallback((actionOrEntries) => {
+    setFixoutDoorEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("fixout", next);
+      return next;
+    });
+  }, [queueTaskRowsToPlan]);
+
+  const handleSetShelvingEntries = React.useCallback((actionOrEntries) => {
+    setShelvingEntries(prev => {
+      const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
+      queueTaskRowsToPlan("shelving", next);
+      return next;
+    });
+  }, [queueTaskRowsToPlan]);
+
+  // Plan geometry is the source of truth. Every plan snapshot (including a
+  // manual draw, delete, Ctrl+Z and Ctrl+Y) is reconciled into task rows. Raw
+  // setters are used so a plan-originated refresh cannot bounce back into the
+  // plan and create an update loop.
+  const planDataRevision = React.useMemo(() => JSON.stringify({
+    walls: Object.entries(effectiveWallsByPage || {}).map(([page, items]) => [page, (items || []).map((item) => [
+      item?.id, item?.centerline, item?.class_name, item?.wall_type, item?.height_mm ?? item?.height,
+      item?.is_lbw, item?.fire_wall_system, item?.lining_spec,
+    ])]),
+    doors: Object.entries(effectiveDoorsByPage || {}).map(([page, items]) => [page, (items || []).map((item) => [
+      item?.id, item?.points, item?.width_mm ?? item?.width, item?.height_mm ?? item?.height,
+      item?.door_type, item?.scope, item?.location,
+    ])]),
+    rooms: Object.entries(roomsByPageProp || {}).map(([page, items]) => [page, (items || []).map((item) => [
+      item?.id, item?.polygon, item?.areaM2 ?? item?.area_m2 ?? item?.area, item?.type,
+      item?.room_name ?? item?.name,
+    ])]),
+    scales: effectiveScalesByPage,
+  }), [effectiveWallsByPage, effectiveDoorsByPage, roomsByPageProp, effectiveScalesByPage]);
+  const previousPlanDataRevisionRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const previousRevision = previousPlanDataRevisionRef.current;
+    const planChanged = previousRevision !== null && previousRevision !== planDataRevision;
+    previousPlanDataRevisionRef.current = planDataRevision;
+    const fallbackScale = (realScale && realScale > 0) ? realScale : ((scaleValue && scaleValue > 0) ? scaleValue : 1);
+    const planRoomsByPage = roomsByPageProp || {};
+
+    const wallPages = {};
+    Object.entries(effectiveWallsByPage || {}).forEach(([pageKey, pageWalls]) => {
+      wallPages[pageKey] = (pageWalls || []).filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks);
+    });
+
+    const allDoors = Object.entries(effectiveDoorsByPage || {}).flatMap(([pageKey, pageDoors]) => {
+      const pageIndex = Number(pageKey);
+      return (pageDoors || []).map((door) => ({
+        ...door,
+        __sourcePageIndex: pageIndex,
+        __floorLevel: resolveObjectFloorLevel(door, pages, pageIndex),
+      }));
+    });
+    const allRooms = Object.entries(planRoomsByPage).flatMap(([pageKey, pageRooms]) => {
+      const pageIndex = Number(pageKey);
+      return (pageRooms || []).map((room) => ({
+        ...room,
+        __sourcePageIndex: pageIndex,
+        __floorLevel: resolveObjectFloorLevel(room, pages, pageIndex),
+      }));
+    });
+
+    const insulationRows = [];
+    const insulationAreaRows = [];
+    const flooringRows = [];
+    Object.entries(wallPages).forEach(([pageKey, pageWalls]) => {
+      const pageIndex = Number(pageKey);
+      const pageScale = Number(effectiveScalesByPage?.[pageIndex]) > 0 ? Number(effectiveScalesByPage[pageIndex]) : fallbackScale;
+      buildInsulationRows(pageWalls || [], pageScale, floorLevelForPage(pageIndex)).forEach((row, index) => {
+        insulationRows.push({ ...row, id: `ins-ai-${pageIndex}-${index}`, sourcePageIndex: pageIndex });
+      });
+    });
+    Object.entries(planRoomsByPage).forEach(([pageKey, pageRooms]) => {
+      const pageIndex = Number(pageKey);
+      const pageScale = Number(effectiveScalesByPage?.[pageIndex]) > 0 ? Number(effectiveScalesByPage[pageIndex]) : fallbackScale;
+      flooringRows.push(...buildFlooringRows(pageRooms || [], pageScale, floorLevelForPage(pageIndex)).map((row) => ({ ...row, sourcePageIndex: pageIndex })));
+      const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
+      if (area > 0) insulationAreaRows.push(buildInsulationAreaRow({
+        id: `ins-ai-ceil-${pageIndex}`,
+        roomIds: (pageRooms || []).map((room) => room?.id).filter(Boolean),
+        floorLevel: floorLevelForPage(pageIndex),
+        type: "Ceiling",
+        areaM2: Number(area.toFixed(2)),
+      }));
+    });
+
+    const claddingRows = [];
+    const hardiesRows = [];
+    Object.entries(wallPages).forEach(([pageKey, pageWalls]) => {
+      const pageIndex = Number(pageKey);
+      const pageScale = Number(effectiveScalesByPage?.[pageIndex]) > 0 ? Number(effectiveScalesByPage[pageIndex]) : fallbackScale;
+      (pageWalls || []).forEach((wall, index) => {
+        const cls = String(getWallClass(wall) || "").toLowerCase();
+        const lengthMm = wallLengthMm(wall, pageScale);
+        const heightMm = Number(wall?.height_mm || wall?.height || 0);
+        if ((cls === "exterior_wall" || cls === "ext") && lengthMm > 0) {
+          const gross = heightMm > 0 ? (lengthMm / 1000) * (heightMm / 1000) : 0;
+          claddingRows.push({
+            id: `clad-ai-${wall?.id || `${pageIndex}-${index}`}`,
+            wallId: wall?.id,
+            wallIds: wall?.id ? [wall.id] : [],
+            sourcePageIndex: pageIndex,
+            floorLevel: floorLevelForPage(pageIndex),
+            elevation: String(wall?.elevation || wall?.label || `Exterior wall ${index + 1}`),
+            height: heightMm || "",
+            length: lengthMm,
+            openings: 0,
+            waste: 0,
+            grossArea: Number(gross.toFixed(2)),
+            netArea: Number(gross.toFixed(2)),
+            totalArea: Number(gross.toFixed(2)),
+            product: "",
+            autofill_source: "drawing",
+          });
+        }
+        if ((wall?.is_fire_wall || wall?.fire_wall_system || wall?.lining_spec || wall?.fire_rating) && lengthMm > 0) {
+          hardiesRows.push({
+            id: `hardies-ai-${wall?.id || `${pageIndex}-${index}`}`,
+            wallId: wall?.id,
+            wallIds: wall?.id ? [wall.id] : [],
+            sourcePageIndex: pageIndex,
+            floorLevel: floorLevelForPage(pageIndex),
+            location: wall?.location || wall?.label || `Wall ${index + 1}`,
+            length: Number((lengthMm / 1000).toFixed(3)),
+            height: Number((heightMm / 1000).toFixed(3)),
+            systemType: wall?.fire_wall_system || "",
+            liningSpec: wall?.lining_spec || "",
+            fireRating: wall?.fire_rating || "",
+            autofill_source: "drawing",
+          });
+        }
+      });
+    });
+
+    const generatedByTask = {
+      frame_hardware: buildFrameRows(wallPages, pages || [], effectiveScalesByPage || {}, fallbackScale),
+      insulation: insulationRows,
+      insulation_area: insulationAreaRows,
+      flooring_decking: flooringRows,
+      hebel_flooring: flooringRows,
+      cladding: claddingRows,
+      fixout: buildFixoutRows(allDoors),
+      lock_up: buildLockupRows(allDoors),
+      shelving: buildShelvingRows(allRooms),
+      hardies_fire_walls: hardiesRows,
+    };
+
+    const reconcileRows = (taskId, setter, clearKey = taskId) => {
+      const isManuallyCleared = Boolean(manuallyClearedTasksRef.current?.[clearKey]);
+      if (isManuallyCleared && !planChanged) return;
+      setter((previousRows) => {
+        const legacyLinked = taskId === "insulation"
+          ? linkLegacyInsulationRows(previousRows, generatedByTask[taskId])
+          : previousRows;
+        const reconciled = reconcileTaskRowsWithPlan(legacyLinked, generatedByTask[taskId]);
+        return syncTaskRowsFromPlan({
+          taskId,
+          rows: reconciled,
+          wallsByPage: wallPages,
+          doorsByPage: effectiveDoorsByPage,
+          roomsByPage: planRoomsByPage,
+          scalesByPage: effectiveScalesByPage,
+          fallbackScale,
+        });
+      });
+    };
+
+    reconcileRows("frame_hardware", setFrameWallEntries);
+    reconcileRows("insulation", setInsulationWallEntries);
+    reconcileRows("insulation_area", setInsulationAreaEntries, "insulation");
+    reconcileRows("flooring_decking", setFlooringEntries);
+    reconcileRows("hebel_flooring", setHebelFlooringEntries);
+    reconcileRows("cladding", setCladdingWallEntries);
+    reconcileRows("fixout", setFixoutDoorEntries);
+    reconcileRows("lock_up", setLockupEntries);
+    reconcileRows("shelving", setShelvingEntries);
+    reconcileRows("hardies_fire_walls", setHardiesFireWallEntries);
+
+    if (planChanged && Object.keys(manuallyClearedTasksRef.current || {}).length) {
+      manuallyClearedTasksRef.current = {};
+      setManuallyClearedTasks({});
+    }
+  }, [
+    planDataRevision,
+    effectiveWallsByPage,
+    effectiveDoorsByPage,
+    roomsByPageProp,
+    effectiveScalesByPage,
+    realScale,
+    scaleValue,
+    pages,
+    floorLevelForPage,
+    frameWallEntries,
+    insulationWallEntries,
+    insulationAreaEntries,
+    flooringEntries,
+    hebelFlooringEntries,
+    claddingWallEntries,
+    fixoutDoorEntries,
+    lockupEntries,
+    shelvingEntries,
+    hardiesFireWallEntries,
+  ]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
   const [lckReveal, setLckReveal] = React.useState("100mm Timber Reveal");
@@ -3895,6 +4179,55 @@ export default function RightPropertyPaneView({
     };
   }, [walls, doors, rooms, realScale, roofsByPage, currentPage]);
 
+  // Auto Fill is only an initializer. Once a drawing-derived task row exists,
+  // keep its aggregate fields live as the canonical plan changes.
+  React.useEffect(() => {
+    const measuredEaves = Number(cadMetrics?.perimeterM || 0);
+    setEavesEntries((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const hasDrawingRow = list.some((row) => row?.id === "eaves-ai-measured" || String(row?.autofill_source || "").includes("drawing"));
+      if (!hasDrawingRow) return prev;
+      const next = list.flatMap((row) => {
+        const isDrawing = row?.id === "eaves-ai-measured" || String(row?.autofill_source || "").includes("drawing");
+        if (!isDrawing) return [row];
+        if (!(measuredEaves > 0)) return [];
+        if (Number(row?.length || 0) === Number(measuredEaves.toFixed(2))) return [row];
+        return [{ ...row, length: Number(measuredEaves.toFixed(2)), autofill_source: "drawing" }];
+      });
+      return JSON.stringify(next) === JSON.stringify(list) ? prev : next;
+    });
+
+    const allRooms = roomsByPageProp && Object.keys(roomsByPageProp).length
+      ? Object.values(roomsByPageProp).flat()
+      : (rooms || []);
+    const wetRooms = allRooms.filter((room) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['’]?dry|shower/i.test(String(room?.room_name || room?.name || room?.label || ""))).length;
+    const doorPatch = buildFinalFitPatch(Object.values(effectiveDoorsByPage || {}).flat());
+    const sheetArea = Number(cadMetrics?.grandTotalArea || 0);
+
+    setModuleFormData((prev) => {
+      const next = {
+        ...prev,
+        eaves_soffit: {
+          ...(prev.eaves_soffit || {}),
+          total_eave_length: measuredEaves > 0 ? String(measuredEaves.toFixed(2)) : "",
+        },
+        fow_plumbing: {
+          ...(prev.fow_plumbing || {}),
+          detected_wet_rooms: String(wetRooms),
+        },
+        final_fit: {
+          ...(prev.final_fit || {}),
+          ...doorPatch,
+        },
+        sheet_schedule: {
+          ...(prev.sheet_schedule || {}),
+          total_area: sheetArea > 0 ? sheetArea.toFixed(2) : "",
+        },
+      };
+      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+    });
+  }, [cadMetrics, effectiveDoorsByPage, roomsByPageProp, rooms]);
+
   return (
     <div
       className="cad-panel"
@@ -4453,7 +4786,7 @@ export default function RightPropertyPaneView({
           eavesEntries={eavesEntries}
           setEavesEntries={setEavesEntries}
           claddingWallEntries={claddingWallEntries}
-          setCladdingWallEntries={setCladdingWallEntries}
+          setCladdingWallEntries={handleSetCladdingWallEntries}
           insulationWallEntries={insulationWallEntries}
           handleSetInsulationWallEntries={handleSetInsulationWallEntries}
           insulationAreaEntries={insulationAreaEntries}
@@ -4465,9 +4798,9 @@ export default function RightPropertyPaneView({
           timberPostEntries={timberPostEntries}
           setTimberPostEntries={setTimberPostEntries}
           fixoutDoorEntries={fixoutDoorEntries}
-          setFixoutDoorEntries={setFixoutDoorEntries}
+          setFixoutDoorEntries={handleSetFixoutDoorEntries}
           shelvingEntries={shelvingEntries}
-          setShelvingEntries={setShelvingEntries}
+          setShelvingEntries={handleSetShelvingEntries}
           fowPlumbingEntries={fowPlumbingEntries}
           setFowPlumbingEntries={setFowPlumbingEntries}
           powerTrussEntries={powerTrussEntries}

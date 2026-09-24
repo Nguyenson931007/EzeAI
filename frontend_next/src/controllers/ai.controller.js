@@ -7,7 +7,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ApiService } from "@/models/api.service";
-import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, isWindowOnWall, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType } from "@/utils/geometry";
+import { centroid, doorLength, doorBbox, overlapsWithAnyDoor, cutWallsByDoors, extractRoomsFromWallTopology, snapRoomPolygonToWalls, mergeCollinearWalls, snapDoorToWalls, isWindowOnWall, distancePointToSegment, recalculateAllWallsPolygons, getWallClass, getWallType, dedupeDetectedWallCenterlines } from "@/utils/geometry";
 import { useAIConfigStore } from "@/store/useAIConfigStore";
 import { migrateLegacyDoor, findParentWall } from "@/models/DoorTypeRegistry";
 import { useAppModel } from "@/models/app.context";
@@ -995,6 +995,7 @@ export const useAIController = (
           const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
           const thickness_px = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
           return {
+            ...w,
             id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
             centerline: w.centerline ? w.centerline.map(pt => [pt[0] + pdfOffset.x, pt[1] + pdfOffset.y]) : null,
             polygon: w.polygon ? w.polygon.map(pt => [pt[0] + pdfOffset.x, pt[1] + pdfOffset.y]) : null,
@@ -1026,11 +1027,12 @@ export const useAIController = (
             );
 
         if (applyGemini) {
+          const uniqueDetectedWalls = dedupeDetectedWallCenterlines(detectedWalls);
           setWallsByPage(prev => ({
             ...prev,
-            [currentPage]: recalculateAllWallsPolygons(detectedWalls)
+            [currentPage]: recalculateAllWallsPolygons(uniqueDetectedWalls)
           }));
-          setCacheStatus(`Gemini applied ${detectedWalls.length} walls`);
+          setCacheStatus(`Gemini applied ${uniqueDetectedWalls.length} walls`);
         } else {
           setCacheStatus(`Gemini result discarded (${detectedWalls.length} walls)`);
         }
@@ -1081,6 +1083,7 @@ export const useAIController = (
                 pt[1] + pdfOffset.y
               ]) : null;
               return {
+                ...w,
                 id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                 centerline: shiftedCenterline,
                 polygon: shiftedPoly,
@@ -1100,7 +1103,7 @@ export const useAIController = (
             const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
-            const allWalls = [...existingWallsSnapshot, ...cleanWalls];
+            const allWalls = dedupeDetectedWallCenterlines([...existingWallsSnapshot, ...cleanWalls]);
             const mergedWalls = mergeCollinearWalls(allWalls);
 
             // Snap existing doors to the newly detected merged walls!
@@ -1719,6 +1722,7 @@ export const useAIController = (
               pt[1] + pdfOffset.y
             ]) : null;
             return {
+              ...w,
               id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
               centerline: shiftedCenterline,
               polygon: shiftedPoly,
@@ -1743,7 +1747,7 @@ export const useAIController = (
 
           // Merge with existing walls if not clearing
           const existingWalls = clearExisting ? [] : ((wallsByPageRef.current && wallsByPageRef.current[currentPage]) || []);
-          const allWalls = [...existingWalls, ...cleanWalls];
+          const allWalls = dedupeDetectedWallCenterlines([...existingWalls, ...cleanWalls]);
           const mergedWalls = mergeCollinearWalls(allWalls);
 
           // Snap doors to the newly detected merged walls!
