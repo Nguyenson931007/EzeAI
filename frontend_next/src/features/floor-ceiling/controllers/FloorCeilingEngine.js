@@ -254,7 +254,9 @@ export function createFloorCeilingWorkspace({
         sourceColor: meta.color,
         // Mark whether it is exterior or interior for floor & ceiling detection
         class_name: w.class_name || (w.is_ext ? "exterior_wall" : "interior_wall"),
-        wall_type: w.wall_type || (w.is_ext ? "exterior_wall" : "interior_wall")
+        wall_type: w.wall_type || (w.is_ext ? "exterior_wall" : "interior_wall"),
+        isFloorCeilingOnly: true,
+        excludeFromOtherTasks: true
       });
     });
   });
@@ -698,28 +700,51 @@ export function offsetPolygonOutward(pts, offsetDist) {
 /**
  * Snaps upper polygon boundary vertices and edges to lay directly over lower polygon edges
  * within snapTolerancePx. Eliminates unwanted micro-slivers and gap areas.
+ * Supports multi-loop structures seamlessly.
  */
-export function adjustUpperPolyToLowerPoly(polyUpper, polyLower, snapTolerancePx = 2.5) {
-  if (!polyUpper || polyUpper.length < 3 || !polyLower || polyLower.length < 3) {
+export function adjustUpperPolyToLowerPoly(polyUpper, polyLower, snapTolerancePx = 15) {
+  if (!polyUpper || polyUpper.length === 0 || !polyLower || polyLower.length === 0) {
     return polyUpper;
   }
 
-  const adjusted = polyUpper.map(pt => [Number(pt[0]), Number(pt[1])]);
-  const nUpper = adjusted.length;
-  const nLower = polyLower.length;
+  // If polyUpper is an array of loops, adjust each loop recursively
+  const isUpperMulti = Array.isArray(polyUpper[0]) && Array.isArray(polyUpper[0][0]);
+  if (isUpperMulti) {
+    return polyUpper.map(loop => adjustUpperPolyToLowerPoly(loop, polyLower, snapTolerancePx));
+  }
+
+  if (polyUpper.length < 3) return polyUpper;
+
+  const lowerRings = (Array.isArray(polyLower[0]) && Array.isArray(polyLower[0][0]))
+    ? polyLower
+    : [polyLower];
 
   const lowerSegments = [];
-  for (let j = 0; j < nLower; j++) {
-    const nextJ = (j + 1) % nLower;
-    const l1 = polyLower[j];
-    const l2 = polyLower[nextJ];
-    const dx = l2[0] - l1[0];
-    const dy = l2[1] - l1[1];
-    const len = Math.hypot(dx, dy);
-    if (len > 1e-4) {
-      lowerSegments.push({ l1, l2, dx, dy, len, ux: dx / len, uy: dy / len });
+  const lowerVertices = [];
+
+  lowerRings.forEach(ring => {
+    if (!ring || ring.length < 3) return;
+    const n = ring.length;
+    for (let j = 0; j < n; j++) {
+      const lp = ring[j];
+      lowerVertices.push([Number(lp[0]), Number(lp[1])]);
+
+      const nextJ = (j + 1) % n;
+      const l1 = ring[j];
+      const l2 = ring[nextJ];
+      const dx = l2[0] - l1[0];
+      const dy = l2[1] - l1[1];
+      const len = Math.hypot(dx, dy);
+      if (len > 1e-4) {
+        lowerSegments.push({ l1, l2, dx, dy, len, ux: dx / len, uy: dy / len });
+      }
     }
-  }
+  });
+
+  if (lowerVertices.length === 0) return polyUpper;
+
+  const adjusted = polyUpper.map(pt => [Number(pt[0]), Number(pt[1])]);
+  const nUpper = adjusted.length;
 
   for (let i = 0; i < nUpper; i++) {
     const pt = adjusted[i];
@@ -727,8 +752,8 @@ export function adjustUpperPolyToLowerPoly(polyUpper, polyLower, snapTolerancePx
     let snappedPt = null;
 
     // 1. Proximity to lower vertices (corner snap)
-    for (let j = 0; j < nLower; j++) {
-      const lp = polyLower[j];
+    for (let j = 0; j < lowerVertices.length; j++) {
+      const lp = lowerVertices[j];
       const dist = Math.hypot(pt[0] - lp[0], pt[1] - lp[1]);
       if (dist < bestDist) {
         bestDist = dist;
@@ -762,24 +787,230 @@ export function adjustUpperPolyToLowerPoly(polyUpper, polyLower, snapTolerancePx
 }
 
 /**
+ * Extracts all minimal enclosed planar cycles (faces) from wall segments.
+ * Splits T-junctions, merges nearby vertices, and traverses directed half-edges CCW.
+ */
+function extractPlanarCyclesFromSegments(segments, snapTol = 25) {
+  if (!segments || segments.length < 3) return [];
+
+  // Step 0: Split segments at T-junctions
+  let segs = [];
+  for (const s of segments) {
+    if (!s || s.length < 2) continue;
+    const p1 = { x: Number(s[0][0]), y: Number(s[0][1]) };
+    const p2 = { x: Number(s[1][0]), y: Number(s[1][1]) };
+    if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 5) continue;
+    segs.push({ p1, p2 });
+  }
+
+  let splitOccurred = true;
+  let iter = 0;
+  while (splitOccurred && iter < 6) {
+    splitOccurred = false;
+    iter++;
+    const nextSegs = [];
+    for (let i = 0; i < segs.length; i++) {
+      const seg = segs[i];
+      let splitPt = null;
+      for (let j = 0; j < segs.length; j++) {
+        if (i === j) continue;
+        const other = segs[j];
+        for (const ep of [other.p1, other.p2]) {
+          const d1 = Math.hypot(ep.x - seg.p1.x, ep.y - seg.p1.y);
+          const d2 = Math.hypot(ep.x - seg.p2.x, ep.y - seg.p2.y);
+          if (d1 < snapTol || d2 < snapTol) continue;
+
+          const dx = seg.p2.x - seg.p1.x;
+          const dy = seg.p2.y - seg.p1.y;
+          const lenSq = dx * dx + dy * dy;
+          if (lenSq < 1e-4) continue;
+          const t = ((ep.x - seg.p1.x) * dx + (ep.y - seg.p1.y) * dy) / lenSq;
+          if (t > 0.05 && t < 0.95) {
+            const projX = seg.p1.x + t * dx;
+            const projY = seg.p1.y + t * dy;
+            if (Math.hypot(ep.x - projX, ep.y - projY) < snapTol) {
+              splitPt = { x: projX, y: projY };
+              break;
+            }
+          }
+        }
+        if (splitPt) break;
+      }
+      if (splitPt) {
+        splitOccurred = true;
+        nextSegs.push({ p1: seg.p1, p2: splitPt });
+        nextSegs.push({ p1: splitPt, p2: seg.p2 });
+      } else {
+        nextSegs.push(seg);
+      }
+    }
+    segs = nextSegs;
+  }
+
+  // Step 1: Cluster endpoints to graph nodes
+  const nodes = [];
+  const getNode = (pt) => {
+    for (let idx = 0; idx < nodes.length; idx++) {
+      if (Math.hypot(pt.x - nodes[idx].x, pt.y - nodes[idx].y) < snapTol) {
+        return idx;
+      }
+    }
+    const newIdx = nodes.length;
+    nodes.push({ x: pt.x, y: pt.y });
+    return newIdx;
+  };
+
+  const adj = new Map();
+  const edges = [];
+
+  for (const s of segs) {
+    const u = getNode(s.p1);
+    const v = getNode(s.p2);
+    if (u === v) continue;
+
+    if (!adj.has(u)) adj.set(u, []);
+    if (!adj.has(v)) adj.set(v, []);
+
+    const angleUV = Math.atan2(nodes[v].y - nodes[u].y, nodes[v].x - nodes[u].x);
+    const angleVU = Math.atan2(nodes[u].y - nodes[v].y, nodes[u].x - nodes[v].x);
+
+    if (!adj.get(u).some(e => e.to === v)) {
+      adj.get(u).push({ to: v, angle: angleUV });
+      adj.get(v).push({ to: u, angle: angleVU });
+      edges.push({ from: u, to: v });
+    }
+  }
+
+  // Sort neighbors by angle (CCW)
+  for (const [, neighbors] of adj) {
+    neighbors.sort((a, b) => a.angle - b.angle);
+  }
+
+  // Step 2: Next-edge traversal for minimal faces
+  const usedHalfEdges = new Set();
+  const rawCycles = [];
+
+  const findNextEdge = (u, v) => {
+    const neighbors = adj.get(v);
+    if (!neighbors || neighbors.length === 0) return -1;
+    const backAngle = Math.atan2(nodes[u].y - nodes[v].y, nodes[u].x - nodes[v].x);
+
+    let bestIdx = -1;
+    let bestDelta = Infinity;
+    for (let i = 0; i < neighbors.length; i++) {
+      if (neighbors[i].to === u && neighbors.length > 1) continue;
+      let delta = neighbors[i].angle - backAngle;
+      while (delta <= 0) delta += 2 * Math.PI;
+      while (delta > 2 * Math.PI) delta -= 2 * Math.PI;
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestIdx = i;
+      }
+    }
+    return bestIdx >= 0 ? neighbors[bestIdx].to : -1;
+  };
+
+  for (const edge of edges) {
+    for (const [startU, startV] of [[edge.from, edge.to], [edge.to, edge.from]]) {
+      const key = `${startU}→${startV}`;
+      if (usedHalfEdges.has(key)) continue;
+
+      const path = [startU];
+      let u = startU;
+      let v = startV;
+      let valid = true;
+      const maxSteps = nodes.length + 5;
+      let steps = 0;
+
+      while (v !== startU && steps < maxSteps) {
+        path.push(v);
+        usedHalfEdges.add(`${u}→${v}`);
+        const nextV = findNextEdge(u, v);
+        if (nextV < 0) { valid = false; break; }
+        u = v;
+        v = nextV;
+        steps++;
+      }
+
+      if (valid && v === startU && path.length >= 3) {
+        usedHalfEdges.add(`${u}→${v}`);
+        rawCycles.push(path);
+      }
+    }
+  }
+
+  // Step 3: Deduplicate and filter out outer unbounded face
+  const seenCanonical = new Set();
+  const validLoops = [];
+
+  for (const cycle of rawCycles) {
+    const pts = cycle.map(idx => [nodes[idx].x, nodes[idx].y]);
+    let signedArea = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % pts.length];
+      signedArea += (p1[0] * p2[1] - p2[0] * p1[1]);
+    }
+    signedArea /= 2;
+
+    const absArea = Math.abs(signedArea);
+    if (absArea < 500) continue;
+
+    const minNode = Math.min(...cycle);
+    const minPos = cycle.indexOf(minNode);
+    const rotated = [...cycle.slice(minPos), ...cycle.slice(0, minPos)];
+    const key = rotated.join(',');
+    const revRotated = [rotated[0], ...rotated.slice(1).reverse()];
+    const revKey = revRotated.join(',');
+
+    if (seenCanonical.has(key) || seenCanonical.has(revKey)) continue;
+    seenCanonical.add(key);
+    seenCanonical.add(revKey);
+
+    validLoops.push({ pts, absArea, signedArea });
+  }
+
+  // If there are multiple loops, filter out outer unbounded cycle if present
+  if (validLoops.length > 1) {
+    validLoops.sort((a, b) => b.absArea - a.absArea);
+    const largest = validLoops[0];
+    const sumOthers = validLoops.slice(1).reduce((acc, l) => acc + l.absArea, 0);
+    if (Math.abs(largest.absArea - sumOthers) / largest.absArea < 0.15) {
+      validLoops.shift();
+    }
+  }
+
+  return validLoops.map(l => l.pts);
+}
+
+/**
  * Builds closed polygon loops from a list of wall segments.
  * Supports "outerline" (+half wall width) and "centerline" boundary modes.
+ * Supports multi-loop structures (e.g. main building + attached porch / extension / garage).
+ * Along shared walls, preserves main structure boundary and clips attached zones seamlessly.
  */
 export function buildPerimeterLoopsFromWalls(walls, options = {}) {
   const {
-    boundaryMode = "outerline", // "outerline" or "centerline"
+    boundaryMode = "centerline", // Default directly to centerline!
     defaultWallThicknessMm = 90,
     mmPerPx = 18.0
   } = options;
 
   if (!walls || walls.length === 0) return [];
 
-  // Filter external walls if available, otherwise take all walls
-  const extWalls = walls.filter(w => {
-    const cls = (w.class_name || w.wall_type || "").toLowerCase();
-    return cls === "exterior_wall" || cls.includes("ext") || w.is_ext;
-  });
-  const candidates = extWalls.length >= 3 ? extWalls : walls;
+  // Filter perimeter candidates: exterior walls + user-drawn walls (FC workspace or manual)
+  const isPerimeterCandidate = (w) => {
+    const cls = String(w.class_name || w.wall_type || "").toLowerCase();
+    if (cls === "exterior_wall" || cls.includes("ext") || w.is_ext) return true;
+    if (w.isFloorCeilingOnly) return true;
+    if (w.review_state === "MANUAL") return true;
+    const id = String(w.id || "");
+    if (id.startsWith("fc_w_") || id.startsWith("man_wall_")) return true;
+    return false;
+  };
+
+  const perimWalls = walls.filter(isPerimeterCandidate);
+  const candidates = perimWalls.length >= 3 ? perimWalls : walls;
 
   if (candidates.length === 0) return [];
 
@@ -793,79 +1024,120 @@ export function buildPerimeterLoopsFromWalls(walls, options = {}) {
 
   if (segments.length === 0) return [];
 
-  // Greedy chaining of endpoints
-  const loops = [];
-  const visited = new Set();
-  const tolerance = 35; // Tolerance for connecting endpoints
+  const tolerance = Math.max(15, Math.min(50, 150 / (mmPerPx || 18.0))); // 150mm scale tolerance
 
-  for (let i = 0; i < segments.length; i++) {
-    if (visited.has(i)) continue;
+  // 1. Try planar graph face traversal with half-edges
+  let loops = extractPlanarCyclesFromSegments(segments, tolerance);
 
-    visited.add(i);
-    const loop = [segments[i][0], segments[i][1]];
-    let extended = true;
+  // 2. Fallback to greedy chaining if planar cycles did not produce valid loops
+  if (!loops || loops.length === 0) {
+    const visited = new Set();
+    const greedyLoops = [];
 
-    while (extended) {
-      extended = false;
-      const tail = loop[loop.length - 1];
+    for (let i = 0; i < segments.length; i++) {
+      if (visited.has(i)) continue;
 
-      for (let j = 0; j < segments.length; j++) {
-        if (visited.has(j)) continue;
-        const [p1, p2] = segments[j];
+      visited.add(i);
+      const loop = [segments[i][0], segments[i][1]];
+      let extended = true;
 
-        const d1 = Math.hypot(p1[0] - tail[0], p1[1] - tail[1]);
-        const d2 = Math.hypot(p2[0] - tail[0], p2[1] - tail[1]);
+      while (extended) {
+        extended = false;
+        const tail = loop[loop.length - 1];
 
-        if (d1 < tolerance) {
-          loop.push(p2);
-          visited.add(j);
-          extended = true;
-          break;
-        } else if (d2 < tolerance) {
-          loop.push(p1);
-          visited.add(j);
-          extended = true;
-          break;
+        for (let j = 0; j < segments.length; j++) {
+          if (visited.has(j)) continue;
+          const [p1, p2] = segments[j];
+
+          const d1 = Math.hypot(p1[0] - tail[0], p1[1] - tail[1]);
+          const d2 = Math.hypot(p2[0] - tail[0], p2[1] - tail[1]);
+
+          if (d1 < tolerance) {
+            loop.push(p2);
+            visited.add(j);
+            extended = true;
+            break;
+          } else if (d2 < tolerance) {
+            loop.push(p1);
+            visited.add(j);
+            extended = true;
+            break;
+          }
+        }
+
+        if (loop.length >= 3) {
+          const head = loop[0];
+          const last = loop[loop.length - 1];
+          if (Math.hypot(head[0] - last[0], head[1] - last[1]) < tolerance) {
+            break;
+          }
         }
       }
 
-      // If loop connects back to start, close it
       if (loop.length >= 3) {
-        const head = loop[0];
-        const last = loop[loop.length - 1];
-        if (Math.hypot(head[0] - last[0], head[1] - last[1]) < tolerance) {
-          break;
-        }
+        greedyLoops.push(loop);
       }
     }
-
-    if (loop.length >= 3) {
-      loops.push(loop);
-    }
+    loops = greedyLoops;
   }
 
-  // Return loop with largest area
+  if (loops.length === 0) return [];
+
+  // Sort loops by area descending (loop[0] is primary / main house)
   loops.sort((a, b) => polygonAreaPx(b) - polygonAreaPx(a));
 
-  // If outerline mode is selected, offset loop outward dynamically matching each edge's individual wall thickness
+  // If outerline mode is selected, offset loops outward dynamically matching each edge's individual wall thickness
   if (boundaryMode === "outerline" && loops.length > 0) {
     const defaultThickPx = (defaultWallThicknessMm || 90) / (mmPerPx || 18.0);
-    return loops.map(loop => {
-      const ring = cleanRing(loop);
-      const n = ring.length;
-      if (n < 3) return ring;
+    const offsetLoops = [];
 
-      // Compute per-edge outward offset distance matching the actual wall of each edge
-      const edgeDistances = [];
-      for (let i = 0; i < n; i++) {
-        const p1 = ring[i];
-        const p2 = ring[(i + 1) % n];
+    // Loop 0 (Main house)
+    const ring0 = cleanRing(loops[0]);
+    const n0 = ring0.length;
+    const edgeDistances0 = [];
+    for (let i = 0; i < n0; i++) {
+      const p1 = ring0[i];
+      const p2 = ring0[(i + 1) % n0];
+      const halfThick = findEdgeWallThicknessPx(p1, p2, candidates, mmPerPx, defaultThickPx);
+      edgeDistances0.push(halfThick);
+    }
+    const poly0Outward = offsetPolygonOutward(ring0, edgeDistances0);
+    offsetLoops.push(poly0Outward);
+
+    // Loop 1..k (Secondary attached / extension loops, e.g. Porch)
+    // Offset outward, then subtract loop 0 so shared boundary along W-15 stops at outer face of W-15!
+    for (let k = 1; k < loops.length; k++) {
+      const ringK = cleanRing(loops[k]);
+      const nK = ringK.length;
+      const edgeDistancesK = [];
+      for (let i = 0; i < nK; i++) {
+        const p1 = ringK[i];
+        const p2 = ringK[(i + 1) % nK];
         const halfThick = findEdgeWallThicknessPx(p1, p2, candidates, mmPerPx, defaultThickPx);
-        edgeDistances.push(halfThick);
+        edgeDistancesK.push(halfThick);
       }
+      const polyKOutward = offsetPolygonOutward(ringK, edgeDistancesK);
 
-      return offsetPolygonOutward(ring, edgeDistances);
-    });
+      const pcK = toPcPolygon(polyKOutward);
+      const pc0 = toPcPolygon(poly0Outward);
+
+      if (pcK && pc0) {
+        try {
+          const diff = polygonClipping.difference(pcK, pc0);
+          if (diff && diff.length > 0 && diff[0][0] && diff[0][0].length >= 3) {
+            offsetLoops.push(cleanRing(diff[0][0]));
+          } else {
+            offsetLoops.push(polyKOutward);
+          }
+        } catch (e) {
+          offsetLoops.push(polyKOutward);
+        }
+      } else {
+        offsetLoops.push(polyKOutward);
+      }
+    }
+
+    return offsetLoops;
   }
 
   return loops;
@@ -981,10 +1253,35 @@ export function computeGridBooleanAreas(poly1, poly2, voids = [], pxToMmRatio = 
 }
 
 /**
- * Converts an array of [x, y] coordinates into GeoJSON-like Polygon format for polygon-clipping:
- * [ [ [x, y], [x, y], ..., [x0, y0] ] ]
+ * Converts an array of [x, y] coordinates into GeoJSON-like Polygon or MultiPolygon format for polygon-clipping:
+ * - Single loop: [ [ [x, y], ..., [x0, y0] ] ]
+ * - Multi loops: [ [ [x, y], ... ], [ [x, y], ... ] ]
  */
 export function toPcPolygon(pts) {
+  if (!pts || pts.length === 0) return null;
+
+  // Case A: already MultiPolygon format
+  if (Array.isArray(pts[0]) && Array.isArray(pts[0][0]) && Array.isArray(pts[0][0][0])) {
+    return pts;
+  }
+
+  // Case B: pts is an array of loops: [ [ [x,y],... ], [ [x,y],... ] ]
+  if (Array.isArray(pts[0]) && pts[0].length >= 3 && Array.isArray(pts[0][0]) && typeof pts[0][0][0] === "number") {
+    const multi = [];
+    for (const loop of pts) {
+      const pc = toPcPolygonSingle(loop);
+      if (pc && pc.length > 0) {
+        multi.push(pc[0]);
+      }
+    }
+    return multi.length > 0 ? multi : null;
+  }
+
+  // Case C: single loop
+  return toPcPolygonSingle(pts);
+}
+
+export function toPcPolygonSingle(pts) {
   if (!pts || pts.length < 3) return null;
   const ring = [];
   for (let i = 0; i < pts.length; i++) {
@@ -1036,6 +1333,7 @@ function ringsToSvgPath(rings) {
 function extractZonesFromMultiPoly({
   multiPoly,
   geometryType,
+  targetType = "floor", // "floor" | "ceiling"
   defaultUserType,
   defaultFloorEnabled = true,
   defaultFloorLevel = "GF",
@@ -1070,20 +1368,34 @@ function extractZonesFromMultiPoly({
     if (areaPx < minAreaPx) return; // Skip tiny degenerate artifacts
 
     const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
-    if (areaM2 < 0.05) return; // Filter out unwanted micro-sliver zones (< 0.05 m²)
+    // Filter out unwanted micro-sliver zones (< 0.15 m²)
+    if (areaM2 < 0.15) return;
+
+    // Filter out geometric sliver artifacts: long razor-thin strips narrower than 120mm with area < 0.6 m²
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    outerRing.forEach(pt => {
+      if (pt[0] < minX) minX = pt[0];
+      if (pt[0] > maxX) maxX = pt[0];
+      if (pt[1] < minY) minY = pt[1];
+      if (pt[1] > maxY) maxY = pt[1];
+    });
+    const bboxMinDimPx = Math.min(maxX - minX, maxY - minY);
+    const bboxMinDimMm = bboxMinDimPx * (mmPerPx || 10);
+    if (bboxMinDimMm < 120 && areaM2 < 0.6) return;
 
     const allRings = [outerRing, ...holeRings];
     const pathD = ringsToSvgPath(allRings);
     const resolvedLevel = levelCode || defaultFloorLevel || "GF";
 
     resultZones.push({
-      id: `zone_${resolvedLevel}_${geometryType}_${pIdx}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `zone_${resolvedLevel}_${geometryType}_${targetType}_${pIdx}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      targetType,
       geometryType,
-      userType: defaultUserType,
-      floorEnabled: defaultFloorEnabled,
+      userType: defaultUserType || (targetType === "ceiling" ? ZONE_USER_TYPES.CEILING : ZONE_USER_TYPES.FLOOR),
+      floorEnabled: targetType === "floor" ? defaultFloorEnabled : false,
       floorLevel: defaultFloorLevel || resolvedLevel,
       floorLabel: defaultFloorLabel,
-      ceilingEnabled: defaultCeilingEnabled,
+      ceilingEnabled: targetType === "ceiling" ? defaultCeilingEnabled : false,
       ceilingLevel: defaultCeilingLevel || resolvedLevel,
       ceilingLabel: defaultCeilingLabel,
       label: labelPrefix,
@@ -1121,10 +1433,15 @@ export function scanZonesToggle({
   mmPerPx = 18.0,
   lowerCode = "GF",
   upperCode = "FF",
-  autoAdjustWalls = true
+  autoAdjustWalls = true,
+  isBottomLevel = true,
+  isTopLevel = false
 }) {
-  const hasLower = polyLower && polyLower.length >= 3;
-  const hasUpper = polyUpper && polyUpper.length >= 3;
+  const isLowerMulti = Array.isArray(polyLower) && Array.isArray(polyLower[0]) && Array.isArray(polyLower[0][0]);
+  const isUpperMulti = Array.isArray(polyUpper) && Array.isArray(polyUpper[0]) && Array.isArray(polyUpper[0][0]);
+
+  const hasLower = isLowerMulti ? (polyLower.length > 0 && polyLower[0].length >= 3) : (polyLower && polyLower.length >= 3);
+  const hasUpper = isUpperMulti ? (polyUpper.length > 0 && polyUpper[0].length >= 3) : (polyUpper && polyUpper.length >= 3);
 
   if (!hasLower && !hasUpper) {
     return { zones: [], areas: {} };
@@ -1134,68 +1451,137 @@ export function scanZonesToggle({
 
   // Single level: Lower only
   if (!hasUpper && hasLower) {
-    const areaPx = polygonAreaPx(polyLower);
-    const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
-    const cleaned = cleanRing(polyLower);
-    const pathD = ringsToSvgPath([cleaned]);
-    return {
-      zones: [{
-        id: `zone_${lowerCode}_only_${Date.now()}`,
+    const loops = isLowerMulti ? polyLower : [polyLower];
+    const resultZones = [];
+
+    loops.forEach((loop, lIdx) => {
+      if (!loop || loop.length < 3) return;
+      const areaPx = polygonAreaPx(loop);
+      const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
+      if (areaM2 < 0.05) return;
+
+      const cleaned = cleanRing(loop);
+      const pathD = ringsToSvgPath([cleaned]);
+      const isExtension = lIdx > 0;
+
+      // Floor Zone: Loop 0 is main structure (Floor: ON). Loop > 0 is Porch/Extension (Floor: OFF by default)
+      resultZones.push({
+        id: `zone_${lowerCode}_${isExtension ? `extension_${lIdx}` : 'main'}_floor_${Date.now()}_${lIdx}`,
+        targetType: "floor",
         geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
-        userType: ZONE_USER_TYPES.BOTH,
-        floorEnabled: true,
+        userType: ZONE_USER_TYPES.FLOOR,
+        floorEnabled: !isExtension, // Main = true, Extension (Porch) = false
         floorLevel: lowerCode,
-        floorLabel: `${lowerCode} Floor`,
-        ceilingEnabled: true,
+        floorLabel: isExtension ? `${lowerCode} Floor (Extension)` : `${lowerCode} Floor`,
+        ceilingEnabled: false,
         ceilingLevel: lowerCode,
         ceilingLabel: `${lowerCode} Ceiling`,
-        label: `${lowerCode} Floor & Ceiling`,
-        note: `Full level ${lowerCode}`,
+        label: isExtension ? `${lowerCode} Extension (Floor)` : `${lowerCode} Floor`,
+        note: isExtension ? `Floor (${lowerCode}) - Default OFF` : `Full level floor ${lowerCode}`,
         levelCodes: [lowerCode],
         levelCode: lowerCode,
         areaM2,
         polygon: cleaned,
         pathD,
         palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.LOWER_ONLY]
-      }],
-      areas: { lowerOnlyM2: areaM2, overlapM2: 0, upperOnlyM2: 0, voidM2: 0, totalFloorM2: areaM2, totalCeilingM2: areaM2, byLevel: { [lowerCode]: { code: lowerCode, floorM2: areaM2, ceilingM2: areaM2 } } }
-    };
+      });
+
+      // Ceiling Zone: Always ON
+      resultZones.push({
+        id: `zone_${lowerCode}_${isExtension ? `extension_${lIdx}` : 'main'}_ceiling_${Date.now() + 1}_${lIdx}`,
+        targetType: "ceiling",
+        geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
+        userType: ZONE_USER_TYPES.CEILING,
+        floorEnabled: false,
+        floorLevel: lowerCode,
+        floorLabel: `${lowerCode} Floor`,
+        ceilingEnabled: true, // Always true!
+        ceilingLevel: lowerCode,
+        ceilingLabel: `${lowerCode} Ceiling`,
+        label: isExtension ? `${lowerCode} Extension (Ceiling)` : `${lowerCode} Ceiling`,
+        note: isExtension ? `Ceiling (${lowerCode})` : `Full level ceiling ${lowerCode}`,
+        levelCodes: [lowerCode],
+        levelCode: lowerCode,
+        areaM2,
+        polygon: cleaned,
+        pathD,
+        palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.LOWER_ONLY]
+      });
+    });
+
+    resultZones.sort((a, b) => b.areaM2 - a.areaM2);
+    const areas = recalcZoneAreas(resultZones);
+    return { zones: resultZones, areas };
   }
 
   // Single level: Upper only
   if (hasUpper && !hasLower) {
-    const areaPx = polygonAreaPx(polyUpper);
-    const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
-    const cleaned = cleanRing(polyUpper);
-    const pathD = ringsToSvgPath([cleaned]);
-    return {
-      zones: [{
-        id: `zone_${upperCode}_only_${Date.now()}`,
+    const loops = isUpperMulti ? polyUpper : [polyUpper];
+    const resultZones = [];
+
+    loops.forEach((loop, lIdx) => {
+      if (!loop || loop.length < 3) return;
+      const areaPx = polygonAreaPx(loop);
+      const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
+      if (areaM2 < 0.05) return;
+
+      const cleaned = cleanRing(loop);
+      const pathD = ringsToSvgPath([cleaned]);
+      const isExtension = lIdx > 0;
+
+      resultZones.push({
+        id: `zone_${upperCode}_${isExtension ? `extension_${lIdx}` : 'main'}_floor_${Date.now()}_${lIdx}`,
+        targetType: "floor",
         geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
-        userType: ZONE_USER_TYPES.BOTH,
+        userType: ZONE_USER_TYPES.FLOOR,
         floorEnabled: true,
         floorLevel: upperCode,
-        floorLabel: `${upperCode} Floor`,
-        ceilingEnabled: true,
+        floorLabel: isExtension ? `${upperCode} Floor (Extension)` : `${upperCode} Floor`,
+        ceilingEnabled: false,
         ceilingLevel: upperCode,
         ceilingLabel: `${upperCode} Ceiling`,
-        label: `${upperCode} Floor & Ceiling`,
-        note: `Full level ${upperCode}`,
+        label: isExtension ? `${upperCode} Extension (Floor)` : `${upperCode} Floor`,
+        note: `Floor ${upperCode}`,
         levelCodes: [upperCode],
         levelCode: upperCode,
         areaM2,
         polygon: cleaned,
         pathD,
         palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.UPPER_ONLY]
-      }],
-      areas: { lowerOnlyM2: 0, overlapM2: 0, upperOnlyM2: areaM2, voidM2: 0, totalFloorM2: areaM2, totalCeilingM2: areaM2, byLevel: { [upperCode]: { code: upperCode, floorM2: areaM2, ceilingM2: areaM2 } } }
-    };
+      });
+
+      resultZones.push({
+        id: `zone_${upperCode}_${isExtension ? `extension_${lIdx}` : 'main'}_ceiling_${Date.now() + 1}_${lIdx}`,
+        targetType: "ceiling",
+        geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+        userType: ZONE_USER_TYPES.CEILING,
+        floorEnabled: false,
+        floorLevel: upperCode,
+        floorLabel: `${upperCode} Floor`,
+        ceilingEnabled: true,
+        ceilingLevel: upperCode,
+        ceilingLabel: `${upperCode} Ceiling`,
+        label: isExtension ? `${upperCode} Extension (Ceiling)` : `${upperCode} Ceiling`,
+        note: `Ceiling ${upperCode}`,
+        levelCodes: [upperCode],
+        levelCode: upperCode,
+        areaM2,
+        polygon: cleaned,
+        pathD,
+        palette: ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.UPPER_ONLY]
+      });
+    });
+
+    resultZones.sort((a, b) => b.areaM2 - a.areaM2);
+    const areas = recalcZoneAreas(resultZones);
+    return { zones: resultZones, areas };
   }
 
   // Auto-adjust upper polygon to lower polygon boundary (eliminate sliver gaps)
   let workingUpper = polyUpper;
   if (autoAdjustWalls && hasLower && hasUpper) {
-    workingUpper = adjustUpperPolyToLowerPoly(polyUpper, polyLower, 2.5);
+    const snapTolPx = Math.max(10, Math.min(35, 200 / (mmPerPx || 10)));
+    workingUpper = adjustUpperPolyToLowerPoly(polyUpper, polyLower, snapTolPx);
   }
 
   // Both levels present — exact vector polygon boolean clipping
@@ -1237,81 +1623,190 @@ export function scanZonesToggle({
 
   const zones = [];
 
-  // 1. Tầng 1 (Lower / GF): Vùng giao cắt Overlap (áp dụng cho cả Floor và Ceiling)
-  const overlapLowerZones = extractZonesFromMultiPoly({
+  // =========================================================================
+  // =========================================================================
+  // 1. Tầng Dưới (Lower / GF):
+  // =========================================================================
+  // 1.1 GF Overlap Floor:
+  // Ở Ground Floor, sàn được xem như bề mặt slab nên không tính vào floor treo.
+  // -> Do NOT add any floor overlap zone for GF!
+
+  // 1.2 GF Extension Floor (chỉ tạo cho tầng đáy, ví dụ GF):
+  // Giữ các phần lowerOnly ở GF, vẫn hiện nhưng toggle mặc định là OFF
+  if (isBottomLevel) {
+    const lowerOnlyFloorZones = extractZonesFromMultiPoly({
+      multiPoly: lowerOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
+      targetType: "floor",
+      defaultUserType: ZONE_USER_TYPES.FLOOR,
+      defaultFloorEnabled: false, // Default toggled OFF per user request!
+      defaultFloorLevel: lowerCode || "GF",
+      defaultFloorLabel: `${lowerCode || "GF"} Floor (Extension)`,
+      defaultCeilingEnabled: false,
+      defaultCeilingLevel: lowerCode || "GF",
+      defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+      labelPrefix: `${lowerCode} Extension (Floor)`,
+      note: `Ground floor slab-on-ground / Default OFF`,
+      levelCodes: [lowerCode],
+      levelCode: lowerCode || "GF",
+      mmPerPx
+    });
+    zones.push(...lowerOnlyFloorZones);
+  }
+
+  // 1.3 Lower Overlap Ceiling:
+  // Trần của tầng dưới ở phần nhà chính tiếp giáp tầng trên -> Mặc định ON
+  const overlapLowerCeilZones = extractZonesFromMultiPoly({
     multiPoly: overlapMulti,
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
-    defaultUserType: ZONE_USER_TYPES.BOTH,
-    defaultFloorEnabled: true,
+    targetType: "ceiling",
+    defaultUserType: ZONE_USER_TYPES.CEILING,
+    defaultFloorEnabled: false,
     defaultFloorLevel: lowerCode || "GF",
     defaultFloorLabel: `${lowerCode || "GF"} Floor`,
     defaultCeilingEnabled: true,
     defaultCeilingLevel: lowerCode || "GF",
     defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
-    labelPrefix: `${lowerCode} Overlap`,
-    note: `Floor & Ceiling (${lowerCode})`,
+    labelPrefix: `${lowerCode} Overlap (Ceiling)`,
+    note: `Ceiling (${lowerCode})`,
     levelCodes: [lowerCode],
     levelCode: lowerCode || "GF",
     mmPerPx
   });
-  zones.push(...overlapLowerZones);
+  zones.push(...overlapLowerCeilZones);
 
-  // 2. Tầng 1 (Lower / GF): Phần thừa Lower Extension (Floor: ON, Ceiling: ON theo cơ chế đang làm)
-  const lowerOnlyZones = extractZonesFromMultiPoly({
+  // 1.4 Lower Extension Ceiling:
+  // Toàn bộ khung ngoài tầng 1 tạo thành ceiling (mái hiên / porch) -> Mặc định ON
+  const lowerOnlyCeilZones = extractZonesFromMultiPoly({
     multiPoly: lowerOnlyMulti,
     geometryType: ZONE_GEOMETRY_TYPES.LOWER_ONLY,
-    defaultUserType: ZONE_USER_TYPES.BOTH,
-    defaultFloorEnabled: true,
+    targetType: "ceiling",
+    defaultUserType: ZONE_USER_TYPES.CEILING,
+    defaultFloorEnabled: false,
     defaultFloorLevel: lowerCode || "GF",
     defaultFloorLabel: `${lowerCode || "GF"} Floor`,
     defaultCeilingEnabled: true,
     defaultCeilingLevel: lowerCode || "GF",
     defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
-    labelPrefix: `${lowerCode} Extension`,
-    note: `Floor & Ceiling (${lowerCode})`,
+    labelPrefix: `${lowerCode} Extension (Ceiling)`,
+    note: `Ceiling (${lowerCode})`,
     levelCodes: [lowerCode],
     levelCode: lowerCode || "GF",
     mmPerPx
   });
-  zones.push(...lowerOnlyZones);
+  zones.push(...lowerOnlyCeilZones);
 
-  // 3. Tầng 2 (Upper / FF): Vùng giao cắt Overlap (áp dụng cho cả Floor và Ceiling)
-  const overlapUpperZones = extractZonesFromMultiPoly({
+  // 1.5 Lower Soffit Ceiling (dưới đáy phần tầng 2 đua ra / Cantilever Soffit):
+  // Thêm vùng giao giữa tầng 2 và tầng 1 (phần extend của tầng 2) nhìn từ dưới lên
+  if (upperOnlyMulti && upperOnlyMulti.length > 0) {
+    const lowerSoffitCeilZones = extractZonesFromMultiPoly({
+      multiPoly: upperOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+      targetType: "ceiling",
+      defaultUserType: ZONE_USER_TYPES.CEILING,
+      defaultFloorEnabled: false,
+      defaultFloorLevel: lowerCode || "GF",
+      defaultFloorLabel: `${lowerCode || "GF"} Floor`,
+      defaultCeilingEnabled: true, // Default toggle ON per user requirement to keep and show the cantilever intersection ceiling zone
+      defaultCeilingLevel: lowerCode || "GF",
+      defaultCeilingLabel: `${lowerCode || "GF"} Ceiling`,
+      labelPrefix: `${lowerCode} Under-${upperCode} Cantilever (Ceiling)`,
+      note: `Exterior soffit ceiling (${lowerCode}) under ${upperCode} cantilever`,
+      levelCodes: [lowerCode],
+      levelCode: lowerCode || "GF",
+      mmPerPx
+    });
+    zones.push(...lowerSoffitCeilZones);
+  }
+
+  // =========================================================================
+  // 2. Tầng Trên (Upper / FF):
+  // "FF Floor: Sẽ là toàn bộ, nhớ chia theo giao giữa tầng một và tầng 2"
+  // "Ceiling: tương tự là all, nhưng lần này toogle sẽ chuyển về off (vì có thể ngta cần hoặc không)"
+  // =========================================================================
+  // 2.1 FF Overlap Floor:
+  const overlapUpperFloorZones = extractZonesFromMultiPoly({
     multiPoly: overlapMulti,
     geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
-    defaultUserType: ZONE_USER_TYPES.BOTH,
-    defaultFloorEnabled: true,
+    targetType: "floor",
+    defaultUserType: ZONE_USER_TYPES.FLOOR,
+    defaultFloorEnabled: true, // Floor is ALL ON!
     defaultFloorLevel: upperCode || "FF",
     defaultFloorLabel: `${upperCode || "FF"} Floor`,
-    defaultCeilingEnabled: true,
-    defaultCeilingLevel: upperCode || "FF",
-    defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
-    labelPrefix: `${upperCode} Overlap`,
-    note: `Floor & Ceiling (${upperCode})`,
-    levelCodes: [upperCode],
-    levelCode: upperCode || "FF",
-    mmPerPx
-  });
-  zones.push(...overlapUpperZones);
-
-  // 4. Tầng 2 (Upper / FF): Phần thừa Upper Cantilever (Floor: ON, Ceiling: OFF theo cơ chế đang làm)
-  const upperOnlyZones = extractZonesFromMultiPoly({
-    multiPoly: upperOnlyMulti,
-    geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
-    defaultUserType: ZONE_USER_TYPES.FLOOR,
-    defaultFloorEnabled: true,
-    defaultFloorLevel: upperCode || "FF",
-    defaultFloorLabel: `${upperCode || "FF"} Floor (Cantilever)`,
     defaultCeilingEnabled: false,
     defaultCeilingLevel: upperCode || "FF",
     defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
-    labelPrefix: `${upperCode} Cantilever`,
+    labelPrefix: `${upperCode} Overlap (Floor)`,
     note: `Floor (${upperCode})`,
     levelCodes: [upperCode],
     levelCode: upperCode || "FF",
     mmPerPx
   });
-  zones.push(...upperOnlyZones);
+  zones.push(...overlapUpperFloorZones);
+
+  // 2.2 FF Cantilever Floor (Upper Only):
+  const upperOnlyFloorZones = extractZonesFromMultiPoly({
+    multiPoly: upperOnlyMulti,
+    geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+    targetType: "floor",
+    defaultUserType: ZONE_USER_TYPES.FLOOR,
+    defaultFloorEnabled: true, // Cantilever/Balcony floor is ON!
+    defaultFloorLevel: upperCode || "FF",
+    defaultFloorLabel: `${upperCode || "FF"} Floor (Cantilever)`,
+    defaultCeilingEnabled: false,
+    defaultCeilingLevel: upperCode || "FF",
+    defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+    labelPrefix: `${upperCode} Cantilever (Floor)`,
+    note: `Floor (${upperCode})`,
+    levelCodes: [upperCode],
+    levelCode: upperCode || "FF",
+    mmPerPx
+  });
+  zones.push(...upperOnlyFloorZones);
+
+  // 2.3 FF Overlap Ceiling:
+  // Nếu là tầng đỉnh (isTopLevel): toggle chuyển về OFF (vì là trần áp mái, ai cần mới bật)
+  // Nếu là tầng trung gian: toggle mặc định là ON
+  const overlapUpperCeilZones = extractZonesFromMultiPoly({
+    multiPoly: overlapMulti,
+    geometryType: ZONE_GEOMETRY_TYPES.OVERLAP,
+    targetType: "ceiling",
+    defaultUserType: ZONE_USER_TYPES.CEILING,
+    defaultFloorEnabled: false,
+    defaultFloorLevel: upperCode || "FF",
+    defaultFloorLabel: `${upperCode || "FF"} Floor`,
+    defaultCeilingEnabled: isTopLevel ? false : true,
+    defaultCeilingLevel: upperCode || "FF",
+    defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+    labelPrefix: `${upperCode} Overlap (Ceiling)`,
+    note: isTopLevel ? `Top ceiling (${upperCode}) - Default OFF` : `Ceiling (${upperCode})`,
+    levelCodes: [upperCode],
+    levelCode: upperCode || "FF",
+    mmPerPx
+  });
+  zones.push(...overlapUpperCeilZones);
+
+  // 2.4 FF Cantilever Ceiling (Upper Only):
+  if (upperOnlyMulti && upperOnlyMulti.length > 0) {
+    const upperOnlyCeilZones = extractZonesFromMultiPoly({
+      multiPoly: upperOnlyMulti,
+      geometryType: ZONE_GEOMETRY_TYPES.UPPER_ONLY,
+      targetType: "ceiling",
+      defaultUserType: ZONE_USER_TYPES.CEILING,
+      defaultFloorEnabled: false,
+      defaultFloorLevel: upperCode || "FF",
+      defaultFloorLabel: `${upperCode || "FF"} Floor`,
+      defaultCeilingEnabled: false, // Default toggle OFF
+      defaultCeilingLevel: upperCode || "FF",
+      defaultCeilingLabel: `${upperCode || "FF"} Ceiling`,
+      labelPrefix: `${upperCode} Cantilever (Ceiling)`,
+      note: `Ceiling (${upperCode}) - Default OFF`,
+      levelCodes: [upperCode],
+      levelCode: upperCode || "FF",
+      mmPerPx
+    });
+    zones.push(...upperOnlyCeilZones);
+  }
 
   // Sort zones: largest first
   zones.sort((a, b) => b.areaM2 - a.areaM2);
@@ -1447,6 +1942,204 @@ export function recalcZoneAreas(zones = [], levelFootprints = null) {
 }
 
 /**
+ * Creates a thin rectangle polygon (blade) along segment [p1, p2],
+ * extended by `ext` px at both ends.
+ */
+export function makeBlade(p1, p2, halfWidth = 0.05, ext = 30) {
+  if (!p1 || !p2) return null;
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-4) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  const nx = -uy * halfWidth;
+  const ny = ux * halfWidth;
+
+  const startX = p1[0] - ux * ext;
+  const startY = p1[1] - uy * ext;
+  const endX = p2[0] + ux * ext;
+  const endY = p2[1] + uy * ext;
+
+  return [[
+    [startX + nx, startY + ny],
+    [endX + nx, endY + ny],
+    [endX - nx, endY - ny],
+    [startX - nx, startY - ny],
+    [startX + nx, startY + ny]
+  ]];
+}
+
+/**
+ * Merges contiguous collinear interior wall segments sharing an endpoint and level.
+ */
+export function mergeCollinearInteriorWalls(walls) {
+  if (!walls || walls.length <= 1) return walls || [];
+  let result = [...walls];
+  let merged = true;
+  let iterations = 0;
+
+  while (merged && iterations < 50) {
+    iterations++;
+    merged = false;
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const w1 = result[i];
+        const w2 = result[j];
+        if (w1.sourceLevelCode !== w2.sourceLevelCode) continue;
+        if (!w1.centerline || !w2.centerline || w1.centerline.length < 2 || w2.centerline.length < 2) continue;
+
+        const [a1, b1] = w1.centerline;
+        const [a2, b2] = w2.centerline;
+
+        const pairs = [
+          { pShare1: b1, pShare2: a2, pEnd1: a1, pEnd2: b2 },
+          { pShare1: a1, pShare2: b2, pEnd1: b1, pEnd2: a2 },
+          { pShare1: a1, pShare2: a2, pEnd1: b1, pEnd2: b2 },
+          { pShare1: b1, pShare2: b2, pEnd1: a1, pEnd2: a2 }
+        ];
+
+        for (const { pShare1, pShare2, pEnd1, pEnd2 } of pairs) {
+          if (Math.hypot(pShare1[0] - pShare2[0], pShare1[1] - pShare2[1]) < 5) {
+            const dx1 = pShare1[0] - pEnd1[0];
+            const dy1 = pShare1[1] - pEnd1[1];
+            const dx2 = pEnd2[0] - pShare2[0];
+            const dy2 = pEnd2[1] - pShare2[1];
+            const len1 = Math.hypot(dx1, dy1);
+            const len2 = Math.hypot(dx2, dy2);
+            if (len1 > 0 && len2 > 0) {
+              const dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
+              if (Math.abs(dot - 1) < 0.02) { // collinear same direction
+                const mergedWall = {
+                  ...w1,
+                  centerline: [pEnd1, pEnd2]
+                };
+                result.splice(j, 1);
+                result.splice(i, 1, mergedWall);
+                merged = true;
+                break;
+              }
+            }
+          }
+        }
+        if (merged) break;
+      }
+      if (merged) break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Attempts to split a single zone using an interior wall segment.
+ * If the wall traverses across the zone polygon, divides the zone into sub-zones.
+ * Otherwise returns [zone] unchanged.
+ */
+export function trySplitZoneByWall(zone, wall, mmPerPx = 1.0) {
+  if (!wall.centerline || wall.centerline.length < 2) return [zone];
+  const [p1, p2] = wall.centerline;
+  const wallLen = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+  if (wallLen < 5) return [zone];
+
+  // Level compatibility check: wall must belong to at least one level relevant to this zone
+  const wallLevel = wall.sourceLevelCode;
+  if (wallLevel && zone.levelCodes && zone.levelCodes.length > 0) {
+    const isLevelMatch = zone.levelCodes.includes(wallLevel) ||
+      zone.levelCode === wallLevel ||
+      zone.floorLevel === wallLevel ||
+      zone.ceilingLevel === wallLevel ||
+      zone.pairLower === wallLevel ||
+      zone.pairUpper === wallLevel;
+    if (!isLevelMatch) return [zone];
+  }
+
+  const pcPoly = toPcPolygon(zone.polygon);
+  if (!pcPoly) return [zone];
+
+  // Extension distance: at least 40px or 2.0x wall thickness to clear exterior wall offsets & snap gaps
+  const ext = Math.max(40, (wall.thickness_px || 20) * 2.0);
+  const blade = makeBlade(p1, p2, 0.05, ext);
+  if (!blade) return [zone];
+
+  let result;
+  try {
+    result = polygonClipping.difference(pcPoly, blade);
+  } catch (err) {
+    console.warn("Zone splitting polygonClipping error:", err);
+    return [zone];
+  }
+
+  if (!result || result.length <= 1) {
+    return [zone];
+  }
+
+  const pxToM2Factor = Math.pow(mmPerPx, 2) / 1000000;
+  const validPieces = [];
+
+  for (const polyItem of result) {
+    if (!polyItem || polyItem.length === 0) continue;
+    const outerRing = cleanRing(polyItem[0]);
+    if (outerRing.length < 3) continue;
+    const holeRings = (polyItem.slice(1) || []).map(cleanRing).filter(h => h.length >= 3);
+
+    let areaPx = polygonAreaPx(outerRing);
+    holeRings.forEach(h => { areaPx -= polygonAreaPx(h); });
+    const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
+    if (areaM2 >= 0.05) {
+      validPieces.push({ outerRing, holeRings, areaM2 });
+    }
+  }
+
+  if (validPieces.length < 2) {
+    return [zone];
+  }
+
+  return validPieces.map((piece, subIdx) => {
+    const allRings = [piece.outerRing, ...piece.holeRings];
+    const pathD = ringsToSvgPath(allRings);
+    const subId = `${zone.id}_sub${subIdx + 1}`;
+    const subLabel = zone.label ? `${zone.label} (${subIdx + 1})` : `Part ${subIdx + 1}`;
+    const floorLabel = zone.floorLabel ? `${zone.floorLabel} (${subIdx + 1})` : subLabel;
+    const ceilingLabel = zone.ceilingLabel ? `${zone.ceilingLabel} (${subIdx + 1})` : subLabel;
+
+    return {
+      ...zone,
+      id: subId,
+      label: subLabel,
+      floorLabel,
+      ceilingLabel,
+      areaM2: piece.areaM2,
+      polygon: piece.outerRing,
+      pathD
+    };
+  });
+}
+
+/**
+ * Splits zone polygons by interior walls.
+ * Merges contiguous collinear interior walls first, then iterates sequentially.
+ */
+export function splitZonesByInteriorWalls(zones, interiorWalls, mmPerPx = 1.0) {
+  if (!interiorWalls || interiorWalls.length === 0 || !zones || zones.length === 0) {
+    return zones;
+  }
+
+  const mergedWalls = mergeCollinearInteriorWalls(interiorWalls);
+  let currentZones = [...zones];
+
+  for (const wall of mergedWalls) {
+    const nextZones = [];
+    for (const z of currentZones) {
+      nextZones.push(...trySplitZoneByWall(z, wall, mmPerPx));
+    }
+    currentZones = nextZones;
+  }
+
+  return currentZones;
+}
+
+/**
  * Full scan using the toggle-based approach.
  * Supports "outerline" (+half wall width) vs "centerline" boundary modes.
  * Supports automatic alignment between upper and lower levels to eliminate small slivers.
@@ -1456,7 +2149,7 @@ export function scanFloorAndCeiling({
   scaleValue = 1.0,
   realScale = null,
   rooms = [],
-  boundaryMode = "outerline", // "outerline" or "centerline"
+  boundaryMode = "centerline", // Default to centerline!
   autoAdjustWalls = true
 }) {
   if (!walls || walls.length === 0) return null;
@@ -1493,7 +2186,7 @@ export function scanFloorAndCeiling({
   orderKeys.forEach(order => {
     const levelWalls = wallsByOrder[order];
     const loops = buildPerimeterLoopsFromWalls(levelWalls, { boundaryMode, mmPerPx });
-    levelLoops[order] = loops[0] || [];
+    levelLoops[order] = loops;
 
     // Derive level code from the first wall
     const firstWall = levelWalls[0];
@@ -1512,12 +2205,12 @@ export function scanFloorAndCeiling({
   };
 
   if (orderKeys.length === 1) {
-    // Single level: treat entire footprint as one zone
+    // Single level: scan all loops for this level
     const order = orderKeys[0];
-    const poly = levelLoops[order];
-    if (poly && poly.length >= 3) {
+    const loops = levelLoops[order] || [];
+    if (loops.length > 0) {
       const result = scanZonesToggle({
-        polyLower: poly,
+        polyLower: loops,
         polyUpper: [],
         voidLoops,
         mmPerPx,
@@ -1533,35 +2226,255 @@ export function scanFloorAndCeiling({
     for (let i = 0; i < orderKeys.length - 1; i++) {
       const lowerOrder = orderKeys[i];
       const upperOrder = orderKeys[i + 1];
-      const polyLower = levelLoops[lowerOrder];
-      const polyUpper = levelLoops[upperOrder];
+      const isBottomLevel = (i === 0);
+      const isTopLevel = (i === orderKeys.length - 2);
+      const loopsLower = levelLoops[lowerOrder] || [];
+      const loopsUpper = levelLoops[upperOrder] || [];
 
-      const result = scanZonesToggle({
-        polyLower,
-        polyUpper,
-        voidLoops,
-        mmPerPx,
-        lowerCode: levelCodes[lowerOrder],
-        upperCode: levelCodes[upperOrder],
-        autoAdjustWalls
+      const lowerList = (Array.isArray(loopsLower) && Array.isArray(loopsLower[0]) && Array.isArray(loopsLower[0][0]))
+        ? loopsLower
+        : (loopsLower.length > 0 ? [loopsLower] : []);
+
+      const upperList = (Array.isArray(loopsUpper) && Array.isArray(loopsUpper[0]) && Array.isArray(loopsUpper[0][0]))
+        ? loopsUpper
+        : (loopsUpper.length > 0 ? [loopsUpper] : []);
+
+      const primaryUpper = upperList[0] || [];
+
+      // 1. Process all lower loops against primary upper loop
+      lowerList.forEach((loopLower, loopIdx) => {
+        const isExtensionLoop = loopIdx > 0;
+        const result = scanZonesToggle({
+          polyLower: loopLower,
+          polyUpper: loopIdx === 0 ? primaryUpper : [],
+          voidLoops,
+          mmPerPx,
+          lowerCode: levelCodes[lowerOrder],
+          upperCode: levelCodes[upperOrder],
+          autoAdjustWalls,
+          isBottomLevel,
+          isTopLevel
+        });
+
+        // Tag each zone with the pair info and extension defaults
+        const filteredZones = isExtensionLoop
+          ? result.zones.filter(z => z.geometryType !== ZONE_GEOMETRY_TYPES.UPPER_ONLY)
+          : result.zones;
+
+        filteredZones.forEach(z => {
+          z.pairLower = levelCodes[lowerOrder];
+          z.pairUpper = levelCodes[upperOrder];
+          if (isExtensionLoop) {
+            z.isExtensionRegion = true;
+            z.label = z.label.replace(levelCodes[lowerOrder], `${levelCodes[lowerOrder]} Ext`);
+            if (z.targetType === "floor") {
+              z.floorEnabled = false; // Porch / Extension floor default OFF
+            }
+          }
+        });
+
+        allZones.push(...filteredZones);
+
+        // Accumulate areas
+        allAreas.overlapM2 += result.areas.overlapM2 || 0;
+        allAreas.lowerOnlyM2 += result.areas.lowerOnlyM2 || 0;
+        allAreas.upperOnlyM2 += result.areas.upperOnlyM2 || 0;
+        allAreas.voidM2 += result.areas.voidM2 || 0;
+        allAreas.totalFloorM2 += result.areas.totalFloorM2 || 0;
+        allAreas.totalCeilingM2 += result.areas.totalCeilingM2 || 0;
       });
 
-      // Tag each zone with the pair info
-      result.zones.forEach(z => {
-        z.pairLower = levelCodes[lowerOrder];
-        z.pairUpper = levelCodes[upperOrder];
-      });
+      // 2. Process secondary loops of upper level (e.g. Balcony / Extension on Level 2, Level 3)
+      for (let uIdx = 1; uIdx < upperList.length; uIdx++) {
+        const loopUpper = upperList[uIdx];
+        const primaryLower = lowerList[0] || [];
+        const result = scanZonesToggle({
+          polyLower: primaryLower,
+          polyUpper: loopUpper,
+          voidLoops,
+          mmPerPx,
+          lowerCode: levelCodes[lowerOrder],
+          upperCode: levelCodes[upperOrder],
+          autoAdjustWalls,
+          isBottomLevel,
+          isTopLevel
+        });
 
-      allZones.push(...result.zones);
+        // For secondary upper loops: we only want the Upper-specific zones (Balcony floor/ceiling)
+        const upperSecondaryZones = result.zones.filter(z => z.levelCode === levelCodes[upperOrder] || z.floorLevel === levelCodes[upperOrder]);
+        upperSecondaryZones.forEach(z => {
+          z.pairLower = levelCodes[lowerOrder];
+          z.pairUpper = levelCodes[upperOrder];
+          z.isExtensionRegion = true;
+          z.label = z.label.replace(levelCodes[upperOrder], `${levelCodes[upperOrder]} Balcony`);
+          if (z.targetType === "floor") {
+            z.floorEnabled = true; // Balcony floor is ON
+          } else if (z.targetType === "ceiling") {
+            z.ceilingEnabled = false; // Balcony ceiling default OFF (uncovered)
+          }
+        });
 
-      // Accumulate areas
-      allAreas.overlapM2 += result.areas.overlapM2 || 0;
-      allAreas.lowerOnlyM2 += result.areas.lowerOnlyM2 || 0;
-      allAreas.upperOnlyM2 += result.areas.upperOnlyM2 || 0;
-      allAreas.voidM2 += result.areas.voidM2 || 0;
-      allAreas.totalFloorM2 += result.areas.totalFloorM2 || 0;
-      allAreas.totalCeilingM2 += result.areas.totalCeilingM2 || 0;
+        allZones.push(...upperSecondaryZones);
+        allAreas.upperOnlyM2 += result.areas.upperOnlyM2 || 0;
+        allAreas.totalFloorM2 += result.areas.totalFloorM2 || 0;
+      }
     }
+  }
+
+  // Subtract any intersection / cantilever / overlap zones from encompassing lower ceiling zones
+  // (e.g. GF Ceiling covering Storage + Garage minus the lower Garage intersection under FF)
+  // Per user requirement: keep the intersection zone ("vẫn giữ phần giao"), but subtract it from
+  // the encompassing zone to produce the new notch-cut zone as shown in the image.
+  const pxToM2Factor = Math.pow(mmPerPx, 2) / 1000000;
+
+  const intersectionCeilZones = allZones.filter(z =>
+    z.targetType === "ceiling" &&
+    (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY ||
+     String(z.label || "").includes("Under-") ||
+     String(z.label || "").includes("Cantilever") ||
+     z.geometryType === ZONE_GEOMETRY_TYPES.OVERLAP)
+  );
+
+  if (intersectionCeilZones.length > 0) {
+    allZones = allZones.flatMap(z => {
+      // Only subtract from encompassing lower ceiling zones (LOWER_ONLY or extension/main ceiling)
+      const isEncompassingLower = z.targetType === "ceiling" &&
+        (z.geometryType === ZONE_GEOMETRY_TYPES.LOWER_ONLY || z.isExtensionRegion || String(z.label || "").includes("Ext") || String(z.label || "").includes("Ceiling")) &&
+        !String(z.label || "").includes("Under-") &&
+        !String(z.label || "").includes("Cantilever");
+
+      if (!isEncompassingLower || !z.polygon || z.polygon.length < 3) {
+        return [z];
+      }
+
+      // Find matching intersection cutters on the same level (e.g. GF Under-FF Cantilever on GF)
+      const matchingCutters = intersectionCeilZones.filter(cutter =>
+        cutter.id !== z.id &&
+        (cutter.levelCode === z.levelCode || cutter.ceilingLevel === z.levelCode || (!cutter.levelCode && !z.levelCode)) &&
+        cutter.polygon && cutter.polygon.length >= 3
+      );
+
+      if (matchingCutters.length === 0) return [z];
+
+      let currentGeom = toPcPolygon(z.polygon);
+      if (!currentGeom) return [z];
+
+      let wasCut = false;
+      for (const cutter of matchingCutters) {
+        const cutterGeom = toPcPolygon(cutter.polygon);
+        if (!cutterGeom) continue;
+
+        try {
+          const inter = polygonClipping.intersection(currentGeom, cutterGeom);
+          if (inter && inter.length > 0) {
+            const interAreaPx = inter.reduce((acc, p) => acc + (p[0] ? polygonAreaPx(p[0]) : 0), 0);
+            const interM2 = interAreaPx * pxToM2Factor;
+            // Only cut if meaningful intersection (> 0.05 m2) and not identical polygon
+            if (interM2 > 0.05 && Math.abs(z.areaM2 - interM2) > 0.05) {
+              const diff = polygonClipping.difference(currentGeom, cutterGeom);
+              if (diff && diff.length > 0) {
+                currentGeom = diff;
+                wasCut = true;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[FloorCeilingEngine] Subtraction warning:", e);
+        }
+      }
+
+      if (!wasCut) return [z];
+
+      // Extract resulting pieces from difference
+      const newPieces = [];
+      currentGeom.forEach((poly, pIdx) => {
+        const outerRing = poly[0];
+        if (!outerRing || outerRing.length < 3) return;
+        const areaPx = polygonAreaPx(outerRing);
+        const areaM2 = Number((areaPx * pxToM2Factor).toFixed(2));
+        if (areaM2 < 0.05) return;
+
+        const cleaned = cleanRing(outerRing);
+        const pathD = ringsToSvgPath([cleaned]);
+        newPieces.push({
+          ...z,
+          id: `${z.id}_cut_${pIdx}`,
+          areaM2,
+          polygon: cleaned,
+          pathD
+        });
+      });
+
+      return newPieces.length > 0 ? newPieces : [z];
+    });
+  }
+
+  // Reclassify any "Under-... Cantilever" zones that actually intersect with lower level footprint to OVERLAP
+  // A cantilever is strictly when the upper level overhangs open air (no lower level underneath).
+  // When there IS a lower level underneath (e.g. lower garage), it is an OVERLAP between the levels!
+  allZones.forEach(z => {
+    if (z.geometryType === ZONE_GEOMETRY_TYPES.UPPER_ONLY || String(z.label || "").includes("Under-") || String(z.label || "").includes("Cantilever")) {
+      const lowerLoops = Object.values(levelLoops).flat();
+      if (lowerLoops.length > 0 && z.polygon && z.polygon.length >= 3) {
+        const zGeom = toPcPolygon(z.polygon);
+        if (zGeom) {
+          let hasLowerFootprint = false;
+          for (const loop of lowerLoops) {
+            if (!loop || loop.length < 3) continue;
+            const lGeom = toPcPolygon(loop);
+            if (lGeom) {
+              try {
+                const inter = polygonClipping.intersection(zGeom, lGeom);
+                if (inter && inter.length > 0) {
+                  const interArea = inter.reduce((acc, p) => acc + (p[0] ? polygonAreaPx(p[0]) : 0), 0) * pxToM2Factor;
+                  if (interArea > 0.1) {
+                    hasLowerFootprint = true;
+                    break;
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+
+          if (hasLowerFootprint) {
+            z.geometryType = ZONE_GEOMETRY_TYPES.OVERLAP;
+            const lowerCode = z.levelCode || z.ceilingLevel || "GF";
+            const upperCode = z.pairUpper || "FF";
+            if (z.targetType === "ceiling") {
+              z.label = `${lowerCode} Overlap (Ceiling)`;
+              z.ceilingLabel = `${lowerCode} Overlap (Ceiling)`;
+              z.note = `Ceiling (${lowerCode}) - Overlap with ${upperCode}`;
+              z.palette = ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.OVERLAP];
+            } else if (z.targetType === "floor") {
+              z.label = `${upperCode} Overlap (Floor)`;
+              z.floorLabel = `${upperCode} Overlap (Floor)`;
+              z.note = `Floor (${upperCode}) - Overlap with ${lowerCode}`;
+              z.palette = ZONE_GEOMETRY_PALETTE[ZONE_GEOMETRY_TYPES.OVERLAP];
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Recalculate areas after subtraction and reclassification
+  const recalculatedAreas = recalcZoneAreas(allZones);
+  allAreas = { ...allAreas, ...recalculatedAreas };
+
+  // Zone Splitting by Interior Walls & Dividing Walls drawn on Floor & Ceiling page
+  const interiorWalls = walls.filter(w => {
+    const cls = String(w.class_name || w.wall_type || "").toLowerCase();
+    const isInterior = cls === "interior_wall" || cls.includes("int") || cls === "partition_wall";
+    // Include all interior/partition walls (including those drawn on FC workspace)
+    if (isInterior) return true;
+    // Also include any wall explicitly drawn on Floor & Ceiling workspace (isFloorCeilingOnly)
+    // as it can act as a dividing wall/blade across zones (e.g. splitting an extension region)
+    if (w.isFloorCeilingOnly) return true;
+    return false;
+  });
+
+  if (interiorWalls.length > 0) {
+    allZones = splitZonesByInteriorWalls(allZones, interiorWalls, mmPerPx);
   }
 
   // Round totals
@@ -1571,24 +2484,33 @@ export function scanFloorAndCeiling({
     }
   });
 
-  // Compute closed footprint area for each level
+  // Compute closed footprint area for each level across all loops
   const levelFootprints = {};
   orderKeys.forEach(order => {
-    const poly = levelLoops[order];
+    const loops = levelLoops[order] || [];
+    const poly = Array.isArray(loops[0]) && Array.isArray(loops[0][0]) ? loops[0] : (loops || []);
     const code = levelCodes[order];
     const firstWall = wallsByOrder[order]?.[0];
     const name = firstWall?.sourceLevelName || `Level ${order + 1}`;
-    let areaM2 = 0;
-    if (poly && poly.length >= 3) {
+    let totalAreaM2 = 0;
+    if (Array.isArray(loops) && loops.length > 0 && Array.isArray(loops[0]) && Array.isArray(loops[0][0])) {
+      loops.forEach(lp => {
+        if (lp && lp.length >= 3) {
+          const areaPx = polygonAreaPx(lp);
+          totalAreaM2 += areaPx * Math.pow(mmPerPx, 2) / 1000000;
+        }
+      });
+    } else if (poly && poly.length >= 3) {
       const areaPx = polygonAreaPx(poly);
-      areaM2 = Number((areaPx * Math.pow(mmPerPx, 2) / 1000000).toFixed(2));
+      totalAreaM2 = areaPx * Math.pow(mmPerPx, 2) / 1000000;
     }
     levelFootprints[order] = {
       order,
       code,
       name,
       poly: poly || [],
-      areaM2
+      loops: loops,
+      areaM2: Number(totalAreaM2.toFixed(2))
     };
   });
 
@@ -1602,8 +2524,8 @@ export function scanFloorAndCeiling({
     zones: allZones,
     levelFootprints,
     // Legacy compat: keep poly references for the first pair
-    polyLower: orderKeys.length >= 1 ? levelLoops[orderKeys[0]] : [],
-    polyUpper: orderKeys.length >= 2 ? levelLoops[orderKeys[1]] : [],
+    polyLower: orderKeys.length >= 1 ? (Array.isArray(levelLoops[orderKeys[0]]?.[0]) ? levelLoops[orderKeys[0]][0] : levelLoops[orderKeys[0]]) : [],
+    polyUpper: orderKeys.length >= 2 ? (Array.isArray(levelLoops[orderKeys[1]]?.[0]) ? levelLoops[orderKeys[1]][0] : levelLoops[orderKeys[1]]) : [],
     voidLoops,
     mmPerPx
   };

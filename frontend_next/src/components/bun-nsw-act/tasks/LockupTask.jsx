@@ -1031,10 +1031,18 @@ export default function LockupTask({
 
       if (wallsByPage && Object.keys(wallsByPage).length > 0) {
         Object.keys(wallsByPage).forEach(p => {
-          (wallsByPage[p] || []).forEach(w => allWalls.push(w));
+          const pIdx = parseInt(p, 10);
+          const pageObj = pages && pages[pIdx];
+          if (pageObj && (pageObj.isFloorCeilingWorkspace || pageObj.source === "floor_ceiling_page" || pageObj.source === "floor_ceiling_workspace" || pageObj.category === "floor_ceiling")) {
+            return;
+          }
+          (wallsByPage[p] || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks).forEach(w => allWalls.push(w));
         });
       } else {
-        (walls || []).forEach(w => allWalls.push(w));
+        const curPageObj = pages && pages[currentPage];
+        if (!curPageObj || (!curPageObj.isFloorCeilingWorkspace && curPageObj.source !== "floor_ceiling_page" && curPageObj.source !== "floor_ceiling_workspace" && curPageObj.category !== "floor_ceiling")) {
+          (walls || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks).forEach(w => allWalls.push(w));
+        }
       }
 
       // Filter timber doors only (same logic as LockoutJobsModal)

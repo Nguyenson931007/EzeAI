@@ -81,16 +81,27 @@ export default function FloorCeilingLevelControlPanel({
   setFcAlignPoint1,
   setFloorCeilingTakeoffData,
   fcViewMode = "both",
-  setFcViewMode
+  setFcViewMode,
+  pushFcSnapshot
 }) {
   const currentViewMode = fcViewMode || "both";
-  const setViewMode = setFcViewMode || (() => {});
+  const setViewMode = setFcViewMode || (() => { });
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [lastScanResult, setLastScanResult] = useState(null);
+  const [lastScanResult, setLastScanResult] = useState(() => activePage?.lastScanResult || null);
   const [syncStatus, setSyncStatus] = useState(null);
-  const [boundaryMode, setBoundaryMode] = useState("outerline"); // "outerline" or "centerline"
+  const [boundaryMode, setBoundaryMode] = useState("centerline"); // "centerline" or "outerline"
   const [adjustStatus, setAdjustStatus] = useState(null);
+
+  // Restore cached scan results from activePage when navigating back
+  React.useEffect(() => {
+    if (activePage?.detectedZones && activePage.detectedZones.length > 0 && (!detectedZones || detectedZones.length === 0)) {
+      if (setDetectedZones) setDetectedZones(activePage.detectedZones);
+    }
+    if (activePage?.lastScanResult && !lastScanResult) {
+      setLastScanResult(activePage.lastScanResult);
+    }
+  }, [activePage]);
 
   // Group walls by source level
   const levelsSummary = useMemo(() => {
@@ -132,12 +143,14 @@ export default function FloorCeilingLevelControlPanel({
 
   const activeFloorCount = useMemo(() => {
     return (detectedZones || []).filter(z => {
+      if (z.targetType === "ceiling") return false;
       return z.floorEnabled !== undefined ? z.floorEnabled : (z.userType === ZONE_USER_TYPES.FLOOR || z.userType === ZONE_USER_TYPES.BOTH);
     }).length;
   }, [detectedZones]);
 
   const activeCeilCount = useMemo(() => {
     return (detectedZones || []).filter(z => {
+      if (z.targetType === "floor") return false;
       return z.ceilingEnabled !== undefined ? z.ceilingEnabled : (z.userType === ZONE_USER_TYPES.CEILING || z.userType === ZONE_USER_TYPES.BOTH);
     }).length;
   }, [detectedZones]);
@@ -163,6 +176,7 @@ export default function FloorCeilingLevelControlPanel({
           id: `${z.id}_balcony_ref`,
           parentZoneId: z.id,
           isBalconyRef: true,
+          targetType: "floor",
           levelCode: upperCode,
           label: `${upperCode} Balcony (over ${z.label || (code + " Extension")})`,
           floorLabel: `${upperCode} Balcony Floor`,
@@ -241,6 +255,16 @@ export default function FloorCeilingLevelControlPanel({
   const handleScanFloorCeiling = () => {
     setIsScanning(true);
     try {
+      if (pushFcSnapshot) pushFcSnapshot();
+
+      // Reset previous calculation cleanly before recalculating from new wall geometry
+      if (setDetectedZones) setDetectedZones([]);
+      if (activePage) {
+        activePage.detectedZones = [];
+        activePage.lastScanResult = null;
+      }
+      setLastScanResult(null);
+
       // 1. Auto-fire wall adjustment: align upper level walls onto bottom level walls
       let currentWalls = walls;
       const { updatedWalls, snappedCount } = adjustUpperWallsToLowerWalls(walls, 25);
@@ -257,7 +281,7 @@ export default function FloorCeilingLevelControlPanel({
         scaleValue,
         realScale,
         rooms,
-        boundaryMode: "outerline",
+        boundaryMode: boundaryMode || "centerline",
         autoAdjustWalls: true
       });
 
@@ -265,6 +289,10 @@ export default function FloorCeilingLevelControlPanel({
         setLastScanResult(result);
         if (setDetectedZones) {
           setDetectedZones(result.zones || []);
+        }
+        if (activePage) {
+          activePage.detectedZones = result.zones || [];
+          activePage.lastScanResult = result;
         }
         // Auto-sync calculated floor & ceiling results to Insulation task (do not trigger frame task)
         performSync(result, false);
@@ -282,6 +310,7 @@ export default function FloorCeilingLevelControlPanel({
   // Handle Toggle Floor for a specific zone (independent of ceiling)
   const handleToggleFloor = (zoneId) => {
     if (!setDetectedZones) return;
+    if (pushFcSnapshot) pushFcSnapshot();
     const currentZones = Array.isArray(detectedZones) ? detectedZones : [];
     const updated = currentZones.map(z => {
       if (z.id !== zoneId) return z;
@@ -306,6 +335,7 @@ export default function FloorCeilingLevelControlPanel({
     });
 
     setDetectedZones(updated);
+    if (activePage) activePage.detectedZones = updated;
 
     if (lastScanResult) {
       const recalculated = {
@@ -314,6 +344,7 @@ export default function FloorCeilingLevelControlPanel({
         areas: recalcZoneAreas(updated, lastScanResult.levelFootprints)
       };
       setLastScanResult(recalculated);
+      if (activePage) activePage.lastScanResult = recalculated;
       performSync(recalculated, false);
     }
   };
@@ -321,6 +352,7 @@ export default function FloorCeilingLevelControlPanel({
   // Handle Toggle Ceiling for a specific zone (independent of floor)
   const handleToggleCeiling = (zoneId) => {
     if (!setDetectedZones) return;
+    if (pushFcSnapshot) pushFcSnapshot();
     const currentZones = Array.isArray(detectedZones) ? detectedZones : [];
     const updated = currentZones.map(z => {
       if (z.id !== zoneId) return z;
@@ -345,6 +377,7 @@ export default function FloorCeilingLevelControlPanel({
     });
 
     setDetectedZones(updated);
+    if (activePage) activePage.detectedZones = updated;
 
     if (lastScanResult) {
       const recalculated = {
@@ -353,6 +386,7 @@ export default function FloorCeilingLevelControlPanel({
         areas: recalcZoneAreas(updated, lastScanResult.levelFootprints)
       };
       setLastScanResult(recalculated);
+      if (activePage) activePage.lastScanResult = recalculated;
       performSync(recalculated, false);
     }
   };
@@ -360,6 +394,7 @@ export default function FloorCeilingLevelControlPanel({
   // Handle Toggle Balcony for a Lower Extension zone (assigns top surface as upper level Balcony Floor)
   const handleToggleBalcony = (zoneId, targetUpperCode) => {
     if (!setDetectedZones) return;
+    if (pushFcSnapshot) pushFcSnapshot();
     const currentZones = Array.isArray(detectedZones) ? detectedZones : [];
     const updated = currentZones.map(z => {
       if (z.id !== zoneId) return z;
@@ -375,6 +410,7 @@ export default function FloorCeilingLevelControlPanel({
     });
 
     setDetectedZones(updated);
+    if (activePage) activePage.detectedZones = updated;
 
     if (lastScanResult) {
       const recalculated = {
@@ -383,6 +419,7 @@ export default function FloorCeilingLevelControlPanel({
         areas: recalcZoneAreas(updated, lastScanResult.levelFootprints)
       };
       setLastScanResult(recalculated);
+      if (activePage) activePage.lastScanResult = recalculated;
       performSync(recalculated, false);
     }
   };
@@ -423,11 +460,13 @@ export default function FloorCeilingLevelControlPanel({
   // Handle Delete Individual Zone
   const handleDeleteZone = (zoneId) => {
     if (!setDetectedZones) return;
+    if (pushFcSnapshot) pushFcSnapshot();
     const currentZones = Array.isArray(detectedZones) ? detectedZones : [];
     const updated = currentZones.filter(z => z.id !== zoneId);
 
     // Update state directly outside of sync call to prevent React setState during render
     setDetectedZones(updated);
+    if (activePage) activePage.detectedZones = updated;
 
     if (lastScanResult) {
       const recalculated = {
@@ -436,6 +475,7 @@ export default function FloorCeilingLevelControlPanel({
         areas: recalcZoneAreas(updated, lastScanResult.levelFootprints)
       };
       setLastScanResult(recalculated);
+      if (activePage) activePage.lastScanResult = recalculated;
       // Only sync to insulation, do not fire frame hardware
       performSync(recalculated, false);
     }
@@ -690,11 +730,12 @@ export default function FloorCeilingLevelControlPanel({
                   gap: "6px",
                   boxShadow: "0 4px 14px rgba(124, 58, 237, 0.25)"
                 }}
-                title="Automatically adjusts upper walls to match bottom level walls and scans outerline floor & ceiling footprint"
+                title="Resets previous zones and recalculates floor & ceiling outerline footprints cleanly from scratch"
               >
                 <span>{isScanning ? "Scanning..." : "Scan Floor & Ceiling"}</span>
               </button>
             </div>
+
 
             {/* Adjust Status Message */}
             {adjustStatus && (
@@ -916,8 +957,16 @@ export default function FloorCeilingLevelControlPanel({
                             </div>
                           ) : (
                             lvlZones.map((zone, zIdx) => {
-                              // If in Ceiling view, don't show the upper level balcony reference item (it has no ceiling)
-                              if (zone.isBalconyRef && currentViewMode === "ceiling") return null;
+                              // Filter by currentViewMode:
+                              if (currentViewMode === "floor") {
+                                if (zone.targetType === "ceiling") return null;
+                                if (!zone.isBalconyRef && zone.userType === ZONE_USER_TYPES.CEILING && !zone.floorEnabled) return null;
+                              }
+                              if (currentViewMode === "ceiling") {
+                                if (zone.isBalconyRef) return null;
+                                if (zone.targetType === "floor") return null;
+                                if (zone.userType === ZONE_USER_TYPES.FLOOR && !zone.ceilingEnabled) return null;
+                              }
 
                               const isSelected = selectedZoneId === zone.id;
                               const isFloorActive = zone.floorEnabled !== undefined
@@ -1076,7 +1125,11 @@ export default function FloorCeilingLevelControlPanel({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleDeleteZone(zone.parentZoneId || zone.id);
+                                      if (zone.isBalconyRef) {
+                                        handleToggleBalcony(zone.parentZoneId, zoneUpperCode);
+                                      } else {
+                                        handleDeleteZone(zone.id);
+                                      }
                                     }}
                                     style={{
                                       padding: "2px 4px",
@@ -1235,7 +1288,7 @@ export default function FloorCeilingLevelControlPanel({
                       boxShadow: "0 2px 8px rgba(22, 163, 74, 0.2)"
                     }}
                   >
-                    <span>Sync area</span>
+                    <span>Auto Fill (AI)</span>
                   </button>
 
                   <button

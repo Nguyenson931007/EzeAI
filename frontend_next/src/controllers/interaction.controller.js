@@ -35,22 +35,33 @@ export const RoofInteractionState = {
 };
 
 // Helper function to snap a coordinate to other walls (centerline projection or endpoint vertex)
-function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWallSnapEnabled = true, isFloorCeilingPage = false) {
-  if (!isWallSnapEnabled || isFloorCeilingPage) {
+// Supports scale-based tolerance (150mm actual for endpoints, 75mm actual for segments) and multi-level snapping
+function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = null, isWallSnapEnabled = true, isFloorCeilingPage = false, realScale = null, activeLevelCode = null) {
+  if (!isWallSnapEnabled) {
     return { ...p };
   }
 
+  const effMmPerPx = (typeof realScale === 'number' && realScale > 0) ? realScale : 18.0;
+  // 250mm actual distance for endpoints, clamped between [15px, 60px] for comfortable snapping
+  const effSnapDist = (typeof snapDistance === 'number' && snapDistance > 0)
+    ? snapDistance
+    : Math.max(15, Math.min(60, 250 / effMmPerPx));
+  // 120mm actual distance for centerline projection, clamped between [10px, 40px]
+  const effSegDist = Math.max(10, Math.min(40, 120 / effMmPerPx));
+
   const currentWall = pageWalls?.find(w => w.id === currentWallId);
-  const curLvl = currentWall?.sourceLevelCode || (currentWall?.sourceLevelOrder !== undefined ? String(currentWall.sourceLevelOrder) : null);
+  const curLvl = currentWall?.sourceLevelCode ||
+    (currentWall?.sourceLevelOrder !== undefined ? String(currentWall.sourceLevelOrder) : null) ||
+    (activeLevelCode && activeLevelCode !== "ALL" ? activeLevelCode : null);
 
   let bestP = { ...p };
-  let bestDist = snapDistance;
+  let bestDist = effSnapDist;
 
-  // 1. Snap to endpoints of other walls
-  for (const w of pageWalls) {
+  // PASS 1: Snap to endpoints of walls ON THE SAME LEVEL (highest priority)
+  for (const w of pageWalls || []) {
     if (w.id === currentWallId) continue;
     const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
-    if (curLvl && othLvl && curLvl !== othLvl) continue; // RULE: never snap to walls of a different level!
+    if (curLvl && othLvl && curLvl !== othLvl) continue;
 
     if (w.centerline && w.centerline.length === 2) {
       for (const pt of w.centerline) {
@@ -63,14 +74,34 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
     }
   }
 
-  // 2. Snap to centerline segments of other walls (less aggressive: use a tighter 10px snap distance)
-  if (bestDist === snapDistance) {
-    const segmentSnapDistance = 10;
-    let bestSegDist = segmentSnapDistance;
-    for (const w of pageWalls) {
+  // PASS 2: If no same-level endpoint found, snap to endpoints of walls on OTHER LEVELS (multi-level snapping)
+  if (bestDist === effSnapDist) {
+    for (const w of pageWalls || []) {
       if (w.id === currentWallId) continue;
       const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
-      if (curLvl && othLvl && curLvl !== othLvl) continue; // RULE: never snap to walls of a different level!
+      if (curLvl && othLvl && curLvl === othLvl) continue; // already checked in Pass 1
+
+      if (w.centerline && w.centerline.length === 2) {
+        for (const pt of w.centerline) {
+          const dist = Math.hypot(p.x - pt[0], p.y - pt[1]);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestP = { x: pt[0], y: pt[1] };
+          }
+        }
+      }
+    }
+  }
+
+  // PASS 3: Snap to centerline segments of other walls (same level first, then other levels)
+  if (bestDist === effSnapDist) {
+    let bestSegDist = effSegDist;
+
+    // 3a. Same level segments
+    for (const w of pageWalls || []) {
+      if (w.id === currentWallId) continue;
+      const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+      if (curLvl && othLvl && curLvl !== othLvl) continue;
 
       if (w.centerline && w.centerline.length === 2) {
         const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
@@ -79,6 +110,25 @@ function snapToOtherWalls(p, currentWallId, pageWalls, snapDistance = 20, isWall
         if (proj.dist < bestSegDist) {
           bestSegDist = proj.dist;
           bestP = { x: proj.x, y: proj.y };
+        }
+      }
+    }
+
+    // 3b. Other level segments
+    if (bestSegDist === effSegDist) {
+      for (const w of pageWalls || []) {
+        if (w.id === currentWallId) continue;
+        const othLvl = w?.sourceLevelCode || (w?.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+        if (curLvl && othLvl && curLvl === othLvl) continue;
+
+        if (w.centerline && w.centerline.length === 2) {
+          const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+          const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+          const proj = distancePointToSegment(p, a, b);
+          if (proj.dist < bestSegDist) {
+            bestSegDist = proj.dist;
+            bestP = { x: proj.x, y: proj.y };
+          }
         }
       }
     }
@@ -400,16 +450,29 @@ function shiftAllPageEntities(dx, dy, currentPage, context) {
  * Snaps the wall endpoint while strictly maintaining 90-degree orthogonal angle (horizontal / vertical).
  * Automatically calculates perpendicular intersection points with other walls along the locked line.
  */
-function snapOrthogonalWallEnd(startPt, rawP, pageWalls, lockMode = null, isWallSnapEnabled = true, freeAngle = false) {
+function snapOrthogonalWallEnd(
+  startPt,
+  rawP,
+  pageWalls,
+  lockMode = null,
+  isWallSnapEnabled = true,
+  freeAngle = false,
+  realScale = null,
+  activeLevelCode = null
+) {
   if (!startPt) return rawP;
   const sx = startPt.x;
   const sy = startPt.y;
   const px = rawP.x;
   const py = rawP.y;
 
+  const effMmPerPx = (realScale && realScale.scale > 0) ? (realScale.distanceMm / realScale.scale) : 10;
+  const snapTol = Math.max(15, Math.min(60, 250 / effMmPerPx));
+  const orthoTol = Math.max(12, Math.min(40, 120 / effMmPerPx));
+
   if (freeAngle) {
     if (isWallSnapEnabled) {
-      return snapToOtherWalls(rawP, null, pageWalls, 20, true);
+      return snapToOtherWalls(rawP, null, pageWalls, snapTol, true, false, realScale, activeLevelCode);
     }
     return { x: px, y: py };
   }
@@ -426,77 +489,93 @@ function snapOrthogonalWallEnd(startPt, rawP, pageWalls, lockMode = null, isWall
     return { x: targetX, y: targetY };
   }
 
-  let bestDist = 30;
-  let bestPt = { x: targetX, y: targetY };
+  const getWallLevel = (w) => {
+    return w.levelCode || (w.properties && w.properties.levelCode) || (w.metadata && w.metadata.levelCode) || null;
+  };
 
-  for (const w of pageWalls) {
-    if (!w.centerline || w.centerline.length !== 2) continue;
-    const ax = w.centerline[0][0], ay = w.centerline[0][1];
-    const bx = w.centerline[1][0], by = w.centerline[1][1];
+  const checkWalls = (wallList) => {
+    let bestDist = snapTol;
+    let foundPt = null;
 
-    // 1. Check endpoints of wall
-    for (const ep of [{ x: ax, y: ay }, { x: bx, y: by }]) {
+    for (const w of wallList) {
+      if (!w.centerline || w.centerline.length !== 2) continue;
+      const ax = w.centerline[0][0], ay = w.centerline[0][1];
+      const bx = w.centerline[1][0], by = w.centerline[1][1];
+
+      // 1. Check endpoints of wall
+      for (const ep of [{ x: ax, y: ay }, { x: bx, y: by }]) {
+        if (isVertical) {
+          if (Math.abs(ep.x - sx) < orthoTol && Math.abs(ep.y - py) < bestDist) {
+            bestDist = Math.abs(ep.y - py);
+            foundPt = { x: sx, y: ep.y };
+          }
+        } else if (isHorizontal) {
+          if (Math.abs(ep.y - sy) < orthoTol && Math.abs(ep.x - px) < bestDist) {
+            bestDist = Math.abs(ep.x - px);
+            foundPt = { x: ep.x, y: sy };
+          }
+        }
+      }
+
+      // 2. Check segment intersection with the orthogonal line
       if (isVertical) {
-        if (Math.abs(ep.x - sx) < 16 && Math.abs(ep.y - py) < bestDist) {
-          bestDist = Math.abs(ep.y - py);
-          bestPt = { x: sx, y: ep.y };
+        // Line is x = sx. Does segment [a, b] cross x = sx?
+        const minX = Math.min(ax, bx) - 10;
+        const maxX = Math.max(ax, bx) + 10;
+        if (sx >= minX && sx <= maxX && Math.abs(bx - ax) > 0.001) {
+          const t = (sx - ax) / (bx - ax);
+          if (t >= -0.05 && t <= 1.05) {
+            const intersectY = ay + t * (by - ay);
+            const dist = Math.abs(intersectY - py);
+            if (dist < bestDist) {
+              bestDist = dist;
+              foundPt = { x: sx, y: intersectY };
+            }
+          }
         }
       } else if (isHorizontal) {
-        if (Math.abs(ep.y - sy) < 16 && Math.abs(ep.x - px) < bestDist) {
-          bestDist = Math.abs(ep.x - px);
-          bestPt = { x: ep.x, y: sy };
-        }
-      }
-    }
-
-    // 2. Check segment intersection with the orthogonal line
-    if (isVertical) {
-      // Line is x = sx. Does segment [a, b] cross x = sx?
-      const minX = Math.min(ax, bx) - 10;
-      const maxX = Math.max(ax, bx) + 10;
-      if (sx >= minX && sx <= maxX && Math.abs(bx - ax) > 0.001) {
-        const t = (sx - ax) / (bx - ax);
-        if (t >= -0.05 && t <= 1.05) {
-          const intersectY = ay + t * (by - ay);
-          const dist = Math.abs(intersectY - py);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestPt = { x: sx, y: intersectY };
-          }
-        }
-      }
-    } else if (isHorizontal) {
-      // Line is y = sy. Does segment [a, b] cross y = sy?
-      const minY = Math.min(ay, by) - 10;
-      const maxY = Math.max(ay, by) + 10;
-      if (sy >= minY && sy <= maxY && Math.abs(by - ay) > 0.001) {
-        const t = (sy - ay) / (by - ay);
-        if (t >= -0.05 && t <= 1.05) {
-          const intersectX = ax + t * (bx - ax);
-          const dist = Math.abs(intersectX - px);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestPt = { x: intersectX, y: sy };
+        // Line is y = sy. Does segment [a, b] cross y = sy?
+        const minY = Math.min(ay, by) - 10;
+        const maxY = Math.max(ay, by) + 10;
+        if (sy >= minY && sy <= maxY && Math.abs(by - ay) > 0.001) {
+          const t = (sy - ay) / (by - ay);
+          if (t >= -0.05 && t <= 1.05) {
+            const intersectX = ax + t * (bx - ax);
+            const dist = Math.abs(intersectX - px);
+            if (dist < bestDist) {
+              bestDist = dist;
+              foundPt = { x: intersectX, y: sy };
+            }
           }
         }
       }
     }
+    return foundPt;
+  };
+
+  // Pass 1: Try walls on the same level (if activeLevelCode provided)
+  if (activeLevelCode && activeLevelCode !== 'ALL') {
+    const sameLevelWalls = pageWalls.filter(w => getWallLevel(w) === activeLevelCode);
+    const ptSame = checkWalls(sameLevelWalls);
+    if (ptSame) return ptSame;
   }
 
-  // Fallback: If no orthogonal intersection was found within 30px, check if rawSnap aligns close to ortho line
-  if (bestDist === 30) {
-    const rawSnap = snapToOtherWalls(rawP, null, pageWalls, 18, true);
-    if (Math.hypot(rawSnap.x - rawP.x, rawSnap.y - rawP.y) > 0.001) {
-      if (isVertical && Math.abs(rawSnap.x - sx) < 15) {
-        return { x: sx, y: rawSnap.y };
-      }
-      if (isHorizontal && Math.abs(rawSnap.y - sy) < 15) {
-        return { x: rawSnap.x, y: sy };
-      }
+  // Pass 2: Check all walls
+  const ptAll = checkWalls(pageWalls);
+  if (ptAll) return ptAll;
+
+  // Fallback: If no orthogonal intersection was found within snapTol, check if rawSnap aligns close to ortho line
+  const rawSnap = snapToOtherWalls(rawP, null, pageWalls, snapTol, true, false, realScale, activeLevelCode);
+  if (Math.hypot(rawSnap.x - rawP.x, rawSnap.y - rawP.y) > 0.001) {
+    if (isVertical && Math.abs(rawSnap.x - sx) < orthoTol) {
+      return { x: sx, y: rawSnap.y };
+    }
+    if (isHorizontal && Math.abs(rawSnap.y - sy) < orthoTol) {
+      return { x: rawSnap.x, y: sy };
     }
   }
 
-  return bestPt;
+  return { x: targetX, y: targetY };
 }
 
 export function useInteractionController(svgRef, layerVisibility = { floor: true, wall: true, door: true, ocr: true }) {
@@ -625,13 +704,41 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     curPage?.code === "FC"
   );
 
-  // Automatically disable wall snapping and wall merging when on Floor & Ceiling workspace page
+  // Ensure wall snapping is always enabled when on Floor & Ceiling workspace page
   useEffect(() => {
     if (isFloorCeilingWorkspace) {
-      setIsWallSnapEnabled(false);
+      setIsWallSnapEnabled(true);
       setIsWallMergeDisabled(true);
     }
   }, [isFloorCeilingWorkspace, currentPage]);
+
+  const resolveTargetLevel = (drawingWallState) => {
+    const activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : "ALL";
+    if (activeFilter && activeFilter !== "ALL") return activeFilter;
+    if (drawingWallState?.sourceLevelCode) return drawingWallState.sourceLevelCode;
+    return curPage?.levelMetadata?.[0]?.code || "GF";
+  };
+
+  const resolveLevelMeta = (targetCode) => {
+    const metaList = curPage?.levelMetadata || [];
+    const found = metaList.find(m => m.code === targetCode);
+    if (found) {
+      return {
+        code: found.code,
+        name: found.name || found.code,
+        orderIndex: found.orderIndex !== undefined ? found.orderIndex : 0,
+        color: found.color || "#10b981",
+        pageIdx: found.index ?? null
+      };
+    }
+    return {
+      code: targetCode || "GF",
+      name: targetCode === "FF" ? "First Floor" : "Ground Floor",
+      orderIndex: targetCode === "FF" ? 1 : 0,
+      color: targetCode === "FF" ? "#3b82f6" : "#10b981",
+      pageIdx: 0
+    };
+  };
 
   // Vertex menu state (click on endpoint circle)
   const [vertexMenu, setVertexMenu] = useState({ visible: false, x: 0, y: 0, vertex: null });
@@ -951,7 +1058,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const endY = drawingWallEnd.y;
 
           if (Math.hypot(endX - drawingWall.startX, endY - drawingWall.startY) > 5) {
-            const wallId = `man_wall_${Date.now()}`;
+            let wallId;
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = resolveTargetLevel(drawingWall);
+              wallId = `fc_w_${lvlCode}_wall_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+            } else {
+              wallId = `man_wall_${Date.now()}`;
+            }
+
             const thickness = drawingWall.thickness || mmToPx(70, realScale);
             const newWall = {
               id: wallId,
@@ -966,6 +1080,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               height: defaultHeightVal
             };
 
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = resolveTargetLevel(drawingWall);
+              const meta = resolveLevelMeta(lvlCode);
+              Object.assign(newWall, {
+                sourceLevelCode: meta.code,
+                sourceLevelName: meta.name,
+                sourceLevelOrder: meta.orderIndex,
+                sourceColor: meta.color,
+                sourcePageIdx: meta.pageIdx,
+                sourceLevelIdx: meta.pageIdx,
+                isFloorCeilingOnly: true,
+                excludeFromOtherTasks: true
+              });
+            }
+
             const pageWalls = wallsByPage[currentPage] || [];
             const pts = [{ x: drawingWall.startX, y: drawingWall.startY }, { x: endX, y: endY }];
             const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
@@ -979,7 +1108,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             const updatedWalls = [...pageWalls, newWall];
             const recalculatedWalls = recalculateAllWallsPolygons(updatedWalls);
 
-            pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+            if (!isFloorCeilingWorkspace) {
+              pushHistory(rooms, recalculatedWalls, doorsByPage[currentPage] || []);
+            }
             setWallsByPage(prev => ({ ...prev, [currentPage]: recalculatedWalls }));
           }
 
@@ -1010,6 +1141,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if (e.code === "Delete" || e.code === "Backspace") {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         deleteItem();
       }
@@ -1040,6 +1172,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyZ" || e.key === "z")) {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         if (isDrawingRoof && currentPoly.length > 0) {
           setCurrentPoly(prev => prev.slice(0, -1));
@@ -1051,6 +1184,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
 
       if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || e.key === "y")) {
+        if (isFloorCeilingWorkspace) return; // Handled exclusively in CanvasView for FC workspace
         e.preventDefault();
         redo();
       }
@@ -2263,7 +2397,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       // Helper function to check if end point touches another wall or wall endpoint
       const checkPointTouchesWall = (pt, startPt, walls) => {
         if (!walls || walls.length === 0) return false;
-        const SNAP_DIST = 20;
+        const effMm = (realScale && realScale.scale > 0) ? (realScale.distanceMm / realScale.scale) : 10;
+        const SNAP_DIST = Math.max(20, Math.min(60, 250 / effMm));
         for (const w of walls) {
           if (!w.centerline || w.centerline.length !== 2) continue;
           const p1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
@@ -2287,15 +2422,53 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
       // Case 1: First click to start wall drawing (if drawingWall doesn't exist yet)
       if (!drawingWall) {
-        const snappedToWall = snapToOtherWalls(p, null, pageWalls, 20, true);
+        let activeFilter = null;
+        if (isFloorCeilingWorkspace) {
+          activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : "ALL";
+        }
+        const snappedToWall = snapToOtherWalls(p, null, pageWalls, null, true, isFloorCeilingWorkspace, realScale, activeFilter);
         const startPt = { x: snappedToWall.x, y: snappedToWall.y };
         const defaultThickPx = mmToPx(70, realScale);
+
+        let parentWall = null;
+        for (const w of pageWalls) {
+          if (w.centerline && w.centerline.length === 2) {
+            const a = { x: w.centerline[0][0], y: w.centerline[0][1] };
+            const b = { x: w.centerline[1][0], y: w.centerline[1][1] };
+            const proj = distancePointToSegment(startPt, a, b);
+            if (proj.dist <= 25) {
+              parentWall = w;
+              break;
+            }
+          }
+        }
+
+        let targetLevelMeta = null;
+        if (isFloorCeilingWorkspace) {
+          const activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : "ALL";
+          let targetLevelCode;
+          if (activeFilter && activeFilter !== "ALL") {
+            targetLevelCode = activeFilter;
+          } else if (parentWall?.sourceLevelCode) {
+            targetLevelCode = parentWall.sourceLevelCode;
+          } else {
+            targetLevelCode = curPage?.levelMetadata?.[0]?.code || "GF";
+          }
+          targetLevelMeta = resolveLevelMeta(targetLevelCode);
+        }
+
         setDrawingWall({
           startX: startPt.x,
           startY: startPt.y,
           lock: null,
-          wallType: "interior_wall",
-          thickness: defaultThickPx
+          wallType: parentWall?.class_name || "interior_wall",
+          thickness: parentWall?.thickness_px || defaultThickPx,
+          ...(isFloorCeilingWorkspace && targetLevelMeta ? {
+            sourceLevelCode: targetLevelMeta.code,
+            sourceLevelName: targetLevelMeta.name,
+            sourceLevelOrder: targetLevelMeta.orderIndex,
+            sourceColor: targetLevelMeta.color
+          } : {})
         });
         setDrawingWallEnd({ x: startPt.x, y: startPt.y });
         return;
@@ -2311,7 +2484,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
         let nextWalls = pageWalls;
         if (Math.hypot(endX - startX, endY - startY) > 5) {
-          const wallId = `man_wall_${Date.now()}`;
+          let wallId;
+          if (isFloorCeilingWorkspace) {
+            const lvlCode = resolveTargetLevel(drawingWall);
+            wallId = `fc_w_${lvlCode}_wall_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          } else {
+            wallId = `man_wall_${Date.now()}`;
+          }
+
           const thickness = drawingWall.thickness || defaultThickPx;
           const newWall = {
             id: wallId,
@@ -2326,6 +2506,21 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             height: defaultHeightVal
           };
 
+          if (isFloorCeilingWorkspace) {
+            const lvlCode = resolveTargetLevel(drawingWall);
+            const meta = resolveLevelMeta(lvlCode);
+            Object.assign(newWall, {
+              sourceLevelCode: meta.code,
+              sourceLevelName: meta.name,
+              sourceLevelOrder: meta.orderIndex,
+              sourceColor: meta.color,
+              sourcePageIdx: meta.pageIdx,
+              sourceLevelIdx: meta.pageIdx,
+              isFloorCeilingOnly: true,
+              excludeFromOtherTasks: true
+            });
+          }
+
           const pts = [{ x: startX, y: startY }, { x: endX, y: endY }];
           const newPoly = calculateWallPolygonWithJunctions(pts, thickness, wallId, pageWalls);
           newWall.polygon = newPoly ? newPoly.map(pt => [pt.x, pt.y]) : [
@@ -2338,7 +2533,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           const updatedWalls = [...pageWalls, newWall];
           nextWalls = recalculateAllWallsPolygons(updatedWalls);
 
-          pushHistory(rooms, nextWalls, doorsByPage[currentPage] || []);
+          if (!isFloorCeilingWorkspace) {
+            pushHistory(rooms, nextWalls, doorsByPage[currentPage] || []);
+          }
           setWallsByPage(prev => ({ ...prev, [currentPage]: nextWalls }));
         }
 
@@ -2358,7 +2555,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             startY: endY,
             lock: null,
             wallType: drawingWall.wallType || "interior_wall",
-            thickness: drawingWall.thickness || defaultThickPx
+            thickness: drawingWall.thickness || defaultThickPx,
+            sourceLevelCode: drawingWall.sourceLevelCode,
+            sourceLevelName: drawingWall.sourceLevelName,
+            sourceLevelOrder: drawingWall.sourceLevelOrder,
+            sourceColor: drawingWall.sourceColor
           });
           setDrawingWallEnd({ x: endX, y: endY });
         }
@@ -2590,8 +2791,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (Math.hypot(p1[0] - splitPt[0], p1[1] - splitPt[1]) > 5 &&
             Math.hypot(p2[0] - splitPt[0], p2[1] - splitPt[1]) > 5) {
 
-            const w1_id = `man_wall_${Date.now()}_s1`;
-            const w2_id = `man_wall_${Date.now()}_s2`;
+            let w1_id, w2_id;
+            if (isFloorCeilingWorkspace) {
+              const lvlCode = targetWall.sourceLevelCode || resolveTargetLevel(null);
+              w1_id = `fc_w_${lvlCode}_wall_${Date.now()}_s1`;
+              w2_id = `fc_w_${lvlCode}_wall_${Date.now()}_s2`;
+            } else {
+              w1_id = `man_wall_${Date.now()}_s1`;
+              w2_id = `man_wall_${Date.now()}_s2`;
+            }
 
             const w1 = {
               ...targetWall,
@@ -2606,7 +2814,9 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
             const filteredWalls = pageWalls.filter(w => w.id !== targetWall.id);
             const recalculated = recalculateAllWallsPolygons([...filteredWalls, w1, w2]);
-            pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+            if (!isFloorCeilingWorkspace) {
+              pushHistory(rooms, recalculated, doorsByPage[currentPage] || []);
+            }
             setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
             setIsAddingPoint(false);
             setDrawingWall({
@@ -2615,7 +2825,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               lock: null,
               wallType: targetWall.class_name || "interior_wall",
               thickness: targetWall.thickness_px || 20,
-              wallId: w1_id
+              wallId: w1_id,
+              sourceLevelCode: targetWall.sourceLevelCode,
+              sourceLevelName: targetWall.sourceLevelName,
+              sourceLevelOrder: targetWall.sourceLevelOrder,
+              sourceColor: targetWall.sourceColor
             });
             setDrawingWallEnd({ x: splitPt[0], y: splitPt[1] });
             if (setInteractionMode) {
@@ -4235,7 +4449,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
           const otherPtArr = draggedWall.centerline[1 - dragging.index];
           const otherPt = { x: otherPtArr[0], y: otherPtArr[1] };
-          let snapped = snapToOtherWalls(pRaw, dragging.id, pageWalls, 20, isWallSnapEnabled, isFloorCeilingWorkspace);
+          const draggedLevel = draggedWall.sourceLevelCode || draggedWall.levelCode || (draggedWall.properties && draggedWall.properties.levelCode) || ((typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : null);
+          let snapped = snapToOtherWalls(pRaw, dragging.id, pageWalls, null, isWallSnapEnabled, isFloorCeilingWorkspace, realScale, draggedLevel);
           if (!isShiftDown) {
             snapped = snap(otherPt, snapped);
           }
@@ -4576,13 +4791,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const pageWalls = wallsByPage[currentPage] || [];
       const startPt = { x: drawingWall.startX, y: drawingWall.startY };
       const freeAngle = isShiftDown && !isSnapMode;
+      const activeFilter = (typeof window !== "undefined" && window.__fcActiveLevelFilter) ? window.__fcActiveLevelFilter : (drawingWall.sourceLevelCode || null);
       const snappedPt = snapOrthogonalWallEnd(
         startPt,
         p,
         pageWalls,
         drawingWall.lock || null,
         isWallSnapEnabled,
-        freeAngle
+        freeAngle,
+        realScale,
+        activeFilter
       );
       setDrawingWallEnd(snappedPt);
     }

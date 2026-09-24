@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass, classifyWallsTouchingExtEndpoints } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
@@ -406,7 +406,7 @@ export default function RightPropertyPaneView({
     floorLevelByPage.get(Number(pageIndex)) || resolvePageFloorLevel(pages, Number(pageIndex))
   ), [floorLevelByPage, pages]);
 
-  // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
+  // â”€â”€ PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) â”€â”€
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
   const [explorerViewMode, setExplorerViewMode] = React.useState("tree"); // "tree" | "properties"
   const pendingOpenAfterMoveRef = React.useRef(false);
@@ -419,7 +419,7 @@ export default function RightPropertyPaneView({
     "floor_0"
   ]));
 
-  // ── CUSTOMER / CLIENT TASK FORM SELECTION ──
+  // â”€â”€ CUSTOMER / CLIENT TASK FORM SELECTION â”€â”€
   const [selectedCustomerClient, setSelectedCustomerClient] = React.useState(() => {
     if (typeof window === "undefined") return "bun-nsw-act";
     return (
@@ -439,7 +439,7 @@ export default function RightPropertyPaneView({
     [customerModuleIds]
   );
 
-  // ── DYNAMIC MODULE TABS STATE (DRIVEN BY CUSTOMER + TASK CONTEXT) ──
+  // â”€â”€ DYNAMIC MODULE TABS STATE (DRIVEN BY CUSTOMER + TASK CONTEXT) â”€â”€
   const [enabledModuleIds, setEnabledModuleIds] = React.useState(() =>
     getInitialEnabledModules(
       typeof window === "undefined"
@@ -504,7 +504,7 @@ export default function RightPropertyPaneView({
         if (pendingJobStr) pendingJob = JSON.parse(pendingJobStr);
       } catch (_) { }
 
-      // Kiểm tra xem pendingJob có trùng khớp với project đang mở hay không
+      // Kiá»ƒm tra xem pendingJob cÃ³ trÃ¹ng khá»›p vá»›i project Ä‘ang má»Ÿ hay khÃ´ng
       const isMatchingEmsJob = pendingJob && currentProjectName && (
         String(pendingJob.job_number || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
         String(pendingJob.hw_id || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
@@ -526,7 +526,7 @@ export default function RightPropertyPaneView({
         localStorage.setItem("selectedCustomerClient", nextCustomer);
       } catch (_) { }
 
-      // 1. Nếu là EMS Job đang mở và có cấu hình task_modules từ API -> ƯU TIÊN HÀNG ĐẦU
+      // 1. Náº¿u lÃ  EMS Job Ä‘ang má»Ÿ vÃ  cÃ³ cáº¥u hÃ¬nh task_modules tá»« API -> Æ¯U TIÃŠN HÃ€NG Äáº¦U
       const authMods = Array.isArray(pendingJob?.task_modules)
         ? pendingJob.task_modules
         : (Array.isArray(pendingJob?.selected_modules)
@@ -541,7 +541,7 @@ export default function RightPropertyPaneView({
         return;
       }
 
-      // 2. Kiểm tra cấu hình task tùy chỉnh người dùng đã chọn (selectedModules) trong sessionStorage
+      // 2. Kiá»ƒm tra cáº¥u hÃ¬nh task tÃ¹y chá»‰nh ngÆ°á»i dÃ¹ng Ä‘Ã£ chá»n (selectedModules) trong sessionStorage
       let customModules = null;
       try {
         const storedModules = sessionStorage.getItem("selectedModules");
@@ -560,7 +560,7 @@ export default function RightPropertyPaneView({
         return;
       }
 
-      // 3. Mặc định cho project thông thường: nạp toàn bộ module theo gói khách hàng
+      // 3. Máº·c Ä‘á»‹nh cho project thÃ´ng thÆ°á»ng: náº¡p toÃ n bá»™ module theo gÃ³i khÃ¡ch hÃ ng
       const resolved = getInitialEnabledModules(nextCustomer);
       setEnabledModuleIds(prev =>
         JSON.stringify(prev) === JSON.stringify(resolved) ? prev : resolved
@@ -577,7 +577,7 @@ export default function RightPropertyPaneView({
     };
   }, [currentProjectName, user, selectedCustomerClient]);
 
-  // Đảm bảo activePaneTab hợp lệ khi đổi gói khách hàng
+  // Äáº£m báº£o activePaneTab há»£p lá»‡ khi Ä‘á»•i gÃ³i khÃ¡ch hÃ ng
   React.useEffect(() => {
     if (
       activePaneTab !== "explorer" &&
@@ -611,7 +611,7 @@ export default function RightPropertyPaneView({
     }
   }, [enabledModuleIds, activePaneTab]);
 
-  // ── TASK CALCULATION FORMS STATE (10 MODULES) ──
+  // â”€â”€ TASK CALCULATION FORMS STATE (10 MODULES) â”€â”€
   const [moduleFormData, setModuleFormData] = React.useState({
     frame_hardware: { wall_height: "", wall_length: "", wind_class: "", base_construction: "" },
     eaves_soffit: { building_level: "", eave_width: "", total_eave_length: "", soffit_material: "" },
@@ -726,10 +726,10 @@ export default function RightPropertyPaneView({
     }
   };
 
-  // Handler for selecting an entry in task tables — highlights matching objects on canvas
+  // Handler for selecting an entry in task tables â€” highlights matching objects on canvas
   const handleSelectEntry = (entry) => {
     if (!entry) {
-      // Deselected — clear canvas highlight & selections
+      // Deselected â€” clear canvas highlight & selections
       if (setSelectedWallIds) setSelectedWallIds([]);
       if (setSelectedDoorIds) setSelectedDoorIds([]);
       if (setSelectedRoomIds) setSelectedRoomIds([]);
@@ -754,11 +754,12 @@ export default function RightPropertyPaneView({
     if (targetPageIndex < 0 && entry.floorLevel && pages && pages.length > 0) {
       const fl = (entry.floorLevel || entry.floor_level || "GF").toUpperCase().trim();
       targetPageIndex = pages.findIndex((p, idx) => {
+        if (p.isFloorCeilingWorkspace || p.source === "floor_ceiling_page" || p.source === "floor_ceiling_workspace") return false;
         const pName = (p.floor_name || p.name || "").toUpperCase().trim();
-        if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
-        if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
-        if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("TẦNG 2") || pName.includes("2F") || idx === 2)) return true;
-        if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("TẦNG 3") || pName.includes("3F") || idx === 3)) return true;
+        if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRá»†T") || idx === 0)) return true;
+        if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("Táº¦NG 1") || pName.includes("1F") || idx === 1)) return true;
+        if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("Táº¦NG 2") || pName.includes("2F") || idx === 2)) return true;
+        if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("Táº¦NG 3") || pName.includes("3F") || idx === 3)) return true;
         if (pName.includes(fl)) return true;
         return false;
       });
@@ -989,6 +990,45 @@ export default function RightPropertyPaneView({
   const handleAddDataAI = (moduleId) => {
     const normalizedModuleId = moduleId === "lockup" ? "lock_up" : moduleId;
 
+    let aiValues = {};
+
+    const effScale =
+      realScale && realScale > 0
+        ? realScale
+        : scaleValue && scaleValue > 0
+          ? scaleValue
+          : 1.0;
+
+    const curPageObj = pages && pages[currentPage];
+
+    const isFCPage = Boolean(
+      curPageObj?.isFloorCeilingWorkspace ||
+      curPageObj?.source === "floor_ceiling_page" ||
+      curPageObj?.source === "floor_ceiling_workspace"
+    );
+
+    const rawWalls = isFCPage
+      ? []
+      : wallsByPageProp && wallsByPageProp[currentPage]
+        ? wallsByPageProp[currentPage]
+        : walls || [];
+
+    const curWalls = rawWalls.filter(
+      (w) => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks
+    );
+
+    const curDoors = isFCPage
+      ? []
+      : doorsByPageProp && doorsByPageProp[currentPage]
+        ? doorsByPageProp[currentPage]
+        : doors || [];
+
+    const curRooms = isFCPage
+      ? []
+      : roomsByPageProp && roomsByPageProp[currentPage]
+        ? roomsByPageProp[currentPage]
+        : rooms || [];
+
     // Explicit Auto Fill re-enables generation after a manual Clear.
     if (manuallyClearedTasksRef.current?.[normalizedModuleId]) {
       const nextRef = { ...(manuallyClearedTasksRef.current || {}) };
@@ -1205,7 +1245,7 @@ export default function RightPropertyPaneView({
       // only expose deterministic room-derived counts in form metadata here.
       const roomList = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
       const names = (roomList || []).map((r) => String(r.room_name || r.name || r.label || "").toLowerCase());
-      const wetRooms = names.filter((n) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['’]?dry|shower/.test(n)).length;
+      const wetRooms = names.filter((n) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['â€™]?dry|shower/.test(n)).length;
       formPatch = { detected_wet_rooms: String(wetRooms) };
       generatedCount = wetRooms;
     } else if (normalizedModuleId === "final_fit") {
@@ -1299,7 +1339,7 @@ export default function RightPropertyPaneView({
     return () => clearTimeout(timer);
   }, [selectedId, selectedType, selectedWallIds, selectedRoofId, currentPage, doorsByPageProp, doors]);
 
-  // ── HOTKEY 'E' TO DIRECTLY OPEN PROPERTIES OF SELECTED LAYER / ITEM ──
+  // â”€â”€ HOTKEY 'E' TO DIRECTLY OPEN PROPERTIES OF SELECTED LAYER / ITEM â”€â”€
   React.useEffect(() => {
     const handleKeyDown = (e) => {
       const activeEl = document.activeElement;
@@ -1366,11 +1406,11 @@ export default function RightPropertyPaneView({
     if (setHiddenItemIds) setHiddenItemIds(new Set());
   }, [setHiddenItemIds]);
 
-  // ── RENAME FLOOR HANDLER ──
+  // â”€â”€ RENAME FLOOR HANDLER â”€â”€
   const handleRenameFloor = async (e, pageIdx, currentName) => {
     if (e && e.stopPropagation) e.stopPropagation();
     const currentDisplayName = mapFloorName(currentName, pageIdx);
-    const newName = await showPrompt("Nhập tên tầng mới (Floor Name):", currentDisplayName);
+    const newName = await showPrompt("Nháº­p tÃªn táº§ng má»›i (Floor Name):", currentDisplayName);
     if (newName !== null && newName.trim() && setPages) {
       const trimmed = newName.trim();
       const classVal = convertNameToClass(trimmed, pageIdx);
@@ -1380,11 +1420,11 @@ export default function RightPropertyPaneView({
     }
   };
 
-  // ── RENAME ROOM HANDLER ──
+  // â”€â”€ RENAME ROOM HANDLER â”€â”€
   const handleRenameRoom = async (e, pageIdx, r) => {
     if (e && e.stopPropagation) e.stopPropagation();
     const currentName = r.room_name || r.name || "Room";
-    const newName = await showPrompt("Nhập tên phòng mới (Room Name):", currentName);
+    const newName = await showPrompt("Nháº­p tÃªn phÃ²ng má»›i (Room Name):", currentName);
     if (newName !== null && newName.trim()) {
       const trimmed = newName.trim();
       if (setRoomsByPage) {
@@ -1399,7 +1439,7 @@ export default function RightPropertyPaneView({
     }
   };
 
-  // ── SELECTION & NAVIGATION HANDLERS FOR TREE EXPLORER ──
+  // â”€â”€ SELECTION & NAVIGATION HANDLERS FOR TREE EXPLORER â”€â”€
   const selectExclusiveWall = React.useCallback((e, targetPageIdx, w, isMulti = false) => {
     if (e && e.stopPropagation) e.stopPropagation();
     if (goPage && targetPageIdx !== currentPage) goPage(targetPageIdx);
@@ -1501,7 +1541,7 @@ export default function RightPropertyPaneView({
   const [taskDisplayLimit, setTaskDisplayLimit] = React.useState(30);
   const [loadingJobId, setLoadingJobId] = React.useState(null);
 
-  // Mã nhân viên của người dùng hiện tại (e.g. EZE0098)
+  // MÃ£ nhÃ¢n viÃªn cá»§a ngÆ°á»i dÃ¹ng hiá»‡n táº¡i (e.g. EZE0098)
   const myStaffCode = React.useMemo(() => {
     if (user?.username && user.username.toUpperCase().startsWith("EZE")) {
       return user.username.toUpperCase();
@@ -1511,7 +1551,7 @@ export default function RightPropertyPaneView({
 
   const hasFetchedTasksRef = React.useRef(false);
 
-  // Tải danh sách Task Groups HW từ TaskList Web3 / Local DB
+  // Táº£i danh sÃ¡ch Task Groups HW tá»« TaskList Web3 / Local DB
   const fetchTasks = React.useCallback(async (forceRefresh = false) => {
     try {
       setTaskLoading(true);
@@ -1539,7 +1579,7 @@ export default function RightPropertyPaneView({
         }
       } catch (e) { }
       if (!loadedFromCache) {
-        setTaskError(err.message || "Không thể tải danh sách Task Groups HW");
+        setTaskError(err.message || "KhÃ´ng thá»ƒ táº£i danh sÃ¡ch Task Groups HW");
         setTaskListJobs([]);
       }
     } finally {
@@ -1547,7 +1587,7 @@ export default function RightPropertyPaneView({
     }
   }, []);
 
-  // Tự động tải ngầm danh sách Task Groups HW 1 lần duy nhất khi khởi tạo
+  // Tá»± Ä‘á»™ng táº£i ngáº§m danh sÃ¡ch Task Groups HW 1 láº§n duy nháº¥t khi khá»Ÿi táº¡o
   React.useEffect(() => {
     if (!hasFetchedTasksRef.current) {
       hasFetchedTasksRef.current = true;
@@ -1555,7 +1595,7 @@ export default function RightPropertyPaneView({
     }
   }, [fetchTasks]);
 
-  // Xử lý mở/chọn 1 Job Task
+  // Xá»­ lÃ½ má»Ÿ/chá»n 1 Job Task
   const handleOpenJobTask = async (task) => {
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
@@ -1574,7 +1614,7 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // 0. Sử dụng task_modules / selected_modules từ API làm nguồn chân lý cao nhất
+    // 0. Sá»­ dá»¥ng task_modules / selected_modules tá»« API lÃ m nguá»“n chÃ¢n lÃ½ cao nháº¥t
     const authoritativeMods = Array.isArray(currentTask.task_modules)
       ? currentTask.task_modules
       : (Array.isArray(currentTask.selected_modules)
@@ -1596,7 +1636,7 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // Lưu thông tin pendingEmsJob vào sessionStorage để đồng bộ SQL (loại bỏ data bản vẽ nặng)
+    // LÆ°u thÃ´ng tin pendingEmsJob vÃ o sessionStorage Ä‘á»ƒ Ä‘á»“ng bá»™ SQL (loáº¡i bá» data báº£n váº½ náº·ng)
     try {
       const { local_job, ...metaWithoutDrawing } = currentTask;
       const cleanTaskMeta = {
@@ -1614,12 +1654,12 @@ export default function RightPropertyPaneView({
       window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
     }
 
-    // 1. Kiểm tra đối chiếu xem Job đã có dữ liệu bản vẽ đã lưu trong CSDL SQLite hay chưa
+    // 1. Kiá»ƒm tra Ä‘á»‘i chiáº¿u xem Job Ä‘Ã£ cÃ³ dá»¯ liá»‡u báº£n váº½ Ä‘Ã£ lÆ°u trong CSDL SQLite hay chÆ°a
     let loadedSuccess = false;
     const localJobId = currentTask.local_job?.id || task.local_job?.id;
     const localJobData = currentTask.local_job?.data || task.local_job?.data;
 
-    // A. Nếu có local_job data inline
+    // A. Náº¿u cÃ³ local_job data inline
     if (localJobData) {
       try {
         const parsed = typeof localJobData === "string" ? JSON.parse(localJobData) : localJobData;
@@ -1629,10 +1669,10 @@ export default function RightPropertyPaneView({
         if (setActiveTab) setActiveTab("Home");
         loadedSuccess = true;
       } catch (err) {
-        console.warn("[handleOpenJobTask] Lỗi parse inline local_job data:", err);
+        console.warn("[handleOpenJobTask] Lá»—i parse inline local_job data:", err);
       }
     } else if (localJobId) {
-      // B. Nếu có ID trong SQLite -> tải chi tiết bản vẽ
+      // B. Náº¿u cÃ³ ID trong SQLite -> táº£i chi tiáº¿t báº£n váº½
       try {
         setLoadingJobId(task.hw_id);
         const res = await ApiService.getJobData(localJobId);
@@ -1651,7 +1691,7 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // C. Nếu chưa tìm thấy qua task metadata, thử tìm trực tiếp trong SQLite qua ApiService.findJob
+    // C. Náº¿u chÆ°a tÃ¬m tháº¥y qua task metadata, thá»­ tÃ¬m trá»±c tiáº¿p trong SQLite qua ApiService.findJob
     if (!loadedSuccess && targetName) {
       try {
         setLoadingJobId(task.hw_id);
@@ -1672,15 +1712,15 @@ export default function RightPropertyPaneView({
     }
 
     if (!loadedSuccess) {
-      // 2. Nếu chưa có bản vẽ trong SQLite: XÓA SẠCH workspace cũ mở trang mới trắng
-      console.log("[handleOpenJobTask] Job chưa có bản vẽ trong SQLite, reset sạch workspace mở trang trắng cho:", targetName);
+      // 2. Náº¿u chÆ°a cÃ³ báº£n váº½ trong SQLite: XÃ“A Sáº CH workspace cÅ© má»Ÿ trang má»›i tráº¯ng
+      console.log("[handleOpenJobTask] Job chÆ°a cÃ³ báº£n váº½ trong SQLite, reset sáº¡ch workspace má»Ÿ trang tráº¯ng cho:", targetName);
 
-      // 2a. ĐẶT FLAG chặn restore — phải đặt TRƯỚC khi clear state để App.jsx không restore lại data cũ
+      // 2a. Äáº¶T FLAG cháº·n restore â€” pháº£i Ä‘áº·t TRÆ¯á»šC khi clear state Ä‘á»ƒ App.jsx khÃ´ng restore láº¡i data cÅ©
       try {
         sessionStorage.setItem("ezefloor_skip_restore", "1");
       } catch (_) { }
 
-      // 2b. Clear IndexedDB workspace cache TRƯỚC (await để đảm bảo xóa xong trước khi state thay đổi)
+      // 2b. Clear IndexedDB workspace cache TRÆ¯á»šC (await Ä‘á»ƒ Ä‘áº£m báº£o xÃ³a xong trÆ°á»›c khi state thay Ä‘á»•i)
       try {
         await clearWorkspaceState("active_session");
         console.log("[handleOpenJobTask] IndexedDB active_session cleared successfully");
@@ -1696,8 +1736,8 @@ export default function RightPropertyPaneView({
         }
       } catch (_) { }
 
-      // 2d. Clear React state — pages, walls, rooms, doors, roofs, lintels, trusses, scales, annotations
-      // (Phải thực hiện SAU khi IndexedDB đã xóa xong để restore effect không đọc được data cũ)
+      // 2d. Clear React state â€” pages, walls, rooms, doors, roofs, lintels, trusses, scales, annotations
+      // (Pháº£i thá»±c hiá»‡n SAU khi IndexedDB Ä‘Ã£ xÃ³a xong Ä‘á»ƒ restore effect khÃ´ng Ä‘á»c Ä‘Æ°á»£c data cÅ©)
       if (setPagesContext) setPagesContext([]);
       if (setWallsByPageCtx) setWallsByPageCtx({});
       if (setDoorsByPageCtx) setDoorsByPageCtx({});
@@ -1729,7 +1769,7 @@ export default function RightPropertyPaneView({
       if (setCurrentJobId) setCurrentJobId(null);
       if (setActiveTab) setActiveTab("Home");
 
-      // 2g. Tự động kích hoạt chọn bản vẽ PDF / Ảnh để người dùng bắt đầu vẽ ngay
+      // 2g. Tá»± Ä‘á»™ng kÃ­ch hoáº¡t chá»n báº£n váº½ PDF / áº¢nh Ä‘á»ƒ ngÆ°á»i dÃ¹ng báº¯t Ä‘áº§u váº½ ngay
       const fileInput = document.createElement("input");
       fileInput.type = "file";
       fileInput.accept = ".pdf,image/*";
@@ -1738,7 +1778,7 @@ export default function RightPropertyPaneView({
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Đảm bảo tên dự án luôn gắn chặt với job_number của Task HW để đồng bộ SQL
+        // Äáº£m báº£o tÃªn dá»± Ã¡n luÃ´n gáº¯n cháº·t vá»›i job_number cá»§a Task HW Ä‘á»ƒ Ä‘á»“ng bá»™ SQL
         if (setCurrentProjectName) setCurrentProjectName(targetName);
 
         if (file.type === "application/pdf") {
@@ -1837,7 +1877,7 @@ export default function RightPropertyPaneView({
     date: ""
   });
 
-  // ── CHECK USER ACCESS FOR HW TASK MENU (Full Admin, HW roles, or bophanlogin "HW"/"All") ──
+  // â”€â”€ CHECK USER ACCESS FOR HW TASK MENU (Full Admin, HW roles, or bophanlogin "HW"/"All") â”€â”€
   const userBophan = String(user?.bophanlogin || user?.bophan || "").trim().toLowerCase();
   const isHwOrAllUser = isFullAdmin(user) || hasHwAccess(user) || userBophan === "hw" || userBophan === "all" || userBophan === "admin";
 
@@ -1848,7 +1888,7 @@ export default function RightPropertyPaneView({
     }
   }, [isHwOrAllUser, activePaneTab]);
 
-  // ── DYNAMIC TASK EXPANSION & DRAG RESIZING STATE ──
+  // â”€â”€ DYNAMIC TASK EXPANSION & DRAG RESIZING STATE â”€â”€
   const isTaskModuleActive = isHwOrAllUser && EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
   const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
   const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
@@ -1888,7 +1928,7 @@ export default function RightPropertyPaneView({
     };
   }, [isResizing]);
 
-  // ── AUTO SHOW / HIDE PROPERTIES PANE ON SELECTION CHANGE ──
+  // â”€â”€ AUTO SHOW / HIDE PROPERTIES PANE ON SELECTION CHANGE â”€â”€
   const prevSelectionKeyRef = React.useRef(null);
   React.useEffect(() => {
     const hasSelection = Boolean(
@@ -2065,8 +2105,8 @@ export default function RightPropertyPaneView({
               newOverrides[rId] = {
                 typeArea: entry.typeArea || entry.location,
                 product: entry.product,
-                totalM2: typeof entry.totalM2 === "number" ? entry.totalM2 : (parseFloat(String(entry.totalM2 || "").replace("m²", "").trim()) || undefined),
-                areaM2: typeof entry.areaM2 === "number" ? entry.areaM2 : (parseFloat(String(entry.areaM2 || "").replace("m²", "").trim()) || undefined)
+                totalM2: typeof entry.totalM2 === "number" ? entry.totalM2 : (parseFloat(String(entry.totalM2 || "").replace("mÂ²", "").trim()) || undefined),
+                areaM2: typeof entry.areaM2 === "number" ? entry.areaM2 : (parseFloat(String(entry.areaM2 || "").replace("mÂ²", "").trim()) || undefined)
               };
             });
           });
@@ -2218,7 +2258,7 @@ export default function RightPropertyPaneView({
     return 380;
   }, [activePaneTab, isTaskModuleActive, taskPanelWidth]);
 
-  // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
+  // â”€â”€ INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) â”€â”€
   const [insulationWallEntries, setInsulationWallEntries] = React.useState([]);
   const [insulationAreaEntries, setInsulationAreaEntries] = React.useState([]);
   const [customInsWallOverrides, setCustomInsWallOverrides] = React.useState({});
@@ -2361,8 +2401,8 @@ export default function RightPropertyPaneView({
           const h = Number(override.height || w.height_mm || w.height || 2400);
           const prodCode = override.productCode || (isExt ? "0810602" : "0810608");
           const prodName = override.product || override.productName || (isExt
-            ? "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12"
-            : "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20");
+            ? "0810602 Â· INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12"
+            : "0810608 Â· INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20");
 
           const groupKey = `${type}_${rValue}_${h}_${prodCode}`;
           if (!wallGroupsMap[groupKey]) {
@@ -2457,7 +2497,7 @@ export default function RightPropertyPaneView({
             location: roomIdsList.length === 1 ? (targetRooms[0]?.name || "Room Ceiling") : "Ceiling / Roof Space",
             areaType: "Ceiling",
             rValue: "R4.0",
-            product: "0810620 · INS CEILING BATT R4.0 430MM",
+            product: "0810620 Â· INS CEILING BATT R4.0 430MM",
             areaM2: cVal,
             area: cVal,
             totalArea: Number((cVal * 1.05).toFixed(2))
@@ -2534,7 +2574,7 @@ export default function RightPropertyPaneView({
     setInsulationAreaEntries(prev => prev.filter(a => a.id !== id));
   };
 
-  // ── MULTI-CARD FORM STATES FOR ALL OTHER MODULES ──
+  // â”€â”€ MULTI-CARD FORM STATES FOR ALL OTHER MODULES â”€â”€
   // 1. Cladding Entries
   const [claddingWallEntries, setCladdingWallEntries] = React.useState([]);
   const [cladElev, setCladElev] = React.useState("Front Elevation");
@@ -2669,9 +2709,9 @@ export default function RightPropertyPaneView({
             level: "Ground Floor GF",
             room: roomName,
             type: r.floor_type || flType,
-            area: `${areaNum} m²`,
+            area: `${areaNum} mÂ²`,
             waste: "10%",
-            totalArea: `${Number((areaNum * 1.1).toFixed(2))} m²`
+            totalArea: `${Number((areaNum * 1.1).toFixed(2))} mÂ²`
           };
         });
         setFlooringEntries(generated);
@@ -2687,7 +2727,7 @@ export default function RightPropertyPaneView({
       setTimeout(() => setAiGeneratedSuccess(null), 3000);
     };
 
-    // ── 2. LOCKUP EVENT LISTENER ──
+    // â”€â”€ 2. LOCKUP EVENT LISTENER â”€â”€
     const handleGlobalApplyLockup = (e) => {
       if (!e.detail) return;
       setManuallyClearedTasks(prev => {
@@ -2718,10 +2758,10 @@ export default function RightPropertyPaneView({
             category: isExt ? "Prehung" : (isLoose ? "Loose Jamb" : (d.category || "Prehung")),
             location: isExt ? "External" : "Internal",
             door: d.door || d.product || "",
-            size: `${dH}×${dW}`,
+            size: `${dH}Ã—${dW}`,
             thicks: `${d.thickness || (isExt ? 40 : 35)}mm`,
             jambWall: d.jamb_or_wall || "90mm Wall",
-            jambSize: isLoose ? (d.jamb_size || d.jambSize || "112×19mm 5.4m Loose Jamb") : "",
+            jambSize: isLoose ? (d.jamb_size || d.jambSize || "112Ã—19mm 5.4m Loose Jamb") : "",
             hung: hungVal,
             type: "-",
             hfHo: d.internal_type || "HF",
@@ -2766,7 +2806,7 @@ export default function RightPropertyPaneView({
       setTimeout(() => setAiGeneratedSuccess(null), 3000);
     };
 
-    // ── 3. FRAMEWORK EVENT LISTENER ──
+    // â”€â”€ 3. FRAMEWORK EVENT LISTENER â”€â”€
     const handleGlobalApplyFramework = (e) => {
       if (!e.detail) return;
       const { wallEntries = [] } = e.detail;
@@ -2782,7 +2822,7 @@ export default function RightPropertyPaneView({
       setTimeout(() => setAiGeneratedSuccess(null), 3000);
     };
 
-    // ── 4. INSULATION EVENT LISTENER ──
+    // â”€â”€ 4. INSULATION EVENT LISTENER â”€â”€
     const handleGlobalApplyInsulation = (e) => {
       if (!e.detail) return;
       setManuallyClearedTasks(prev => {
@@ -2976,7 +3016,7 @@ export default function RightPropertyPaneView({
           width: dWidth,
           thickness: isExt ? 40 : 35,
           jamb_or_wall: `${wallThick}mm Wall`,
-          jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
+          jamb_size: isLoose ? (override.jambSize || "112Ã—19mm 5.4m Loose Jamb") : "",
           hung: hungVal,
           door_type: override.door_type || d.door_type || d.lockup_door_type || "",
           type: "-",
@@ -3067,7 +3107,7 @@ export default function RightPropertyPaneView({
   const [isWindowSummaryExpanded, setIsWindowSummaryExpanded] = React.useState(true);
   const [isSkirtingSummaryExpanded, setIsSkirtingSummaryExpanded] = React.useState(true);
 
-  // Wall calculation options: default is 2 sides (2 mặt), gross area (không trừ cửa)
+  // Wall calculation options: default is 2 sides (2 máº·t), gross area (khÃ´ng trá»« cá»­a)
   const [wallSides, setWallSides] = React.useState(2);
   const [deductDoors, setDeductDoors] = React.useState(false);
 
@@ -3307,7 +3347,7 @@ export default function RightPropertyPaneView({
     // Headers
     const headers = [
       "Wall ID", "Type", "Length (m)", "Height (m)", "Thickness (mm)",
-      "Floor Base", "LBW", "Gross Area (m²)", "Openings (m²)", "Net Area (m²)",
+      "Floor Base", "LBW", "Gross Area (mÂ²)", "Openings (mÂ²)", "Net Area (mÂ²)",
       "Skirting (Lm)", "Start X (mm)", "Start Y (mm)", "End X (mm)", "End Y (mm)"
     ];
     headers.forEach((h, colIdx) => s(r, colIdx, h));
@@ -3331,7 +3371,7 @@ export default function RightPropertyPaneView({
       if (typeWalls.length === 0) continue;
 
       const groupLabel = typeLabels[type] || type;
-      s(r, 0, `── ${groupLabel} Walls (${typeWalls.length}) ──`);
+      s(r, 0, `â”€â”€ ${groupLabel} Walls (${typeWalls.length}) â”€â”€`);
       r++;
 
       let groupLen = 0;
@@ -3592,7 +3632,7 @@ export default function RightPropertyPaneView({
         let isWindow = (type === 'window' || cls === 'window' || d.doorTypeId === 'win_standard' || (d.doorName && d.doorName.startsWith('W-'))) && cls !== 'sliding_door' && type !== 'sliding';
         const isGarage = cls.includes("garage") || t.includes("garage") || type === "garage" || d.doorTypeId === "ext_garage" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || (d.doorName && d.doorName.toLowerCase().includes("garage"));
 
-        // Rule: Window on internal wall → Sliding Door
+        // Rule: Window on internal wall â†’ Sliding Door
         const parentWallForCheck = pageWalls.find(w => w.id === d.parentWallId);
         const isParentExtForCheck = parentWallForCheck && (parentWallForCheck.class_name === 'exterior_wall' || parentWallForCheck.type === 'ext' || parentWallForCheck.is_ext || parentWallForCheck.is_exterior);
         const windowOnIntWall = isWindow && parentWallForCheck && !isParentExtForCheck && parentWallForCheck.class_name !== 'block_wall';
@@ -3771,7 +3811,7 @@ export default function RightPropertyPaneView({
     return () => window.removeEventListener('open-takeoff-modal', handleOpenTakeoff);
   }, []);
 
-  // Danh sách các Task Groups HW sau khi lọc theo nhân viên, từ khóa và trạng thái
+  // Danh sÃ¡ch cÃ¡c Task Groups HW sau khi lá»c theo nhÃ¢n viÃªn, tá»« khÃ³a vÃ  tráº¡ng thÃ¡i
   const filteredTasks = React.useMemo(() => {
     let list = taskListJobs || [];
     if (staffScope === "my" && myStaffCode) {
@@ -3868,14 +3908,14 @@ export default function RightPropertyPaneView({
         transition: isResizing ? "none" : "width 0.22s cubic-bezier(0.4, 0, 0.2, 1)"
       }}
     >
-      {/* ── EXPAND / COLLAPSE TAB BUTTON ATTACHED TO LEFT EDGE (« / ») ── */}
+      {/* â”€â”€ EXPAND / COLLAPSE TAB BUTTON ATTACHED TO LEFT EDGE (Â« / Â») â”€â”€ */}
       {isTaskModuleActive && activePaneTab !== "collapsed" && (
         <button
           onClick={(e) => {
             e.stopPropagation();
             toggleTaskExpanded();
           }}
-          title={isTaskExpanded ? "Thu gọn form task (»)" : "Mở rộng form task hết cỡ («)"}
+          title={isTaskExpanded ? "Thu gá»n form task (Â»)" : "Má»Ÿ rá»™ng form task háº¿t cá»¡ (Â«)"}
           style={{
             position: "absolute",
             left: "-20px",
@@ -3914,15 +3954,15 @@ export default function RightPropertyPaneView({
             e.currentTarget.style.left = "-20px";
           }}
         >
-          {isTaskExpanded ? "»" : "«"}
+          {isTaskExpanded ? "Â»" : "Â«"}
         </button>
       )}
 
-      {/* ── RESIZE DRAG HANDLE (CHỈ HIỆN TRÊN FORM TASK ĐỂ KÉO THAY ĐỔI WIDTH) ── */}
+      {/* â”€â”€ RESIZE DRAG HANDLE (CHá»ˆ HIá»†N TRÃŠN FORM TASK Äá»‚ KÃ‰O THAY Äá»”I WIDTH) â”€â”€ */}
       {isTaskModuleActive && activePaneTab !== "collapsed" && (
         <div
           onMouseDown={handleMouseDownResize}
-          title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
+          title="KÃ©o tháº£ sang trÃ¡i/pháº£i Ä‘á»ƒ thay Ä‘á»•i Ä‘á»™ rá»™ng khung Task"
           style={{
             position: "absolute",
             left: "-4px",
@@ -3941,7 +3981,7 @@ export default function RightPropertyPaneView({
           onMouseLeave={(e) => { if (!isResizing) e.currentTarget.style.background = "transparent"; }}
         />
       )}
-      {/* ── LEFT COLUMN 1: PROPERTIES & MODEL EXPLORER / SUMMARY / JOB TASK (RENDERED ONLY WHEN EXPLORER TAB IS ACTIVE) ── */}
+      {/* â”€â”€ LEFT COLUMN 1: PROPERTIES & MODEL EXPLORER / SUMMARY / JOB TASK (RENDERED ONLY WHEN EXPLORER TAB IS ACTIVE) â”€â”€ */}
       {!isTaskModuleActive && activePaneTab !== "collapsed" && (
         <div style={{
           width: "100%",
@@ -4023,11 +4063,11 @@ export default function RightPropertyPaneView({
               setActivePaneTab={setActivePaneTab}
             />
           ) : ((activePaneTab === "explorer" || isTaskModuleActive) && explorerViewMode === "properties") || activePaneTab === "properties" ? (
-            /* ══════════════════════════════════════════════════════
-               TAB: PROPERTIES (Thuộc tính đối tượng hiện tại + Nút quay lại Explorer)
-               ══════════════════════════════════════════════════════ */
+            /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+               TAB: PROPERTIES (Thuá»™c tÃ­nh Ä‘á»‘i tÆ°á»£ng hiá»‡n táº¡i + NÃºt quay láº¡i Explorer)
+               â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
             <div style={{ overflowY: "auto", flex: 1, paddingBottom: "20px", display: "flex", flexDirection: "column" }}>
-              {/* ── BACK BUTTON TO EXPLORER / LAYERS ── */}
+              {/* â”€â”€ BACK BUTTON TO EXPLORER / LAYERS â”€â”€ */}
               <div style={{
                 display: "flex",
                 alignItems: "center",
@@ -4057,7 +4097,7 @@ export default function RightPropertyPaneView({
                     transition: "all 0.15s ease"
                   }}
                 >
-                  <span style={{ fontSize: "14px", fontWeight: 900 }}>←</span>
+                  <span style={{ fontSize: "14px", fontWeight: 900 }}>â†</span>
                   <span>Back to Explorer / Layers</span>
                 </button>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -4082,12 +4122,12 @@ export default function RightPropertyPaneView({
                     onMouseEnter={(e) => e.currentTarget.style.color = "#ef4444"}
                     onMouseLeave={(e) => e.currentTarget.style.color = "#94a3b8"}
                   >
-                    ✕
+                    âœ•
                   </button>
                 </div>
               </div>
 
-              {/* ── PROPERTIES ── */}
+              {/* â”€â”€ PROPERTIES â”€â”€ */}
               <div className="panel-section">
                 <div className="panel-title">Properties</div>
                 {(() => {
@@ -4371,7 +4411,7 @@ export default function RightPropertyPaneView({
         </div>
       )}
 
-      {/* ── SINGLE COLUMN TASK CALCULATION FORM PANEL (REPLACES PROPERTIES WHEN A TASK TAB IS ACTIVE) ── */}
+      {/* â”€â”€ SINGLE COLUMN TASK CALCULATION FORM PANEL (REPLACES PROPERTIES WHEN A TASK TAB IS ACTIVE) â”€â”€ */}
       {isTaskModuleActive && activeModuleTab && activePaneTab !== "collapsed" && (
         <TaskModulesContainer
           activeModuleTab={activeModuleTab}
@@ -4456,7 +4496,7 @@ export default function RightPropertyPaneView({
         />
       )}
 
-      {/* ── RIGHT VERTICAL TAB BAR ── */}
+      {/* â”€â”€ RIGHT VERTICAL TAB BAR â”€â”€ */}
       <RightPropertyTabBar
         activePaneTab={activePaneTab}
         setActivePaneTab={setActivePaneTab}
@@ -4473,7 +4513,7 @@ export default function RightPropertyPaneView({
         customerModuleIds={customerModuleIds}
       />
 
-      {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
+      {/* â”€â”€ TAKEOFF EXPORT PROPERTIES MODAL â”€â”€ */}
       <TakeoffExportModal
         showTakeoffModal={showTakeoffModal}
         setShowTakeoffModal={setShowTakeoffModal}
@@ -4485,3 +4525,4 @@ export default function RightPropertyPaneView({
     </div>
   );
 }
+

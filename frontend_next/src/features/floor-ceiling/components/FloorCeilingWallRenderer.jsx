@@ -50,9 +50,15 @@ export default function FloorCeilingWallRenderer({
   detectedZones = [],
   selectedZoneId = null,
   onSelectZone = null,
+  onDeleteZone = null,
   fcAlignMode = false,
   fcViewMode = "floor"
 }) {
+  const isDrawingMode = interactionMode === "draw-wall" ||
+    interactionMode === "cut-wall" ||
+    (typeof interactionMode === "string" && interactionMode.startsWith("draw-")) ||
+    fcAlignMode;
+
   // 1. Group walls by sourceLevelCode
   const wallsByLevel = useMemo(() => {
     const grouped = {};
@@ -161,18 +167,26 @@ export default function FloorCeilingWallRenderer({
 
     // Filter by effectiveViewMode (Floor vs Ceiling)
     if (effectiveViewMode === "floor") {
-      zones = zones.filter(z => z.floorEnabled !== false || z.isBalcony);
+      zones = zones.filter(z => {
+        if (z.targetType && z.targetType !== "floor") return false;
+        return z.floorEnabled !== false || z.isBalcony || z.id === selectedZoneId;
+      });
     } else {
-      zones = zones.filter(z => z.ceilingEnabled === true);
+      zones = zones.filter(z => {
+        if (z.targetType && z.targetType !== "ceiling") return false;
+        return z.ceilingEnabled === true || z.id === selectedZoneId;
+      });
     }
 
-    // When showing ALL levels: deduplicate duplicate 2D polygons (e.g. GF Overlap and FF Overlap share identical geometry)
+    // When showing ALL levels: deduplicate duplicate 2D polygons (e.g. identical geometry across pairs)
     if (activeLevelFilter === "ALL") {
       const seenGeom = new Set();
       const deduped = [];
       zones.forEach(z => {
         const polyFirst = z.polygon?.[0];
-        const geomKey = polyFirst ? `${(polyFirst[0] || 0).toFixed(0)}_${(polyFirst[1] || 0).toFixed(0)}_${z.areaM2}` : z.id;
+        const geomKey = polyFirst
+          ? `${(polyFirst[0] || 0).toFixed(0)}_${(polyFirst[1] || 0).toFixed(0)}_${z.areaM2}_${z.targetType || ""}`
+          : z.id;
         if (!seenGeom.has(geomKey)) {
           seenGeom.add(geomKey);
           deduped.push(z);
@@ -182,13 +196,13 @@ export default function FloorCeilingWallRenderer({
     }
 
     return zones;
-  }, [detectedZones, activeLevelFilter, effectiveViewMode]);
+  }, [detectedZones, activeLevelFilter, effectiveViewMode, selectedZoneId]);
 
   return (
     <g id="FloorCeilingWorkspaceLayer">
       {/* ===== LAYER 1: DETECTED ZONES (UNIFIED FLOOR / CEILING COLORING) ===== */}
       {!fcAlignMode && visibleCanvasZones && visibleCanvasZones.length > 0 && (
-        <g id="FloorCeilingDetectedZones" pointerEvents="auto">
+        <g id="FloorCeilingDetectedZones" pointerEvents={isDrawingMode ? "none" : "auto"}>
           {visibleCanvasZones.map((zone, zIdx) => {
             if (!zone.polygon || zone.polygon.length < 3) return null;
 
@@ -209,18 +223,27 @@ export default function FloorCeilingWallRenderer({
               mainLabel = `Overlap: ${zone.areaM2} m²`;
               const lowerTag = zone.pairLower || zone.levelCode || "GF";
               const upperTag = zone.pairUpper || "FF";
-              subBadgeLabel = `⚡ ${lowerTag}↔${upperTag} Overlap`;
+              subBadgeLabel = `${lowerTag}↔${upperTag} Overlap`;
               subBadgeBg = pal.badgeBg;
             } else if (effectiveViewMode === "floor") {
               const pal = TAKEOFF_COLORS.floor;
-              fill = isSelected ? pal.fillSelected : pal.fill;
-              stroke = isSelected ? "#6d28d9" : pal.stroke;
-              if (zone.isBalcony) {
+              if (zone.floorEnabled === false && !zone.isBalcony) {
+                fill = isSelected ? "rgba(148, 163, 184, 0.35)" : "rgba(148, 163, 184, 0.15)";
+                stroke = isSelected ? "#475569" : "#94a3b8";
+                mainLabel = `${zone.floorLabel || zone.label || "Floor"} (OFF): ${zone.areaM2} m²`;
+                const lvlTag = zone.levelCode || zone.floorLevel || "";
+                subBadgeLabel = lvlTag ? `🏢 ${lvlTag} Floor (OFF)` : "🏢 Floor (OFF)";
+                subBadgeBg = "#64748b";
+              } else if (zone.isBalcony) {
+                fill = isSelected ? pal.fillSelected : pal.fill;
+                stroke = isSelected ? "#6d28d9" : pal.stroke;
                 const upperTag = zone.balconyLevel || "FF";
                 mainLabel = `${upperTag} Balcony: ${zone.areaM2} m²`;
                 subBadgeLabel = `🏢 ${upperTag} Balcony`;
                 subBadgeBg = "#059669";
               } else {
+                fill = isSelected ? pal.fillSelected : pal.fill;
+                stroke = isSelected ? "#6d28d9" : pal.stroke;
                 mainLabel = `${zone.floorLabel || zone.label || "Floor"}: ${zone.areaM2} m²`;
                 const lvlTag = zone.levelCode || zone.floorLevel || "";
                 subBadgeLabel = lvlTag ? `🏢 ${lvlTag} Floor` : "🏢 Floor";
@@ -243,10 +266,11 @@ export default function FloorCeilingWallRenderer({
               <g
                 key={`fc-zone-${zone.id || zIdx}`}
                 onClick={(e) => {
+                  if (isDrawingMode) return;
                   e.stopPropagation();
                   if (onSelectZone) onSelectZone(isSelected ? null : zone.id);
                 }}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: isDrawingMode ? "crosshair" : "pointer" }}
               >
                 {/* Zone polygon or path fill */}
                 {zone.pathD ? (
@@ -273,11 +297,11 @@ export default function FloorCeilingWallRenderer({
                   <g transform={`translate(${c.x}, ${c.y})`}>
                     {/* Background pill for zone label */}
                     <rect
-                      x={-90}
-                      y={-24}
-                      width={180}
-                      height={22}
-                      rx={5}
+                      x={-115}
+                      y={-30}
+                      width={230}
+                      height={28}
+                      rx={6}
                       fill="#0f172a"
                       fillOpacity={isSelected ? 0.95 : 0.88}
                       stroke={isSelected ? "#60a5fa" : stroke}
@@ -286,9 +310,9 @@ export default function FloorCeilingWallRenderer({
                     {/* Zone main label + area */}
                     <text
                       x={0}
-                      y={-12}
+                      y={-15}
                       fill="#ffffff"
-                      fontSize={10}
+                      fontSize={13.5}
                       fontWeight={700}
                       textAnchor="middle"
                       dominantBaseline="middle"
@@ -299,20 +323,20 @@ export default function FloorCeilingWallRenderer({
 
                     {/* Sub badge below */}
                     <rect
-                      x={isSelected ? -46 : -40}
-                      y={2}
-                      width={isSelected ? 92 : 80}
-                      height={18}
-                      rx={9}
+                      x={isSelected ? -58 : -52}
+                      y={4}
+                      width={isSelected ? 116 : 104}
+                      height={22}
+                      rx={11}
                       fill={isSelected ? "#2563eb" : subBadgeBg}
                       stroke={isSelected ? "#ffffff" : "none"}
                       strokeWidth={isSelected ? 1.5 : 0}
                     />
                     <text
                       x={0}
-                      y={12}
+                      y={16}
                       fill="#ffffff"
-                      fontSize={9.5}
+                      fontSize={11.5}
                       fontWeight={800}
                       textAnchor="middle"
                       dominantBaseline="middle"
@@ -320,6 +344,31 @@ export default function FloorCeilingWallRenderer({
                     >
                       {subBadgeLabel}
                     </text>
+
+                    {/* Delete button when zone is selected */}
+                    {isSelected && onDeleteZone && (
+                      <g
+                        transform="translate(122, -16)"
+                        style={{ cursor: "pointer", pointerEvents: "all" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteZone(zone.id);
+                        }}
+                      >
+                        <circle cx={0} cy={0} r={10} fill="#ef4444" stroke="#ffffff" strokeWidth={1.5} />
+                        <text
+                          x={0}
+                          y={4}
+                          fill="#ffffff"
+                          fontSize={12}
+                          fontWeight={900}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                        >
+                          ✕
+                        </text>
+                      </g>
+                    )}
                   </g>
                 )}
               </g>
@@ -351,7 +400,7 @@ export default function FloorCeilingWallRenderer({
               {chains.map((chain, chainIdx) => {
                 const isClosed = chain.points.length > 2 &&
                   Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                             chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                    chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
                 let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
                 if (isClosed) pathData += " Z";
 
@@ -381,7 +430,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -403,7 +452,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -425,7 +474,7 @@ export default function FloorCeilingWallRenderer({
             {chains.map((chain, chainIdx) => {
               const isClosed = chain.points.length > 2 &&
                 Math.hypot(chain.points[0].x - chain.points[chain.points.length - 1].x,
-                           chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
+                  chain.points[0].y - chain.points[chain.points.length - 1].y) < 8.0;
               let pathData = chain.points.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y}`).join(" ");
               if (isClosed) pathData += " Z";
 
@@ -477,8 +526,8 @@ export default function FloorCeilingWallRenderer({
                       strokeWidth={Math.max((w.thickness_px || 20) + 24, 36)}
                       strokeLinecap="round"
                       style={{
-                        cursor: fcAlignMode ? "crosshair" : "pointer",
-                        pointerEvents: fcAlignMode ? "none" : "auto"
+                        cursor: isDrawingMode ? "crosshair" : "pointer",
+                        pointerEvents: isDrawingMode ? "none" : "auto"
                       }}
                       onMouseEnter={() => setHoverId && setHoverId(w.id)}
                       onMouseLeave={() => setHoverId && setHoverId(null)}
@@ -488,6 +537,7 @@ export default function FloorCeilingWallRenderer({
                         if (onWallContextMenu) onWallContextMenu(e, w);
                       }}
                       onClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (selectWall) {
                           selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -497,10 +547,12 @@ export default function FloorCeilingWallRenderer({
                         }
                       }}
                       onDoubleClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (handleWallDoubleClick) handleWallDoubleClick(w.id);
                       }}
                       onMouseDown={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (e.button === 0 && startDrag) {
                           if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -524,8 +576,8 @@ export default function FloorCeilingWallRenderer({
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       style={{
-                        cursor: fcAlignMode ? "crosshair" : "pointer",
-                        pointerEvents: fcAlignMode ? "none" : "auto",
+                        cursor: isDrawingMode ? "crosshair" : "pointer",
+                        pointerEvents: isDrawingMode ? "none" : "auto",
                         filter: isSelected ? "drop-shadow(0 0 6px rgba(2, 132, 199, 0.85))" : undefined
                       }}
                       onMouseEnter={() => setHoverId && setHoverId(w.id)}
@@ -536,6 +588,7 @@ export default function FloorCeilingWallRenderer({
                         if (onWallContextMenu) onWallContextMenu(e, w);
                       }}
                       onClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (selectWall) {
                           selectWall(w.id, e.ctrlKey || e.shiftKey);
@@ -545,10 +598,12 @@ export default function FloorCeilingWallRenderer({
                         }
                       }}
                       onDoubleClick={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (handleWallDoubleClick) handleWallDoubleClick(w.id);
                       }}
                       onMouseDown={(e) => {
+                        if (isDrawingMode) return;
                         e.stopPropagation();
                         if (e.button === 0 && startDrag) {
                           if (selectWall) selectWall(w.id, e.ctrlKey || e.shiftKey);

@@ -208,14 +208,22 @@ export default function InsulationJobsModal({
     if (wallsByPage && Object.keys(wallsByPage).length > 0) {
       Object.keys(wallsByPage).forEach(pIdxStr => {
         const pIdx = parseInt(pIdxStr, 10);
-        const pWalls = wallsByPage[pIdx] || [];
+        const pObj = pages && pages[pIdx];
+        if (pObj && (pObj.isFloorCeilingWorkspace || pObj.source === "floor_ceiling_page" || pObj.source === "floor_ceiling_workspace" || pObj.category === "floor_ceiling")) {
+          return;
+        }
+        const pWalls = (wallsByPage[pIdx] || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
         const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
-        const pageName = pages && pages[pIdx] ? (pages[pIdx].name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
+        const pageName = pObj ? (pObj.name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
         processWalls(pWalls, pDoors, pageName);
       });
     } else {
-      const pageName = pages && pages[currentPage] ? (pages[currentPage].name || `Tầng ${currentPage + 1}`) : `Tầng ${currentPage + 1}`;
-      processWalls(walls, doors, pageName);
+      const curPageObj = pages && pages[currentPage];
+      if (!curPageObj || (!curPageObj.isFloorCeilingWorkspace && curPageObj.source !== "floor_ceiling_page" && curPageObj.source !== "floor_ceiling_workspace" && curPageObj.category !== "floor_ceiling")) {
+        const pageName = curPageObj ? (curPageObj.name || `Tầng ${currentPage + 1}`) : `Tầng ${currentPage + 1}`;
+        const validWalls = (walls || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
+        processWalls(validWalls, doors, pageName);
+      }
     }
 
     return payloadWalls;
