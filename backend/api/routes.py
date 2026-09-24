@@ -2038,10 +2038,10 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                     "RakePointX": None,
                     "RakePointY": None,
                     "RakePointZ": None,
-                    "Alignment": "Center",
+                    "Alignment": "Left",
                     "AllowAlignmentEdit": True,
                     "LevelName": level_name,
-                    "LocationLine": "WallCenterline",
+                    "LocationLine": "FinishFaceExterior",
                     "Flipped": False,
                     "OffsetMm": 0,
                     "ElevationOffsetMm": 0,
@@ -2052,6 +2052,7 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                     "IsExisting": False,
                     "AllowInternalRibbonPlateEdit": False,
                     "LoadBearingWall": is_ext,
+                    "ExteriorPlasterFaceManuallyConfirmed": False,
                     "FrameStudSpacing": "450",
                     "FrameBottomPlateGrade": "MGP10",
                     "FrameRibbonPlateGrade": "MGP10",
@@ -2098,11 +2099,12 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
         
         # ── 3c. Build full EZPlan document ──
         ezplan_doc = {
-            "Version": "0.3",
+            "Version": "0.5",
             "JobName": "",
             "CustomerName": "",
             "JobAddress": "",
             "DraftedBy": "",
+            "TargetWallCount": len(formatted_walls),
             "Dxf": None,
             "Pdf": None,
             "Levels": {

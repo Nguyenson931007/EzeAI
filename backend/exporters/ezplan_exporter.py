@@ -102,10 +102,10 @@ class EZPlanWall(BaseModel):
     RakePointX: Optional[float] = None
     RakePointY: Optional[float] = None
     RakePointZ: Optional[float] = None
-    Alignment: str = "Center"
+    Alignment: str = "Left"
     AllowAlignmentEdit: bool = True
     LevelName: str = "LEVEL_01"
-    LocationLine: str = "WallCenterline"
+    LocationLine: str = "FinishFaceExterior"
     Flipped: bool = False
     OffsetMm: float = 0.0
     ElevationOffsetMm: float = 0.0
@@ -116,6 +116,7 @@ class EZPlanWall(BaseModel):
     IsExisting: bool = False
     AllowInternalRibbonPlateEdit: bool = False
     LoadBearingWall: bool = True
+    ExteriorPlasterFaceManuallyConfirmed: bool = False
     FrameStudSpacing: str = "450"
     FrameBottomPlateGrade: str = "MGP10"
     FrameRibbonPlateGrade: str = "MGP10"
@@ -139,11 +140,13 @@ class EZPlanWall(BaseModel):
 
 
 class EZPlanDocument(BaseModel):
-    Version: str = "0.3"
+    Version: str = "0.5"
     JobName: str = ""
     CustomerName: str = ""
     JobAddress: str = ""
     DraftedBy: str = ""
+    TargetWallCount: Optional[int] = None
+    ExteriorPlasterFaceManuallyConfirmed: Optional[bool] = None
     Levels: Dict[str, float] = Field(default_factory=lambda: {"LEVEL_01": 0.0})
     CurrentLevelName: str = "LEVEL_01"
     LevelWallHeights: Dict[str, float] = Field(default_factory=lambda: {"LEVEL_01": 2700.0})
@@ -225,9 +228,12 @@ class EZPlanExporter(BaseExporter):
                 EndY=float(p2[1]),
                 Thickness=float(w.thickness),
                 Height=float(w.height),
+                Alignment="Left",
+                LocationLine="FinishFaceExterior",
                 Interior=is_interior,
                 Exterior=is_exterior,
-                LoadBearingWall=is_load_bearing
+                LoadBearingWall=is_load_bearing,
+                ExteriorPlasterFaceManuallyConfirmed=False
             )
             output_walls.append(ez_wall)
 
@@ -237,10 +243,12 @@ class EZPlanExporter(BaseExporter):
             level_height = max(w.height for w in request.walls)
 
         doc = EZPlanDocument(
+            Version="0.5",
             JobName=request.job_name,
             CustomerName=request.customer_name,
             JobAddress=request.address,
             DraftedBy=request.drafted_by,
+            TargetWallCount=len(output_walls),
             LevelWallHeights={"LEVEL_01": level_height},
             LevelStoreyHeights={"LEVEL_01": level_height},
             Walls=output_walls
