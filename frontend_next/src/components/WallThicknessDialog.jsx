@@ -302,17 +302,17 @@ export default function WallThicknessDialog({ visible, onConfirm, onGeminiConfir
             Local AI
           </button>
           <button
-            onClick={handleGeminiConfirm}
-            disabled={!onGeminiConfirm}
-            title="Rebuild current-page walls from the plan image using Gemini"
+            type="button"
+            disabled
+            title="Gemini wall rebuild is temporarily paused while Local AI wall geometry is stabilized"
             style={{
               flex: 1.5, padding: '10px 12px', fontSize: 12, fontWeight: 700,
-              background: onGeminiConfirm ? 'linear-gradient(135deg, #7c3aed 0%, #9333ea 100%)' : '#cbd5e1',
-              color: 'white', border: 'none', borderRadius: 8,
-              cursor: onGeminiConfirm ? 'pointer' : 'not-allowed'
+              background: '#cbd5e1',
+              color: '#64748b', border: 'none', borderRadius: 8,
+              cursor: 'not-allowed'
             }}
           >
-            ✨ Gemini Rebuild
+            Gemini (Pending)
           </button>
         </div>
       </div>

@@ -1587,7 +1587,16 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         if (w.locked && field !== "locked") {
           return w;
         }
-        let newWall = { ...w };
+        // wallsByPage is the single source of truth for both the plan and wall data.
+        // Any edit from the data/properties UI is committed to this same wall object,
+        // so CanvasView and all live wall consumers receive it immediately.
+        let newWall = {
+          ...w,
+          user_modified: true,
+          manual_edit: true,
+          data_revision: Number(w.data_revision || 0) + 1,
+          updated_at: Date.now()
+        };
         if (field === "locked") {
           newWall.locked = !!value;
         } else if (field === "exclude_from_roof" || field === "excludeFromRoof") {

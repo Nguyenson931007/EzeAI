@@ -1,10 +1,3 @@
-"""Gemini wall reconstruction service.
-
-Experimental second-pass wall reconstruction. It does not replace the local wall
-pipeline automatically; callers must explicitly choose Gemini.
-"""
-from __future__ import annotations
-
 import base64
 import io
 import json
@@ -14,69 +7,16 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
-def _clamp01(value: Any) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except Exception:
-        return 0.0
+def _distance(a, b):
+    return math.hypot(float(a[0]) - float(b[0]), float(a[1]) - float(b[1]))
 
 
-def _distance(a, b) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
-
-
-def _snap_endpoints(walls: List[Dict[str, Any]], tolerance_px: float = 10.0) -> None:
-    """Snap near endpoints only; never changes semantic wall class."""
-    endpoints = []
-    for wi, wall in enumerate(walls):
-        endpoints.append((wi, 0, wall["centerline"][0]))
-        endpoints.append((wi, 1, wall["centerline"][1]))
-
-    visited = set()
-    for i, (wi, ei, p) in enumerate(endpoints):
-        if i in visited:
-            continue
-        cluster = [i]
-        for j in range(i + 1, len(endpoints)):
-            if _distance(p, endpoints[j][2]) <= tolerance_px:
-                cluster.append(j)
-        if len(cluster) < 2:
-            continue
-        xs = [endpoints[k][2][0] for k in cluster]
-        ys = [endpoints[k][2][1] for k in cluster]
-        target = [sum(xs) / len(xs), sum(ys) / len(ys)]
-        for k in cluster:
-            cwi, cei, _ = endpoints[k]
-            walls[cwi]["centerline"][cei] = target[:]
-            visited.add(k)
-
-
-def _dedupe(walls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Conservative duplicate removal for almost-identical lines of same class."""
-    kept: List[Dict[str, Any]] = []
-    for wall in sorted(walls, key=lambda w: float(w.get("confidence", 0.0)), reverse=True):
-        a1, a2 = wall["centerline"]
-        duplicate = False
-        for other in kept:
-            if other.get("class_name") != wall.get("class_name"):
-                continue
-            b1, b2 = other["centerline"]
-            same_dir = _distance(a1, b1) <= 12 and _distance(a2, b2) <= 12
-            rev_dir = _distance(a1, b2) <= 12 and _distance(a2, b1) <= 12
-            if same_dir or rev_dir:
-                duplicate = True
-                break
-        if not duplicate:
-            kept.append(wall)
-    return kept
-
-
-def _line_polygon(p1, p2, thickness_px: float):
+def _line_polygon(p1, p2, thickness_px):
     dx, dy = p2[0] - p1[0], p2[1] - p1[1]
     length = math.hypot(dx, dy)
     if length <= 1e-6:
@@ -91,165 +31,196 @@ def _line_polygon(p1, p2, thickness_px: float):
     ]
 
 
-def _response_schema() -> Dict[str, Any]:
+def _schema():
     return {
         "type": "object",
         "properties": {
-            "walls": {
+            "selections": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
+                        "candidate_id": {"type": "string"},
                         "class_name": {
                             "type": "string",
                             "enum": ["exterior_wall", "interior_wall", "partition_wall", "block_wall"],
                         },
-                        "start": {
-                            "type": "array",
-                            "items": {"type": "number", "minimum": 0, "maximum": 1},
-                            "minItems": 2,
-                            "maxItems": 2,
-                        },
-                        "end": {
-                            "type": "array",
-                            "items": {"type": "number", "minimum": 0, "maximum": 1},
-                            "minItems": 2,
-                            "maxItems": 2,
-                        },
-                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                        "confidence": {"type": "number"},
                         "reason": {"type": "string"},
                     },
-                    "required": ["class_name", "start", "end", "confidence"],
-                    "additionalProperties": False,
+                    "required": ["candidate_id", "class_name", "confidence"],
                 },
             }
         },
-        "required": ["walls"],
-        "additionalProperties": False,
+        "required": ["selections"],
     }
 
 
-def rebuild_walls_with_gemini(
+def _make_overlay(original: Image.Image, candidates: List[Dict[str, Any]]) -> Image.Image:
+    overlay = original.copy().convert("RGB")
+    draw = ImageDraw.Draw(overlay)
+    sx = min(1.0, 2048.0 / max(overlay.size))
+    if sx < 1.0:
+        overlay = overlay.resize((max(1, int(overlay.width * sx)), max(1, int(overlay.height * sx))))
+        draw = ImageDraw.Draw(overlay)
+    for c in candidates:
+        cl = c.get("centerline") or []
+        if len(cl) != 2:
+            continue
+        p1 = (cl[0][0] * sx, cl[0][1] * sx)
+        p2 = (cl[1][0] * sx, cl[1][1] * sx)
+        draw.line([p1, p2], fill=(0, 140, 255), width=2)
+        mx, my = (p1[0]+p2[0])/2, (p1[1]+p2[1])/2
+        draw.text((mx+2, my+2), str(c.get("id", "")), fill=(220, 0, 0))
+    return overlay
+
+
+def _encode_jpeg(img: Image.Image, max_side: int = 2048) -> str:
+    send = img.convert("RGB")
+    if max(send.size) > max_side:
+        r = max_side / max(send.size)
+        send = send.resize((max(1, int(send.width*r)), max(1, int(send.height*r))))
+    b = io.BytesIO()
+    send.save(b, format="JPEG", quality=90, optimize=True)
+    return base64.b64encode(b.getvalue()).decode("ascii")
+
+
+def review_raw_candidates_with_gemini(
     image_bytes: bytes,
+    raw_candidates: List[Dict[str, Any]],
     real_scale: float = 1.0,
     wall_thicknesses: Dict[str, int] | None = None,
+    existing_walls: List[Dict[str, Any]] | None = None,
     model: str | None = None,
 ) -> Dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured in the project .env file")
-
-    model = (model or os.getenv("GEMINI_WALL_MODEL", "gemini-2.5-flash")).strip()
-    max_side = int(os.getenv("GEMINI_WALL_MAX_SIDE", "2048"))
-    timeout_sec = int(os.getenv("GEMINI_WALL_TIMEOUT_SEC", "120"))
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    model = (model or os.getenv("GEMINI_WALL_MODEL", "gemini-2.5-pro")).strip()
+    timeout_sec = int(os.getenv("GEMINI_WALL_TIMEOUT_SEC", "180"))
+    max_candidates = int(os.getenv("GEMINI_WALL_MAX_RAW_CANDIDATES", "450"))
 
     original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    orig_w, orig_h = original.size
-    send_img = original.copy()
-    if max(send_img.size) > max_side:
-        ratio = max_side / max(send_img.size)
-        send_img = send_img.resize((max(1, int(send_img.width * ratio)), max(1, int(send_img.height * ratio))))
+    ow, oh = original.size
+    candidates = sorted(raw_candidates, key=lambda x: float(x.get("confidence", 0)), reverse=True)[:max_candidates]
+    candidate_map = {str(c.get("id")): c for c in candidates if c.get("id")}
+    overlay = _make_overlay(original, candidates)
 
-    encoded = io.BytesIO()
-    send_img.save(encoded, format="JPEG", quality=88, optimize=True)
-    b64 = base64.b64encode(encoded.getvalue()).decode("ascii")
+    compact = []
+    for c in candidates:
+        cl = c.get("centerline") or [[0,0],[0,0]]
+        compact.append({
+            "id": c.get("id"),
+            "local_class": c.get("class_name"),
+            "local_confidence": round(float(c.get("confidence", 0)), 3),
+            "start": [round(cl[0][0]/ow, 5), round(cl[0][1]/oh, 5)],
+            "end": [round(cl[1][0]/ow, 5), round(cl[1][1]/oh, 5)],
+        })
 
-    prompt = """
-You are reconstructing architectural wall centerlines from a residential floor plan.
-Return ONLY walls that are visibly supported by the drawing.
+    current_context = []
+    for w in (existing_walls or [])[:300]:
+        cl = w.get("centerline") or []
+        if len(cl) == 2:
+            current_context.append({
+                "class_name": w.get("class_name") or w.get("wall_type"),
+                "start": [round(float(cl[0][0])/ow,5), round(float(cl[0][1])/oh,5)],
+                "end": [round(float(cl[1][0])/ow,5), round(float(cl[1][1])/oh,5)],
+            })
 
+    prompt = f"""You are the architectural reasoning stage in EzeFloor wall extraction.
+The BLUE overlay lines are RAW local-YOLO wall candidates captured BEFORE any merge, semantic split, exterior-boundary filter, or final NMS.
+You MUST NOT invent coordinates or new wall segments. Select only candidate IDs from the supplied list.
+
+Use the original drawing plus your architectural reasoning to decide which candidates are real architectural walls.
 Rules:
-- Detect architectural walls only. Ignore dimensions, text, furniture, cabinetry, electrical symbols, door swing arcs, windows symbols, roof/eave dashed lines and hatching.
-- Preserve wall openings. Do not draw a continuous wall across a visible doorway/opening.
-- Preserve short nib walls, T junctions and L junctions.
-- Exterior walls are normally perimeter/building-envelope walls; interior walls are internal partitions.
-- Do not classify a wall as exterior merely because it touches an exterior wall.
-- start/end coordinates MUST be normalized to [0,1] relative to this exact image, origin top-left.
-- Each returned item is a wall CENTERLINE segment, not a polygon.
-- Prefer one clean segment per straight continuous run. Split only at real corners, junction changes, or openings.
-- If uncertain, omit rather than invent.
-""".strip()
+- Prefer visible thick wall bands / paired wall edges, not single annotation lines.
+- Ignore dimensions, leaders, text, grids, cabinetry, furniture, electrical symbols/wiring, hatch, door swing arcs and roof/eave dashed lines.
+- Preserve short nib walls and real T/L junctions.
+- Do not bridge visible door/opening gaps unless the candidate genuinely represents the wall centerline through an opening that EzeFloor will later cut by door geometry.
+- Exterior = building envelope; interior = internal partition. Touching the envelope alone does NOT make a wall exterior.
+- The local class/confidence is only a hint. Correct it when visual/topological evidence disagrees.
+- If uncertain, reject the candidate rather than hallucinate.
+- Return a COMPLETE selection of valid candidate IDs, not merely the mistakes.
+
+RAW_CANDIDATES={json.dumps(compact, separators=(',', ':'))}
+CURRENT_CANVAS_WALLS={json.dumps(current_context, separators=(',', ':'))}
+"""
 
     payload = {
-        "contents": [{
-            "parts": [
-                {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
-                {"text": prompt},
-            ]
-        }],
+        "contents": [{"parts": [
+            {"inlineData": {"mimeType": "image/jpeg", "data": _encode_jpeg(original)}},
+            {"inlineData": {"mimeType": "image/jpeg", "data": _encode_jpeg(overlay)}},
+            {"text": prompt},
+        ]}],
         "generationConfig": {
-            "temperature": 0.1,
+            "temperature": 0.05,
             "responseMimeType": "application/json",
-            "responseSchema": _response_schema(),
+            "responseSchema": _schema(),
         },
     }
-
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         GEMINI_API_URL.format(model=model),
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
+        headers={"Content-Type":"application/json", "x-goog-api-key":api_key},
         method="POST",
     )
-
     try:
-        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
-            raw_response = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Gemini API HTTP {exc.code}: {body[:1200]}") from exc
+        raise RuntimeError(f"Gemini API HTTP {exc.code}: {body[:1600]}") from exc
     except Exception as exc:
         raise RuntimeError(f"Gemini API request failed: {exc}") from exc
 
     try:
-        text = raw_response["candidates"][0]["content"]["parts"][0]["text"]
-        parsed = json.loads(text)
+        parsed = json.loads(raw["candidates"][0]["content"]["parts"][0]["text"])
     except Exception as exc:
-        raise RuntimeError("Gemini returned an invalid structured response") from exc
+        raise RuntimeError("Gemini returned invalid structured response") from exc
 
-    thicknesses = wall_thicknesses or {"ext": 90, "int": 70, "part": 70}
+    thicknesses = wall_thicknesses or {"ext":90,"int":70,"part":70}
     px_per_mm = (1.0 / float(real_scale)) if real_scale and float(real_scale) > 0 else 1.0
-
-    result_walls: List[Dict[str, Any]] = []
-    for idx, item in enumerate(parsed.get("walls") or []):
-        start = item.get("start") or [0, 0]
-        end = item.get("end") or [0, 0]
-        p1 = [_clamp01(start[0]) * orig_w, _clamp01(start[1]) * orig_h]
-        p2 = [_clamp01(end[0]) * orig_w, _clamp01(end[1]) * orig_h]
-        if _distance(p1, p2) < 8:
+    walls = []
+    seen = set()
+    for item in parsed.get("selections") or []:
+        cid = str(item.get("candidate_id") or "")
+        if cid in seen or cid not in candidate_map:
             continue
-
-        cls = item.get("class_name") or "interior_wall"
-        wall_type = "ext" if cls == "exterior_wall" else ("part" if cls == "partition_wall" else ("block" if cls == "block_wall" else "int"))
-        thickness_mm = thicknesses.get(wall_type, thicknesses.get("int", 70))
-        thickness_px = max(2.0, float(thickness_mm) * px_per_mm)
-        result_walls.append({
-            "id": f"gemini_wall_{idx}",
+        seen.add(cid)
+        src = candidate_map[cid]
+        cl = src.get("centerline")
+        if not cl or len(cl) != 2 or _distance(cl[0], cl[1]) < 3:
+            continue
+        cls = item.get("class_name") or src.get("class_name") or "interior_wall"
+        wt = "ext" if cls == "exterior_wall" else ("part" if cls == "partition_wall" else "int")
+        mm = thicknesses.get(wt, thicknesses.get("int",70))
+        tpx = max(2.0, float(mm) * px_per_mm)
+        p1 = [float(cl[0][0]), float(cl[0][1])]
+        p2 = [float(cl[1][0]), float(cl[1][1])]
+        walls.append({
+            "id": f"gemini_{cid}",
+            "candidate_id": cid,
             "class_name": cls,
-            "centerline": [p1, p2],
-            "polygon": _line_polygon(p1, p2, thickness_px),
-            "confidence": float(item.get("confidence", 0.5)),
+            "centerline": [p1,p2],
+            "polygon": _line_polygon(p1,p2,tpx),
+            "confidence": float(item.get("confidence", src.get("confidence",0.5))),
             "reason": item.get("reason", ""),
-            "source": "gemini_wall_rebuild",
+            "source": "gemini_raw_candidate_review",
+            "local_class_name": src.get("class_name"),
+            "local_confidence": src.get("confidence"),
         })
 
-    result_walls = _dedupe(result_walls)
-    _snap_endpoints(result_walls, tolerance_px=float(os.getenv("GEMINI_WALL_SNAP_PX", "10")))
-    for wall in result_walls:
-        cls = wall["class_name"]
-        wall_type = "ext" if cls == "exterior_wall" else ("part" if cls == "partition_wall" else ("block" if cls == "block_wall" else "int"))
-        thickness_mm = thicknesses.get(wall_type, thicknesses.get("int", 70))
-        thickness_px = max(2.0, float(thickness_mm) * px_per_mm)
-        wall["polygon"] = _line_polygon(wall["centerline"][0], wall["centerline"][1], thickness_px)
-
     return {
-        "status": "success",
-        "provider": "gemini",
-        "model": model,
-        "width": orig_w,
-        "height": orig_h,
-        "walls": result_walls,
-        "count": len(result_walls),
+        "status":"success", "provider":"gemini", "model":model,
+        "width":ow, "height":oh,
+        "raw_candidate_count":len(raw_candidates),
+        "candidate_count_sent":len(candidates),
+        "walls":walls, "count":len(walls),
     }
+
+# Backward-compatible name used by older imports.
+def rebuild_walls_with_gemini(*args, **kwargs):
+    raw_candidates = kwargs.pop("raw_candidates", None)
+    if raw_candidates is None:
+        raise RuntimeError("Gemini wall review now requires raw_candidates from WallSegmentService.predict_raw_candidates")
+    return review_raw_candidates_with_gemini(raw_candidates=raw_candidates, *args, **kwargs)

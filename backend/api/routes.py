@@ -948,14 +948,18 @@ async def wall_segment(
 @router.post("/api/gemini/rebuild-walls")
 async def gemini_rebuild_walls(
     file: UploadFile = File(...),
+    confidence: float = Form(0.001),
     real_scale: Optional[float] = Form(1.0),
     ext_thickness: Optional[int] = Form(90),
     int_thickness: Optional[int] = Form(70),
     part_thickness: Optional[int] = Form(70),
+    existing_walls: Optional[str] = Form(None),
     username: str = Depends(validate_session)
 ):
-    """Experimental explicit Gemini wall rebuild. Does not mutate saved jobs by itself."""
-    from services.gemini_wall_service import rebuild_walls_with_gemini
+    """Gemini reviews RAW YOLO candidates before destructive wall post-processing."""
+    import json as _json
+    from services.wall_segment_service import WallSegmentService
+    from services.gemini_wall_service import review_raw_candidates_with_gemini
 
     content = await file.read()
     wall_thicknesses = {
@@ -964,20 +968,34 @@ async def gemini_rebuild_walls(
         "part": part_thickness or 70,
     }
     try:
-        return await run_in_threadpool(
-            rebuild_walls_with_gemini,
+        current = _json.loads(existing_walls) if existing_walls else []
+        raw = await run_in_threadpool(
+            WallSegmentService.predict_raw_candidates,
             image_bytes=content,
+            confidence=confidence,
             real_scale=real_scale or 1.0,
+            filename=file.filename or "plan.png",
             wall_thicknesses=wall_thicknesses,
         )
+        result = await run_in_threadpool(
+            review_raw_candidates_with_gemini,
+            image_bytes=content,
+            raw_candidates=raw.get("walls") or [],
+            real_scale=real_scale or 1.0,
+            wall_thicknesses=wall_thicknesses,
+            existing_walls=current,
+        )
+        logger.info(
+            "Gemini RAW review: %s raw -> %s selected",
+            result.get("raw_candidate_count"), result.get("count")
+        )
+        return result
     except RuntimeError as exc:
-        logger.error("Gemini wall rebuild failed: %s", exc)
+        logger.error("Gemini raw-candidate review failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        logger.error("Unexpected Gemini wall rebuild error: %s", exc, exc_info=True)
+        logger.error("Unexpected Gemini raw-candidate review error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
-
-
 @router.post("/predict_wall_stream")
 async def predict_wall_stream(
     file: UploadFile = File(...),

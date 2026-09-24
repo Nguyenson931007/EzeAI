@@ -948,9 +948,46 @@ export const useAIController = (
       let isCacheHit = false;
 
       if (provider === "gemini") {
-        setCacheStatus("Gemini is rebuilding walls...");
-        setRoiProgress(35);
-        const result = await ApiService.rebuildWallsWithGemini(blob, realScale, activeThicknesses, job.controller.signal);
+        setCacheStatus("EzeFloor Local AI + Gemini are reviewing walls...");
+        setRoiProgress(20);
+
+        // Send the current canvas as an additional prior. Coordinates stored on
+        // the canvas include pdfOffset, while the API image uses image-local
+        // coordinates, so remove that offset before serializing.
+        const existingWallsForGemini = existingWallsSnapshot
+          .filter(w => Array.isArray(w?.centerline) && w.centerline.length === 2)
+          .map(w => ({
+            id: w.id || "",
+            class_name: getWallClass(w),
+            centerline: w.centerline.map(pt => [
+              Number(pt?.[0] ?? 0) - Number(pdfOffset?.x || 0),
+              Number(pt?.[1] ?? 0) - Number(pdfOffset?.y || 0)
+            ]),
+            confidence: Number(w.confidence ?? 0.85),
+            thickness: Number(w.thickness ?? 0),
+            review_state: w.review_state || (w.ai_provider ? "AI_GENERATED" : "CURRENT_CANVAS")
+          }));
+
+        const doorsForContext = doorsByPageRef.current ? (doorsByPageRef.current[currentPage] || []) : [];
+        const roomsForContext = roomsByPageRef.current ? (roomsByPageRef.current[currentPage] || []) : [];
+        const pageContext = {
+          current_page: currentPage,
+          roi: roiRect || null,
+          current_wall_count: existingWallsForGemini.length,
+          door_count: doorsForContext.length,
+          room_count: roomsForContext.length,
+          instruction: "Use EzeFloor local wall logic as prior, verify/correct it from the drawing, and return one complete corrected wall graph."
+        };
+
+        const result = await ApiService.rebuildWallsWithGemini(
+          blob,
+          realScale,
+          activeThicknesses,
+          existingWallsForGemini,
+          pageContext,
+          job.controller.signal
+        );
+        setRoiProgress(80);
         const detectedWalls = (result?.walls || []).map((w) => {
           const rawCls = getWallClass(w);
           const class_name = rawCls;
@@ -977,11 +1014,15 @@ export const useAIController = (
         // Gemini is an explicit replacement flow. Ask once before destroying the
         // current page's geometry so the local-AI/manual result can be kept.
         const currentCount = existingWallsSnapshot.length;
+        const localPriorCount = Number(result?.local_candidate_count || 0);
+        const summaryLine = result?.summary ? `\n\nGemini: ${result.summary}` : "";
         const applyGemini = typeof window === "undefined"
           ? true
           : window.confirm(
-              `Gemini reconstructed ${detectedWalls.length} walls.\n\n` +
-              `Replace the current ${currentCount} wall(s) on this page?`
+              `EzeFloor Local AI produced ${localPriorCount} candidate wall(s).\n` +
+              `Gemini reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
+              `Replace the current ${currentCount} wall(s) on this page?` +
+              summaryLine
             );
 
         if (applyGemini) {
