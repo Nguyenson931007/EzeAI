@@ -1,0 +1,239 @@
+import React from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
+import "./taskUi.css";
+
+export function TaskCard({ children, className = "", style }) {
+  return (
+    <section className={`task-ui-card ${className}`.trim()} style={style}>
+      {children}
+    </section>
+  );
+}
+
+export function TaskSectionHeader({
+  title,
+  isOpen,
+  onToggle,
+  actions,
+  right,
+  className = "",
+}) {
+  const clickable = typeof onToggle === "function";
+  return (
+    <div
+      className={`task-ui-section-header${clickable ? " is-clickable" : ""} ${className}`.trim()}
+      onClick={clickable ? onToggle : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onToggle();
+        }
+      } : undefined}
+    >
+      <span className="task-ui-section-title">{title}</span>
+      <div className="task-ui-section-right" onClick={(event) => event.stopPropagation()}>
+        {right}
+        {actions}
+        {clickable && !actions ? (
+          <button
+            type="button"
+            className="task-ui-chevron"
+            onClick={onToggle}
+            aria-label={isOpen ? "Collapse section" : "Expand section"}
+            title={isOpen ? "Collapse" : "Expand"}
+          >
+            {isOpen ? "▲" : "▼"}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+
+export function TaskActionButtons({
+  onAutoFill,
+  onClear,
+  onSave,
+  autoFillDisabled = false,
+  saveDisabled = false,
+  saveStatus = "idle",
+  autoFillLabel = "Auto Fill",
+  saveLabel = "Save",
+}) {
+  return (
+    <EnteredTaskActions
+      onAutoFill={onAutoFill}
+      onClear={onClear}
+      onSave={onSave}
+      autoFillDisabled={autoFillDisabled}
+      saveDisabled={saveDisabled}
+      saveStatus={saveStatus}
+      autoFillLabel={autoFillLabel}
+      saveLabel={saveLabel}
+    />
+  );
+}
+
+export function TaskInlineEnteredSection({ title, children, footer, className = "" }) {
+  return (
+    <section className={`task-ui-inline-entered ${className}`.trim()}>
+      {title ? <div className="task-ui-inline-entered-title">{title}</div> : null}
+      <div className="task-ui-inline-entered-body">{children}</div>
+      {footer ? <div className="task-ui-inline-entered-footer">{footer}</div> : null}
+    </section>
+  );
+}
+export function EnteredDataCard({
+  title,
+  isOpen,
+  onToggle,
+  onAutoFill,
+  onClear,
+  onSave,
+  autoFillDisabled = false,
+  saveDisabled = false,
+  saveStatus = "idle",
+  children,
+  footer,
+  className = "",
+}) {
+  return (
+    <TaskCard className={`task-ui-entered-card ${className}`.trim()}>
+      <TaskSectionHeader
+        title={title}
+        isOpen={isOpen}
+        onToggle={onToggle}
+        actions={(
+          <EnteredTaskActions
+            onAutoFill={onAutoFill}
+            onClear={onClear}
+            onSave={onSave}
+            isOpen={isOpen}
+            onToggle={onToggle}
+            autoFillDisabled={autoFillDisabled}
+            saveDisabled={saveDisabled}
+            saveStatus={saveStatus}
+          />
+        )}
+      />
+      {isOpen ? <div className="task-ui-entered-body">{children}</div> : null}
+      {isOpen && footer ? <div className="task-ui-summary-footer">{footer}</div> : null}
+    </TaskCard>
+  );
+}
+
+export function TaskFieldGrid({ children, columns = 4, className = "", style }) {
+  return (
+    <div
+      className={`task-ui-field-grid ${className}`.trim()}
+      style={{ "--task-ui-columns": columns, ...style }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function TaskField({
+  label,
+  value,
+  onChange,
+  options,
+  optionLabels,
+  type = "text",
+  placeholder,
+  inputMode,
+  disabled = false,
+  readOnly = false,
+  min,
+  max,
+  step,
+  width,
+  flex,
+  minWidth,
+  className = "",
+  children,
+}) {
+  const isSelect = Array.isArray(options);
+  const wrapStyle = {
+    width: width || undefined,
+    flex: flex || undefined,
+    minWidth: minWidth || undefined,
+  };
+
+  return (
+    <label className={`task-ui-field ${className}`.trim()} style={wrapStyle}>
+      {label !== undefined && label !== null ? <span className="task-ui-field-label">{label}</span> : null}
+      {children || (isSelect ? (
+        <select
+          className="task-ui-control task-ui-select"
+          value={value ?? ""}
+          onChange={(event) => onChange?.(event.target.value)}
+          disabled={disabled}
+        >
+          {options.map((option) => {
+            const optionValue = typeof option === "object" ? option.value : option;
+            const fallbackLabel = typeof option === "object" ? option.label : option;
+            const optionLabel = optionLabels?.[optionValue] ?? fallbackLabel;
+            return <option key={String(optionValue)} value={optionValue}>{optionLabel}</option>;
+          })}
+        </select>
+      ) : (
+        <input
+          className="task-ui-control task-ui-input"
+          type={type}
+          value={value ?? ""}
+          placeholder={placeholder}
+          inputMode={inputMode}
+          disabled={disabled}
+          readOnly={readOnly}
+          min={min}
+          max={max}
+          step={step}
+          onChange={(event) => onChange?.(event.target.value)}
+        />
+      ))}
+    </label>
+  );
+}
+
+export function TaskSummaryTable({ children, minWidth, className = "", compact = false }) {
+  return (
+    <div className="task-ui-table-scroll">
+      <table
+        className={`task-ui-summary-table${compact ? " is-compact" : ""} ${className}`.trim()}
+        style={minWidth ? { minWidth } : undefined}
+      >
+        {children}
+      </table>
+    </div>
+  );
+}
+
+export function TaskSummarySubsection({ title, children, className = "" }) {
+  return (
+    <section className={`task-ui-summary-subsection ${className}`.trim()}>
+      <div className="task-ui-summary-subsection-title">{title}</div>
+      {children}
+    </section>
+  );
+}
+
+export function TaskEmptyRow({ colSpan, children }) {
+  return (
+    <tr>
+      <td className="task-ui-empty-row" colSpan={colSpan}>{children}</td>
+    </tr>
+  );
+}
+
+export function TaskSummaryFooter({ children, right }) {
+  return (
+    <div className="task-ui-summary-footer-inner">
+      <span>{children}</span>
+      {right ? <div className="task-ui-summary-footer-right">{right}</div> : null}
+    </div>
+  );
+}

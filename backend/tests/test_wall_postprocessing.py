@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from services.wall_segment_service import (
+    _align_collinear_wall_chain_axes,
     _bridge_visual_t_junction_gaps,
     _classify_outermost_walls_by_floodfill,
     _dedupe_near_parallel_centerlines,
@@ -118,3 +119,84 @@ def test_render_geometry_is_rebuilt_from_centerline_and_thickness():
     assert rebuilt["geometry_source"] == "centerline+thickness"
     assert {tuple(point) for point in rebuilt["polygon"]} == {(10.0, 20.0), (110.0, 20.0), (110.0, 40.0), (10.0, 40.0)}
     assert rebuilt["area_px"] == 2000.0
+
+
+def test_edge_pair_duplicate_collapses_only_with_shared_band_raster_evidence():
+    image = np.full((120, 260, 3), 255, dtype=np.uint8)
+    # One hollow wall band: two dark strokes around a shared center axis.
+    cv2.line(image, (20, 55), (240, 55), (0, 0, 0), 2)
+    cv2.line(image, (20, 65), (240, 65), (0, 0, 0), 2)
+    a = wall((20, 55), (240, 55), thickness=12, source="best")
+    b = wall((20, 65), (240, 65), thickness=12, confidence=0.25, source="visual_recovery")
+    result = _dedupe_near_parallel_centerlines([a, b], image)
+    assert len(result) == 1
+    assert result[0].get("parallel_duplicate_collapsed") is True
+    assert result[0].get("parallel_duplicate_mode") in {"shared_band", "near_axis"}
+
+
+def test_two_real_parallel_walls_survive_when_midpoint_has_no_wall_band():
+    image = np.full((140, 260, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (20, 44), (240, 50), (0, 0, 0), -1)
+    cv2.rectangle(image, (20, 70), (240, 76), (0, 0, 0), -1)
+    a = wall((20, 47), (240, 47), thickness=8, source="best")
+    b = wall((20, 73), (240, 73), thickness=8, source="best")
+    result = _dedupe_near_parallel_centerlines([a, b], image)
+    assert len(result) == 2
+
+
+def test_moderate_confidence_tiny_orphan_without_band_is_removed():
+    blank = np.full((120, 120, 3), 255, dtype=np.uint8)
+    orphan = wall((20, 20), (48, 20), confidence=0.35, thickness=8, source="best")
+    result = _filter_orphan_fragments(blank, [orphan])
+    assert result == []
+
+
+def test_raw_restore_coverage_uses_raw_axis_coordinates():
+    image = np.full((120, 260, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (20, 56), (240, 64), (0, 0, 0), -1)
+    raw = wall((20, 60), (240, 60), confidence=0.8, thickness=9)
+    # A short shifted final piece must not be mistaken for 62% coverage of the raw run.
+    final_piece = wall((185, 60), (240, 60), confidence=0.8, thickness=9)
+    result = _restore_supported_raw_walls(image, [raw], [final_piece])
+    assert len(result) == 2
+    assert any(item.get("restored_after_postprocess") for item in result)
+
+
+def test_thick_edge_pair_duplicate_can_collapse_beyond_old_18px_cap():
+    image = np.full((150, 300, 3), 255, dtype=np.uint8)
+    # One hollow thick wall band with edges 26px apart. The old 18px hard cap
+    # prevented this pair from ever reaching the shared-band evidence test.
+    cv2.line(image, (20, 62), (280, 62), (0, 0, 0), 3)
+    cv2.line(image, (20, 88), (280, 88), (0, 0, 0), 3)
+    a = wall((20, 62), (280, 62), thickness=26, source="best")
+    b = wall((20, 88), (280, 88), thickness=26, confidence=0.30, source="visual_recovery")
+    result = _dedupe_near_parallel_centerlines([a, b], image)
+    assert len(result) == 1
+    assert result[0].get("parallel_duplicate_mode") == "shared_band"
+    y = sum(p[1] for p in result[0]["centerline"]) / 2.0
+    assert math.isclose(y, 75.0, abs_tol=1.5)
+
+
+def test_chain_axis_alignment_fixes_small_lane_drift_only_when_raster_agrees():
+    image = np.full((130, 300, 3), 255, dtype=np.uint8)
+    # Actual wall band is centred at y=60 across the whole run. The second topology
+    # piece drifted to y=64 after a previous edit/pass.
+    cv2.rectangle(image, (20, 55), (270, 65), (0, 0, 0), -1)
+    a = wall((20, 60), (145, 60), thickness=11, confidence=0.8)
+    b = wall((145, 64), (270, 64), thickness=11, confidence=0.5)
+    result = _align_collinear_wall_chain_axes(image, [a, b])
+    ys = [sum(p[1] for p in item["centerline"]) / 2.0 for item in result]
+    assert math.isclose(ys[0], 60.0, abs_tol=0.2)
+    assert math.isclose(ys[1], 60.0, abs_tol=0.2)
+    assert result[1].get("chain_axis_aligned_px") == 4.0
+
+
+def test_chain_axis_alignment_does_not_pull_separate_parallel_wall():
+    image = np.full((140, 300, 3), 255, dtype=np.uint8)
+    cv2.rectangle(image, (20, 45), (145, 53), (0, 0, 0), -1)
+    cv2.rectangle(image, (145, 68), (280, 76), (0, 0, 0), -1)
+    a = wall((20, 49), (145, 49), thickness=9)
+    b = wall((145, 72), (280, 72), thickness=9)
+    result = _align_collinear_wall_chain_axes(image, [a, b])
+    assert result[0]["centerline"] == a["centerline"]
+    assert result[1]["centerline"] == b["centerline"]

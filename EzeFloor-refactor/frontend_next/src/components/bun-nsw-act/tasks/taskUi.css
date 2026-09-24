@@ -1,0 +1,446 @@
+.task-ui-card {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.task-ui-section-header {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f2744;
+}
+
+.task-ui-section-header.is-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.task-ui-section-title {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.task-ui-section-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.task-ui-chevron {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.task-ui-entered-body {
+  min-width: 0;
+  background: #fff;
+}
+
+.task-ui-field-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--task-ui-columns, 4), minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.task-ui-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+}
+
+.task-ui-field-label {
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.task-ui-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 31px;
+  padding: 4px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  line-height: 1.2;
+  outline: none;
+}
+
+.task-ui-input:focus,
+.task-ui-select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, .12);
+}
+
+.task-ui-select {
+  cursor: pointer;
+}
+
+.task-ui-table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-gutter: stable;
+}
+
+.task-ui-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: 10.5px;
+  color: #1e293b;
+}
+
+.task-ui-summary-table thead tr {
+  background: #30477d !important;
+  color: #fff !important;
+}
+
+.task-ui-summary-table th {
+  padding: 6px 8px !important;
+  color: #fff !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.task-ui-summary-table td {
+  box-sizing: border-box;
+  padding: 6px 8px !important;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+  line-height: 1.25;
+}
+
+.task-ui-summary-table tbody > tr:not([data-task-group-row="true"]):nth-child(even) td {
+  background: #fbfdff;
+}
+
+.task-ui-summary-table tbody > tr:hover:not([data-task-group-row="true"]) td {
+  background: #f8fafc;
+}
+
+.task-ui-summary-table.is-compact th,
+.task-ui-summary-table.is-compact td {
+  padding-top: 5px !important;
+  padding-bottom: 5px !important;
+}
+
+.task-ui-summary-subsection {
+  border-top: 1px solid #cbd5e1;
+  background: #fff;
+}
+
+.task-ui-summary-subsection:first-child {
+  border-top: 0;
+}
+
+.task-ui-summary-subsection-title {
+  padding: 7px 9px;
+  border-bottom: 1px solid #dbe4f0;
+  background: #eef4ff;
+  color: #1e3a5f;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.task-ui-empty-row {
+  padding: 16px 10px !important;
+  text-align: center !important;
+  color: #94a3b8 !important;
+  font-style: normal;
+  background: #fff !important;
+}
+
+.task-ui-summary-footer {
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.task-ui-summary-footer-inner {
+  min-height: 34px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.task-ui-summary-footer-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Shared floor separator row. Keep it visibly different from data rows, but
+   use the same height/typography in every task. */
+.task-ui-summary-table tr[data-task-group-row="true"] td,
+tr.task-floor-level-row td {
+  padding: 6px 9px !important;
+  border-top: 1px solid #9db7e5 !important;
+  border-bottom: 1px solid #c7d7f2 !important;
+  background: #eaf2ff !important;
+  color: #1e3a5f !important;
+  font-size: 10.5px !important;
+  font-weight: 800 !important;
+}
+
+@media (max-width: 1100px) {
+  .task-ui-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .task-ui-section-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .task-ui-section-right {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .task-ui-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.task-ui-summary-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  min-width: 0;
+  color: #475569;
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+.task-ui-summary-meta span {
+  white-space: nowrap;
+}
+
+.task-ui-summary-meta b {
+  color: #334155;
+  font-weight: 700;
+}
+
+
+/* Fixout summary: keep the final "entered/generated" area readable inside the
+   narrow right property pane. It is a read-only summary, not a second input form. */
+.task-ui-entered-card .task-ui-summary-subsection {
+  margin: 0;
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.task-ui-entered-card .task-ui-summary-subsection-title {
+  padding: 7px 10px;
+  background: #f3f6fb;
+  border-top: 1px solid #d7e0ec;
+  border-bottom: 1px solid #d7e0ec;
+  color: #243b63;
+  font-size: 10.5px;
+}
+
+.fixout-summary-main,
+.fixout-summary-robe,
+.fixout-summary-openings,
+.fixout-summary-values {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+}
+
+/* Main door summary: allow text to wrap instead of forcing a horizontal bar. */
+.fixout-summary-main th,
+.fixout-summary-main td {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.fixout-summary-main th:nth-child(1),
+.fixout-summary-main td:nth-child(1) { width: 4%; }
+.fixout-summary-main th:nth-child(2),
+.fixout-summary-main td:nth-child(2) { width: 12%; }
+.fixout-summary-main th:nth-child(3),
+.fixout-summary-main td:nth-child(3) { width: 19%; }
+.fixout-summary-main th:nth-child(4),
+.fixout-summary-main td:nth-child(4) { width: 13%; }
+.fixout-summary-main th:nth-child(5),
+.fixout-summary-main td:nth-child(5) { width: 8%; }
+.fixout-summary-main th:nth-child(6),
+.fixout-summary-main td:nth-child(6) { width: 10%; }
+.fixout-summary-main th:nth-child(7),
+.fixout-summary-main td:nth-child(7) { width: 25%; }
+.fixout-summary-main th:nth-child(8),
+.fixout-summary-main td:nth-child(8) { width: 5%; }
+.fixout-summary-main th:nth-child(9),
+.fixout-summary-main td:nth-child(9) { width: 4%; }
+
+.fixout-summary-main .task-ui-summary-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 8px;
+}
+
+.fixout-summary-main .task-ui-summary-meta span {
+  min-width: 0;
+  white-space: normal;
+}
+
+/* Secondary summaries are deliberately compact. */
+.fixout-summary-robe th,
+.fixout-summary-robe td,
+.fixout-summary-openings th,
+.fixout-summary-openings td,
+.fixout-summary-values th,
+.fixout-summary-values td {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.fixout-summary-values th:first-child,
+.fixout-summary-values td:first-child { width: 64%; }
+.fixout-summary-values th:last-child,
+.fixout-summary-values td:last-child { width: 36%; }
+
+/* Avoid showing a scrollbar track when the summary fits the pane. */
+.task-ui-entered-card .task-ui-table-scroll {
+  overflow-x: auto;
+  scrollbar-gutter: auto;
+}
+
+@media (max-width: 1050px) {
+  .fixout-summary-main {
+    table-layout: auto;
+  }
+
+  .fixout-summary-main .task-ui-summary-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Inline entered-data block used when a task keeps its entered rows directly
+   under the form that creates them (Procurement-style layout). */
+.task-ui-inline-entered {
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid #dbe4f0;
+  background: #fff;
+}
+
+.task-ui-inline-entered-title {
+  padding: 7px 10px;
+  border-bottom: 1px solid #dbe4f0;
+  background: #f3f6fb;
+  color: #243b63;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.task-ui-inline-entered-body {
+  min-width: 0;
+  background: #fff;
+}
+
+.task-ui-inline-entered-footer {
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.fixout-procurement-card-body {
+  min-width: 0;
+}
+
+.fixout-trim-groups-eze {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fixout-trim-group-eze {
+  min-width: 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.fixout-trim-group-eze:first-child {
+  border-top: 0;
+}
+
+.fixout-trim-group-title-eze {
+  padding: 7px 10px 0;
+  color: #243b63;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.fixout-trim-group-grid-eze {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px 10px;
+  min-width: 0;
+}
+
+.fixout-trim-group-grid-eze.is-reveals {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: end;
+}
+
+@media (max-width: 1100px) {
+  .fixout-trim-group-grid-eze.is-reveals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

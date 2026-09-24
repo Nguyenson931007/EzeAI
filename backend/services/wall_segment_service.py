@@ -1824,7 +1824,10 @@ def _recover_missing_orthogonal_wall_bands(img_np, walls: List[dict], max_new: i
     def duplicate(cand):
         c=cand["centerline"]; x1,y1=c[0]; x2,y2=c[1]
         hor=abs(x2-x1)>=abs(y2-y1)
-        for ew in walls:
+        # Compare against both model walls and candidates already recovered in this pass.
+        # Without this, the same raster band can be emitted more than once from nearby
+        # morphology contours before the final dedupe stage.
+        for ew in list(walls) + list(new):
             ec=ew.get("centerline")
             if not ec or len(ec)!=2: continue
             ex1,ey1=ec[0]; ex2,ey2=ec[1]
@@ -1987,17 +1990,18 @@ def _filter_strong_visual_false_positives(img_np, walls: List[dict]) -> List[dic
         conf = float(wall.get("confidence", 0.0) or 0.0)
         conn = connection_count(idx, wall)
 
-        # Conservative policy: visual evidence is advisory for nearly every wall.
-        # Earlier versions deleted valid partitions because raster text/openings interrupted
-        # the wall band.  Only an isolated, extremely-low-confidence and almost completely
-        # unsupported run may be removed.  Any connected wall or confidence >= 0.18 survives.
-        reject = (
-            conn == 0
-            and conf < 0.18
-            and length >= 45.0
-            and cont < 0.08
-            and score < 0.05
-        )
+        # Decisive negative evidence is allowed to remove a clearly stray run, but keep
+        # the rule source/connectivity-aware.  Visual recovery is synthetic and therefore
+        # needs stronger proof than a raw YOLO wall.  Raw model walls remain fail-open unless
+        # they are isolated, moderate/low confidence, and essentially have zero wall-band ink.
+        source = str(wall.get("source_model") or "")
+        is_recovery = source.startswith("visual")
+        reject = False
+        if length >= 45.0 and cont < 0.08 and score < 0.05:
+            if is_recovery and conn <= 1:
+                reject = True
+            elif conn == 0 and conf < 0.45:
+                reject = True
 
         if reject:
             removed += 1
@@ -2028,11 +2032,17 @@ def _line_metrics(wall: dict):
     return (x1, y1, x2, y2, dx / length, dy / length, length)
 
 
-def _dedupe_near_parallel_centerlines(walls: List[dict]) -> List[dict]:
-    """Collapse only near-identical axes, never generic nearby parallel walls.
+def _dedupe_near_parallel_centerlines(walls: List[dict], img_np=None) -> List[dict]:
+    """Collapse duplicate axes without collapsing genuine nearby parallel walls.
 
-    The tolerance is capped well below a normal wall-band separation.  This removes
-    YOLO/recovery duplicates while preserving two genuine parallel wall runs.
+    There are two duplicate modes in floor plans:
+      1) almost-identical centerlines (YOLO + recovery detecting the same wall), and
+      2) two axes emitted on opposite strokes/edges of one wall band.
+
+    Mode (1) is resolved geometrically with a very small thickness-aware tolerance.
+    Mode (2) is resolved only when the *mid-axis* has strong wall-band raster evidence.
+    A real pair of parallel walls normally has white space between them, so the midpoint
+    fails that evidence test and both walls are preserved.
     """
     ordered = sorted(
         [dict(w) for w in walls],
@@ -2041,6 +2051,43 @@ def _dedupe_near_parallel_centerlines(walls: List[dict]) -> List[dict]:
     )
     kept: List[dict] = []
     collapsed = 0
+
+    def _candidate_mid_axis(a, b):
+        am = _line_metrics(a); bm = _line_metrics(b)
+        if am is None or bm is None:
+            return None
+        ax1, ay1, ax2, ay2, aux, auy, alen = am
+        bx1, by1, bx2, by2, bux, buy, blen = bm
+        # Orient B in the same direction as A before averaging endpoints.
+        if aux * bux + auy * buy < 0:
+            bx1, by1, bx2, by2 = bx2, by2, bx1, by1
+        # Use the shared longitudinal overlap, not the union, so unrelated tails do not
+        # influence the raster evidence decision.
+        vals = [
+            ((bx1-ax1)*aux + (by1-ay1)*auy, (bx1,by1)),
+            ((bx2-ax1)*aux + (by2-ay1)*auy, (bx2,by2)),
+        ]
+        blo,bhi = sorted(v[0] for v in vals)
+        lo=max(0.0,blo); hi=min(alen,bhi)
+        if hi-lo < 18.0:
+            return None
+        ap1=[ax1+lo*aux, ay1+lo*auy]; ap2=[ax1+hi*aux, ay1+hi*auy]
+        # Project A-overlap endpoints onto B then average the two axes.
+        def proj(pt):
+            t=(pt[0]-bx1)*bux + (pt[1]-by1)*buy
+            return [bx1+t*bux, by1+t*buy]
+        bp1,bp2=proj(ap1),proj(ap2)
+        wt=float(a.get("raw_thickness_px") or a.get("thickness_px") or 15.0)
+        bt=float(b.get("raw_thickness_px") or b.get("thickness_px") or 15.0)
+        return {
+            "centerline": [
+                [(ap1[0]+bp1[0])/2.0,(ap1[1]+bp1[1])/2.0],
+                [(ap2[0]+bp2[0])/2.0,(ap2[1]+bp2[1])/2.0],
+            ],
+            "raw_thickness_px": max(wt,bt, abs((bx1-ax1)*(-auy)+(by1-ay1)*aux)*1.35),
+            "confidence": max(float(a.get("confidence",0) or 0), float(b.get("confidence",0) or 0)),
+        }
+
     for wall in ordered:
         m = _line_metrics(wall)
         if m is None:
@@ -2048,29 +2095,62 @@ def _dedupe_near_parallel_centerlines(walls: List[dict]) -> List[dict]:
             continue
         x1, y1, x2, y2, ux, uy, length = m
         duplicate_idx = None
+        duplicate_mode = None
         for idx, accepted in enumerate(kept):
             am = _line_metrics(accepted)
             if am is None:
                 continue
             ax1, ay1, ax2, ay2, aux, auy, alen = am
-            if abs(ux * aux + uy * auy) < 0.996:
+            parallel = abs(ux * aux + uy * auy)
+            if parallel < 0.996:
                 continue
 
-            # Compare both axes in the accepted wall coordinate system.
             normal_x, normal_y = -auy, aux
             d1 = abs((x1 - ax1) * normal_x + (y1 - ay1) * normal_y)
             d2 = abs((x2 - ax1) * normal_x + (y2 - ay1) * normal_y)
+            axis_dist = max(d1, d2)
             t1 = (x1 - ax1) * aux + (y1 - ay1) * auy
             t2 = (x2 - ax1) * aux + (y2 - ay1) * auy
             lo, hi = sorted((t1, t2))
             overlap = max(0.0, min(alen, hi) - max(0.0, lo))
             overlap_ratio = overlap / max(1.0, min(length, alen))
+            if overlap_ratio < 0.82:
+                continue
 
             wt = float(wall.get("raw_thickness_px") or wall.get("thickness_px") or 15.0)
             at = float(accepted.get("raw_thickness_px") or accepted.get("thickness_px") or 15.0)
-            axis_tol = min(6.0, max(2.25, 0.28 * min(wt, at)))
-            if max(d1, d2) <= axis_tol and overlap_ratio >= 0.82:
+            strict_tol = min(6.0, max(2.25, 0.28 * min(wt, at)))
+            if axis_dist <= strict_tol:
                 duplicate_idx = idx
+                duplicate_mode = "near_axis"
+                break
+
+            # Ambiguous close parallels: only collapse when source raster proves that
+            # a single wall band is centred between both axes. Never use proximity alone.
+            # Thick exterior walls can legitimately produce one axis on each wall edge.
+            # The previous hard 18px ceiling meant those obvious duplicates never even
+            # reached the raster-evidence test.  Make the candidate window thickness-aware,
+            # but still require the shared midpoint wall-band proof below before collapsing.
+            broad_tol = min(38.0, max(9.0, 1.35 * max(wt, at)))
+            if img_np is None or axis_dist > broad_tol:
+                continue
+            mid = _candidate_mid_axis(wall, accepted)
+            if mid is None:
+                continue
+            mid_score, mid_cont, mid_err = _wall_band_evidence_score(img_np, mid, 0.0)
+            w_score, w_cont, _ = _wall_band_evidence_score(img_np, wall, 0.0)
+            a_score, a_cont, _ = _wall_band_evidence_score(img_np, accepted, 0.0)
+            # Require a continuous, centred band at the midpoint, and require it to be
+            # at least competitive with the two offset axes. This is what separates a
+            # duplicated wall band from two real walls with white space in between.
+            if (
+                mid_cont >= 0.62 and mid_score >= 0.43
+                and (mid_err >= 900 or abs(mid_err) <= max(4.0, 0.30 * max(wt, at)))
+                and mid_cont >= min(w_cont, a_cont) - 0.04
+                and mid_score >= min(w_score, a_score) - 0.04
+            ):
+                duplicate_idx = idx
+                duplicate_mode = "shared_band"
                 break
 
         if duplicate_idx is None:
@@ -2078,39 +2158,158 @@ def _dedupe_near_parallel_centerlines(walls: List[dict]) -> List[dict]:
             continue
 
         accepted = kept[duplicate_idx]
-        # Preserve the strongest semantics/evidence, but retain provenance for audit.
         wall_rank = (float(wall.get("visual_support", 0) or 0), float(wall.get("confidence", 0) or 0))
         accepted_rank = (float(accepted.get("visual_support", 0) or 0), float(accepted.get("confidence", 0) or 0))
         winner, loser = (wall, accepted) if wall_rank > accepted_rank else (accepted, wall)
-        wm = _line_metrics(winner)
-        lm = _line_metrics(loser)
-        if wm and lm:
-            wx1, wy1, _, _, wux, wuy, wlen = wm
-            projections = [
-                0.0,
-                wlen,
-                (lm[0] - wx1) * wux + (lm[1] - wy1) * wuy,
-                (lm[2] - wx1) * wux + (lm[3] - wy1) * wuy,
-            ]
-            ta, tb = min(projections), max(projections)
-            winner["centerline"] = [
-                [wx1 + ta * wux, wy1 + ta * wuy],
-                [wx1 + tb * wux, wy1 + tb * wuy],
-            ]
+
+        # For an edge-pair duplicate, use the visually supported midpoint axis rather than
+        # retaining either biased edge. Near-identical duplicates keep the stronger axis.
+        if duplicate_mode == "shared_band":
+            mid = _candidate_mid_axis(wall, accepted)
+            if mid is not None:
+                mm = _line_metrics(mid)
+                if mm is not None:
+                    mx1,my1,mx2,my2,_,_,_ = mm
+                    # Preserve the full longitudinal union on the midpoint axis.
+                    base = _line_metrics(winner)
+                    other = _line_metrics(loser)
+                    if base and other:
+                        _,_,_,_,bux,buy,blen=base
+                        cx,cy=(mx1+mx2)/2.0,(my1+my2)/2.0
+                        projections=[]
+                        for src in (base, other):
+                            for px,py in ((src[0],src[1]),(src[2],src[3])):
+                                projections.append((px-cx)*bux+(py-cy)*buy)
+                        ta,tb=min(projections),max(projections)
+                        winner["centerline"]=[[cx+ta*bux,cy+ta*buy],[cx+tb*bux,cy+tb*buy]]
+                        winner["duplicate_axis_recentered"] = True
+        else:
+            wm = _line_metrics(winner); lm = _line_metrics(loser)
+            if wm and lm:
+                wx1, wy1, _, _, wux, wuy, wlen = wm
+                projections = [0.0, wlen,
+                    (lm[0] - wx1) * wux + (lm[1] - wy1) * wuy,
+                    (lm[2] - wx1) * wux + (lm[3] - wy1) * wuy]
+                ta, tb = min(projections), max(projections)
+                winner["centerline"] = [[wx1 + ta*wux, wy1 + ta*wuy], [wx1 + tb*wux, wy1 + tb*wuy]]
+
         winner["confidence"] = max(float(wall.get("confidence", 0) or 0), float(accepted.get("confidence", 0) or 0))
         winner["duplicate_sources"] = sorted(set(
-            list(accepted.get("duplicate_sources") or [])
-            + list(wall.get("duplicate_sources") or [])
+            list(accepted.get("duplicate_sources") or []) + list(wall.get("duplicate_sources") or [])
             + [str(accepted.get("source_model") or "unknown"), str(wall.get("source_model") or "unknown")]
         ))
         winner["parallel_duplicate_collapsed"] = True
+        winner["parallel_duplicate_mode"] = duplicate_mode
         kept[duplicate_idx] = winner
         collapsed += 1
 
     if collapsed:
-        logger.info("[wall_segment_service] Conservative parallel dedupe: collapsed %d duplicate run(s)", collapsed)
+        logger.info("[wall_segment_service] Raster-aware parallel dedupe: collapsed %d duplicate run(s)", collapsed)
     return kept
 
+
+def _align_collinear_wall_chain_axes(img_np, walls: List[dict]) -> List[dict]:
+    """Align adjacent pieces of the same visual wall lane without joining nearby walls.
+
+    Topology splitting/recovery can leave consecutive pieces of one wall 2-6 px apart
+    laterally.  This pass only translates the shorter/weaker piece when:
+      * the two runs are almost parallel,
+      * their longitudinal intervals meet at (or extremely near) an endpoint,
+      * lateral offset is small relative to wall thickness, and
+      * moving onto the neighbour axis does not reduce raster wall-band evidence.
+
+    It never extends endpoints and never merges the two objects; it only makes their
+    centerline lane consistent.
+    """
+    if img_np is None or not walls:
+        return walls
+
+    moved = 0
+    out = [dict(w) for w in walls]
+
+    def shifted_to_axis(src, ref):
+        sm = _line_metrics(src); rm = _line_metrics(ref)
+        if sm is None or rm is None:
+            return None
+        sx1, sy1, sx2, sy2, sux, suy, slen = sm
+        rx1, ry1, rx2, ry2, rux, ruy, rlen = rm
+        dot = sux*rux + suy*ruy
+        if abs(dot) < 0.998:
+            return None
+        # Orient reference axis with source for projection math.
+        if dot < 0:
+            rux, ruy = -rux, -ruy
+        rnx, rny = -ruy, rux
+        d1 = (sx1-rx1)*rnx + (sy1-ry1)*rny
+        d2 = (sx2-rx1)*rnx + (sy2-ry1)*rny
+        # A real straight chain should have nearly constant lateral displacement.
+        if abs(d1-d2) > 2.5:
+            return None
+        dist = 0.5*(d1+d2)
+        st = float(src.get('raw_thickness_px') or src.get('thickness_px') or 15.0)
+        rt = float(ref.get('raw_thickness_px') or ref.get('thickness_px') or 15.0)
+        if abs(dist) > min(8.0, max(3.5, 0.46*min(st,rt))):
+            return None
+
+        # Only adjacent/continuing pieces. Overlapping parallels are handled by dedupe.
+        vals = [
+            (sx1-rx1)*rux + (sy1-ry1)*ruy,
+            (sx2-rx1)*rux + (sy2-ry1)*ruy,
+        ]
+        slo, shi = sorted(vals)
+        overlap = max(0.0, min(rlen, shi)-max(0.0, slo))
+        gap = 0.0
+        if shi < 0.0:
+            gap = -shi
+        elif slo > rlen:
+            gap = slo-rlen
+        # Don't use this alignment pass on substantial overlaps or remote neighbours.
+        if overlap > min(12.0, 0.12*min(slen,rlen)) or gap > 8.0:
+            return None
+
+        # Translate source exactly onto reference lane, preserving source endpoints/length.
+        shifted = dict(src)
+        shifted['centerline'] = [
+            [sx1-dist*rnx, sy1-dist*rny],
+            [sx2-dist*rnx, sy2-dist*rny],
+        ]
+        return shifted, abs(dist)
+
+    # Longer/high-confidence walls become lane anchors.
+    order = sorted(range(len(out)), key=lambda i: ((_line_metrics(out[i]) or (0,)*7)[-1], float(out[i].get('confidence',0) or 0)), reverse=True)
+    for anchor_idx in order:
+        anchor = out[anchor_idx]
+        am = _line_metrics(anchor)
+        if am is None:
+            continue
+        for idx in range(len(out)):
+            if idx == anchor_idx:
+                continue
+            cand = out[idx]
+            cm = _line_metrics(cand)
+            if cm is None or cm[-1] > am[-1]*1.35:
+                continue
+            proposal = shifted_to_axis(cand, anchor)
+            if proposal is None:
+                continue
+            shifted, dist = proposal
+            before_score, before_cont, _ = _wall_band_evidence_score(img_np, cand, 0.0)
+            after_score, after_cont, after_err = _wall_band_evidence_score(img_np, shifted, 0.0)
+            # Raster must agree with the shared lane. A tiny loss is tolerated because
+            # doors/junctions can interrupt the end samples, but a wrong lane is rejected.
+            if after_cont < max(0.30, before_cont-0.05):
+                continue
+            if after_score < max(0.22, before_score-0.05):
+                continue
+            if after_err < 900 and abs(after_err) > 4.5:
+                continue
+            shifted['chain_axis_aligned_px'] = round(float(dist), 2)
+            out[idx] = shifted
+            moved += 1
+
+    if moved:
+        logger.info('[wall_segment_service] Collinear chain axis alignment: moved %d piece(s)', moved)
+    return out
 
 def _filter_orphan_fragments(img_np, walls: List[dict]) -> List[dict]:
     """Remove only tiny isolated fragments with decisive negative raster evidence."""
@@ -2145,11 +2344,17 @@ def _filter_orphan_fragments(img_np, walls: List[dict]) -> List[dict]:
         score, cont, center_err = _wall_band_evidence_score(img_np, wall, 0.0)
         conf = float(wall.get("confidence", 0) or 0)
         recovery = str(wall.get("source_model") or "").startswith("visual")
+        # A tiny isolated symbol/fixture stroke can receive a surprisingly decent YOLO
+        # confidence. For those *very short* runs, decisive absence of wall-band evidence
+        # is enough to reject up to moderate confidence. Longer or connected walls remain
+        # fail-open so real partitions around doors/openings are preserved.
+        very_short = length <= max(48.0, 3.2 * thickness)
+        confidence_gate = 0.48 if very_short else 0.12
         reject = (
-            (recovery or conf < 0.12)
-            and cont < 0.10
-            and score < 0.07
-            and (center_err >= 900 or abs(center_err) > max(8.0, 0.75 * thickness))
+            (recovery or conf < confidence_gate)
+            and cont < (0.13 if very_short else 0.10)
+            and score < (0.09 if very_short else 0.07)
+            and (center_err >= 900 or abs(center_err) > max(7.0, 0.65 * thickness))
         )
         if reject:
             removed += 1
@@ -2175,15 +2380,20 @@ def _restore_supported_raw_walls(img_np, raw_walls: List[dict], final_walls: Lis
             fm = _line_metrics(wall)
             if fm is None or abs(rux * fm[4] + ruy * fm[5]) < 0.985:
                 continue
-            normal_x, normal_y = -fm[5], fm[4]
+            # Measure lateral distance in the RAW wall frame and longitudinal coverage
+            # on the RAW axis. The previous code projected raw endpoints into each final
+            # wall frame and then clipped those coordinates against raw length; that mixed
+            # coordinate systems and could incorrectly report a raw wall as represented.
+            rnx, rny = -ruy, rux
             axis_dist = max(
-                abs((rx1 - fm[0]) * normal_x + (ry1 - fm[1]) * normal_y),
-                abs((rx2 - fm[0]) * normal_x + (ry2 - fm[1]) * normal_y),
+                abs((fm[0] - rx1) * rnx + (fm[1] - ry1) * rny),
+                abs((fm[2] - rx1) * rnx + (fm[3] - ry1) * rny),
             )
-            t1 = (rx1 - fm[0]) * fm[4] + (ry1 - fm[1]) * fm[5]
-            t2 = (rx2 - fm[0]) * fm[4] + (ry2 - fm[1]) * fm[5]
+            t1 = (fm[0] - rx1) * rux + (fm[1] - ry1) * ruy
+            t2 = (fm[2] - rx1) * rux + (fm[3] - ry1) * ruy
             lo, hi = sorted((t1, t2))
-            if axis_dist <= 8.0:
+            axis_tol = max(6.0, min(10.0, 0.45 * float(raw.get("raw_thickness_px") or raw.get("thickness_px") or 15.0)))
+            if axis_dist <= axis_tol:
                 ca, cb = max(0.0, lo), min(rlen, hi)
                 if cb > ca:
                     covered_intervals.append((ca, cb))
@@ -2378,6 +2588,9 @@ class WallSegmentService:
         snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=5.0)
         snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
         snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
+        # Keep split/recovered pieces of the same straight wall on one visual lane.
+        # This is endpoint-local and raster-gated, so nearby parallel walls are untouched.
+        snapped_walls = _align_collinear_wall_chain_axes(img_np, snapped_walls)
         # Pure geometry snap is only for already-touching corners. Larger gaps are
         # handled by the raster-evidence bridge below.
         snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=6.0)
@@ -2390,118 +2603,24 @@ class WallSegmentService:
         snapped_walls = _split_walls_at_all_junctions(
             snapped_walls, touch_tolerance=2.5, min_piece_len=10.0
         )
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls, img_np)
         # Keep visual evidence as a very conservative cleanup.  It may only remove an
         # isolated, extremely-low-confidence candidate; connected/high-confidence walls
         # are never deleted here, preventing the miss regression seen in earlier patches.
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls, img_np)
         # Final semantic classification comes from the actual outermost envelope,
         # not YOLO's ext/int guess. Interior walls that merely touch the facade
         # therefore stay interior.
         snapped_walls = _classify_outermost_walls_by_floodfill(snapped_walls, img_w, img_h)
 
-        # Step 3: Reconstruct into perfect 20px-wide rectangles from final snapped/merged centerlines
-        reconstructed_walls = []
-
-        def point_to_segment_distance(pt, seg_p1, seg_p2):
-            x0, y0 = pt
-            x1, y1 = seg_p1
-            x2, y2 = seg_p2
-            dx = x2 - x1
-            dy = y2 - y1
-            length_sq = dx*dx + dy*dy
-            if length_sq == 0:
-                return math.hypot(x0 - x1, y0 - y1)
-            
-            t = ((x0 - x1)*dx + (y0 - y1)*dy) / length_sq
-            t = max(0.0, min(1.0, t))
-            proj_x = x1 + t*dx
-            proj_y = y1 + t*dy
-            return math.hypot(x0 - proj_x, y0 - proj_y)
-
-        def get_ext_factor(pt, current_wall_idx, all_walls, ux, uy):
-            best_factor = 0.0
-            for idx, other_w in enumerate(all_walls):
-                if idx == current_wall_idx:
-                    continue
-                other_c = other_w.get("centerline")
-                if not other_c or len(other_c) != 2:
-                    continue
-                other_p1 = other_c[0]
-                other_p2 = other_c[1]
-                # Check if point is very close to the other wall's segment
-                dist = point_to_segment_distance(pt, other_p1, other_p2)
-                if dist < 12.0:
-                    # L-junction (Corner) vs T-junction check
-                    dist_to_p1 = math.hypot(pt[0] - other_p1[0], pt[1] - other_p1[1])
-                    dist_to_p2 = math.hypot(pt[0] - other_p2[0], pt[1] - other_p2[1])
-                    if dist_to_p1 < 12.0 or dist_to_p2 < 12.0:
-                        # Corner: extend vertical, stop horizontal
-                        current_is_vert = abs(uy) > abs(ux)
-                        if current_is_vert:
-                            best_factor = max(best_factor, 1.0)
-                    else:
-                        # T-junction: stem touches side
-                        best_factor = max(best_factor, 1.0)
-            return best_factor
-
-        for idx, w in enumerate(snapped_walls):
-            c = w.get("centerline")
-            p1, p2 = c[0], c[1]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            length = math.sqrt(dx * dx + dy * dy)
-            if length > 0:
-                ux = dx / length
-                uy = dy / length
-                
-                # Determine thickness based on wall class (user-configurable)
-                class_name = w.get("class_name", "exterior_wall")
-                wt = wall_thicknesses or {}
-                if class_name == "exterior_wall":
-                    thickness_mm = wt.get("ext", 90)
-                elif class_name == "partition_wall":
-                    thickness_mm = wt.get("part", 70)
-                else:
-                    thickness_mm = wt.get("int", 70)
-
-                if real_scale and real_scale != 1.0:
-                    thickness_val = float(thickness_mm) / real_scale
-                else:
-                    thickness_val = 20.0 if class_name == "exterior_wall" else 15.0
-                
-                d = thickness_val / 2.0
-
-                # Extend endpoints at junctions to prevent gaps at corners
-                p1_ext = list(p1)
-                p2_ext = list(p2)
-                # Use a factor of 1.4 to ensure inner corner boundaries overlap and seal gaps
-                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
-                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
-                if ext1 > 0:
-                    p1_ext[0] -= d * ux * ext1
-                    p1_ext[1] -= d * uy * ext1
-                if ext2 > 0:
-                    p2_ext[0] += d * ux * ext2
-                    p2_ext[1] += d * uy * ext2
-
-                nx = -uy
-                ny = ux
-                
-                c1 = [round(p1_ext[0] + d * nx, 1), round(p1_ext[1] + d * ny, 1)]
-                c2 = [round(p2_ext[0] + d * nx, 1), round(p2_ext[1] + d * ny, 1)]
-                c3 = [round(p2_ext[0] - d * nx, 1), round(p2_ext[1] - d * ny, 1)]
-                c4 = [round(p1_ext[0] - d * nx, 1), round(p1_ext[1] - d * ny, 1)]
-                
-                w["polygon"] = [c1, c2, c3, c4]
-                w["thickness_px"] = thickness_val
-                w["thickness"] = thickness_mm
-                w["area_px"] = round(length * thickness_val, 1)
-                w["perimeter_px"] = round(2.0 * (length + thickness_val), 1)
-                reconstructed_walls.append(w)
+        # Step 3: Reconstruct all render/selection geometry from the canonical
+        # centerline + class/thickness. Never let a stale polygon survive topology edits.
+        reconstructed_walls = _rebuild_wall_geometry(
+            snapped_walls, real_scale=real_scale, wall_thicknesses=wall_thicknesses
+        )
 
         # Step 4: Remove short wall segments that overlap significantly with longer wall segments
         if real_scale and real_scale != 1.0:
@@ -2538,9 +2657,12 @@ class WallSegmentService:
 
             overlap = False
             for accepted_w in filtered_walls:
-                # Different wall classes may legitimately meet/overlap at a
-                # junction. NMS is only for duplicate geometry of the same class.
-                if w.get("class_name") != accepted_w.get("class_name"):
+                # Polygon overlap alone is NOT duplicate evidence: a legitimate short
+                # T/X wall can sit mostly inside the thick polygon of a longer wall.
+                # Only near-parallel centerlines are eligible for this final safety NMS.
+                wm = _line_metrics(w)
+                am = _line_metrics(accepted_w)
+                if wm is None or am is None or abs(wm[4]*am[4] + wm[5]*am[5]) < 0.996:
                     continue
                 try:
                     acc_geom = ShapelyPolygon(accepted_w["polygon"])
@@ -2551,14 +2673,26 @@ class WallSegmentService:
 
                 if w_geom.intersects(acc_geom):
                     try:
-                        inter_area = w_geom.intersection(acc_geom).area
-                        union_area = w_geom.union(acc_geom).area
-                        iou = inter_area / union_area if union_area > 0 else 0
-                        
-                        min_area = min(w_geom.area, acc_geom.area)
-                        containment = inter_area / min_area if min_area > 0 else 0
-
-                        if iou > 0.45 or containment > 0.70:
+                        # Final NMS is only a last-resort cleanup for virtually identical
+                        # centerlines. Polygon containment is NOT sufficient: two real close
+                        # parallel walls can have overlapping render polygons when thickness is
+                        # large. Broad/edge-pair duplicates have already been handled by the
+                        # raster-aware centerline dedupe pass above.
+                        wx1, wy1, wx2, wy2, wux, wuy, wlen = wm
+                        ax1, ay1, ax2, ay2, aux, auy, alen = am
+                        anx, any_ = -auy, aux
+                        d1 = abs((wx1-ax1)*anx + (wy1-ay1)*any_)
+                        d2 = abs((wx2-ax1)*anx + (wy2-ay1)*any_)
+                        axis_dist = max(d1, d2)
+                        t1 = (wx1-ax1)*aux + (wy1-ay1)*auy
+                        t2 = (wx2-ax1)*aux + (wy2-ay1)*auy
+                        lo, hi = sorted((t1,t2))
+                        longitudinal_overlap = max(0.0, min(alen,hi)-max(0.0,lo))
+                        overlap_ratio = longitudinal_overlap / max(1.0, min(wlen,alen))
+                        wt = float(w.get("thickness_px") or w.get("raw_thickness_px") or 15.0)
+                        at = float(accepted_w.get("thickness_px") or accepted_w.get("raw_thickness_px") or 15.0)
+                        final_tol = min(4.5, max(2.0, 0.20*min(wt,at)))
+                        if overlap_ratio >= 0.90 and axis_dist <= final_tol:
                             overlap = True
                             break
                     except Exception:
@@ -2773,6 +2907,9 @@ class WallSegmentService:
         snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=5.0)
         snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
         snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
+        # Keep split/recovered pieces of the same straight wall on one visual lane.
+        # This is endpoint-local and raster-gated, so nearby parallel walls are untouched.
+        snapped_walls = _align_collinear_wall_chain_axes(img_np, snapped_walls)
         snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=6.0)
         # First bridge stems that visually continue into a nearby cross wall; then do a
         # tight generic T snap.  This lets real T-junctions node even when YOLO stops short.
@@ -2783,110 +2920,24 @@ class WallSegmentService:
         snapped_walls = _split_walls_at_all_junctions(
             snapped_walls, touch_tolerance=2.5, min_piece_len=10.0
         )
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls, img_np)
         # Keep visual evidence as a very conservative cleanup.  It may only remove an
         # isolated, extremely-low-confidence candidate; connected/high-confidence walls
         # are never deleted here, preventing the miss regression seen in earlier patches.
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls, img_np)
         # Final semantic classification comes from the actual outermost envelope,
         # not YOLO's ext/int guess. Interior walls that merely touch the facade
         # therefore stay interior.
         snapped_walls = _classify_outermost_walls_by_floodfill(snapped_walls, img_w, img_h)
 
-        # Step 3: Reconstruct
-        reconstructed_walls = []
-        
-        def point_to_segment_distance(pt, seg_p1, seg_p2):
-            x0, y0 = pt
-            x1, y1 = seg_p1
-            x2, y2 = seg_p2
-            dx = x2 - x1
-            dy = y2 - y1
-            length_sq = dx*dx + dy*dy
-            if length_sq == 0:
-                return math.hypot(x0 - x1, y0 - y1)
-            t = ((x0 - x1)*dx + (y0 - y1)*dy) / length_sq
-            t = max(0.0, min(1.0, t))
-            proj_x = x1 + t*dx
-            proj_y = y1 + t*dy
-            return math.hypot(x0 - proj_x, y0 - proj_y)
-
-        def get_ext_factor(pt, current_wall_idx, all_walls, ux, uy):
-            best_factor = 0.0
-            for idx, other_w in enumerate(all_walls):
-                if idx == current_wall_idx:
-                    continue
-                other_c = other_w.get("centerline")
-                if not other_c or len(other_c) != 2:
-                    continue
-                other_p1 = other_c[0]
-                other_p2 = other_c[1]
-                dist = point_to_segment_distance(pt, other_p1, other_p2)
-                if dist < 12.0:
-                    dist_to_p1 = math.hypot(pt[0] - other_p1[0], pt[1] - other_p1[1])
-                    dist_to_p2 = math.hypot(pt[0] - other_p2[0], pt[1] - other_p2[1])
-                    if dist_to_p1 < 12.0 or dist_to_p2 < 12.0:
-                        current_is_vert = abs(uy) > abs(ux)
-                        if current_is_vert:
-                            best_factor = max(best_factor, 1.0)
-                    else:
-                        best_factor = max(best_factor, 1.0)
-            return best_factor
-
-        for idx, w in enumerate(snapped_walls):
-            c = w.get("centerline")
-            p1, p2 = c[0], c[1]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            length = math.sqrt(dx * dx + dy * dy)
-            if length > 0:
-                ux = dx / length
-                uy = dy / length
-                
-                class_name = w.get("class_name", "exterior_wall")
-                wt = wall_thicknesses or {}
-                if class_name == "exterior_wall":
-                    thickness_mm = wt.get("ext", 90)
-                elif class_name == "partition_wall":
-                    thickness_mm = wt.get("part", 70)
-                else:
-                    thickness_mm = wt.get("int", 70)
-
-                if real_scale and real_scale != 1.0:
-                    thickness_val = float(thickness_mm) / real_scale
-                else:
-                    thickness_val = 20.0 if class_name == "exterior_wall" else 15.0
-                
-                d = thickness_val / 2.0
-
-                p1_ext = list(p1)
-                p2_ext = list(p2)
-                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
-                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
-                if ext1 > 0:
-                    p1_ext[0] -= d * ux * ext1
-                    p1_ext[1] -= d * uy * ext1
-                if ext2 > 0:
-                    p2_ext[0] += d * ux * ext2
-                    p2_ext[1] += d * uy * ext2
-
-                nx = -uy
-                ny = ux
-                
-                c1 = [round(p1_ext[0] + d * nx, 1), round(p1_ext[1] + d * ny, 1)]
-                c2 = [round(p2_ext[0] + d * nx, 1), round(p2_ext[1] + d * ny, 1)]
-                c3 = [round(p2_ext[0] - d * nx, 1), round(p2_ext[1] - d * ny, 1)]
-                c4 = [round(p1_ext[0] - d * nx, 1), round(p1_ext[1] - d * ny, 1)]
-                
-                w["polygon"] = [c1, c2, c3, c4]
-                w["thickness_px"] = thickness_val
-                w["thickness"] = thickness_mm
-                w["area_px"] = round(length * thickness_val, 1)
-                w["perimeter_px"] = round(2.0 * (length + thickness_val), 1)
-                reconstructed_walls.append(w)
+        # Step 3: Reconstruct all render/selection geometry from the canonical
+        # centerline + class/thickness. Never let a stale polygon survive topology edits.
+        reconstructed_walls = _rebuild_wall_geometry(
+            snapped_walls, real_scale=real_scale, wall_thicknesses=wall_thicknesses
+        )
 
         # Step 4: Remove short wall segments
         if real_scale and real_scale != 1.0:
@@ -2923,9 +2974,12 @@ class WallSegmentService:
 
             overlap = False
             for accepted_w in filtered_walls:
-                # Cross-class contact is commonly a real junction. Near-identical
-                # cross-class duplicates were already handled by centerline dedupe.
-                if w.get("class_name") != accepted_w.get("class_name"):
+                # Polygon overlap alone is NOT duplicate evidence: a legitimate short
+                # T/X wall can sit mostly inside the thick polygon of a longer wall.
+                # Only near-parallel centerlines are eligible for this final safety NMS.
+                wm = _line_metrics(w)
+                am = _line_metrics(accepted_w)
+                if wm is None or am is None or abs(wm[4]*am[4] + wm[5]*am[5]) < 0.996:
                     continue
                 try:
                     acc_geom = ShapelyPolygon(accepted_w["polygon"])
@@ -2936,14 +2990,26 @@ class WallSegmentService:
 
                 if w_geom.intersects(acc_geom):
                     try:
-                        inter_area = w_geom.intersection(acc_geom).area
-                        union_area = w_geom.union(acc_geom).area
-                        iou = inter_area / union_area if union_area > 0 else 0
-                        
-                        min_area = min(w_geom.area, acc_geom.area)
-                        containment = inter_area / min_area if min_area > 0 else 0
-
-                        if iou > 0.45 or containment > 0.70:
+                        # Final NMS is only a last-resort cleanup for virtually identical
+                        # centerlines. Polygon containment is NOT sufficient: two real close
+                        # parallel walls can have overlapping render polygons when thickness is
+                        # large. Broad/edge-pair duplicates have already been handled by the
+                        # raster-aware centerline dedupe pass above.
+                        wx1, wy1, wx2, wy2, wux, wuy, wlen = wm
+                        ax1, ay1, ax2, ay2, aux, auy, alen = am
+                        anx, any_ = -auy, aux
+                        d1 = abs((wx1-ax1)*anx + (wy1-ay1)*any_)
+                        d2 = abs((wx2-ax1)*anx + (wy2-ay1)*any_)
+                        axis_dist = max(d1, d2)
+                        t1 = (wx1-ax1)*aux + (wy1-ay1)*auy
+                        t2 = (wx2-ax1)*aux + (wy2-ay1)*auy
+                        lo, hi = sorted((t1,t2))
+                        longitudinal_overlap = max(0.0, min(alen,hi)-max(0.0,lo))
+                        overlap_ratio = longitudinal_overlap / max(1.0, min(wlen,alen))
+                        wt = float(w.get("thickness_px") or w.get("raw_thickness_px") or 15.0)
+                        at = float(accepted_w.get("thickness_px") or accepted_w.get("raw_thickness_px") or 15.0)
+                        final_tol = min(4.5, max(2.0, 0.20*min(wt,at)))
+                        if overlap_ratio >= 0.90 and axis_dist <= final_tol:
                             overlap = True
                             break
                     except Exception:

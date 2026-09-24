@@ -1,0 +1,59 @@
+# ========================
+# Python / FastAPI Backend
+# ========================
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# PyInstaller
+*.spec
+
+# Exports (generated at runtime)
+exports/
+
+# Model test data (large files)
+model_test/train/
+
+# YOLO model weights (downloaded pretrained)
+*.onnx
+
+# Node (turf dependency)
+node_modules/
+package-lock.json
+
+# Environment variables
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# ========================
+# Storage (large runtime data)
+# ========================
+storage/
+*.db
+
+# YOLO training runs (generated output)
+runs/
+
+# Cache (generated at runtime)
+cache/
+datasets/
+dataset_walls/
+data/roi_training/
+*.pt
+ezefloor_backend.log  
+training/

@@ -1,0 +1,1007 @@
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from pydantic import BaseModel
+from typing import List, Optional
+from collections import defaultdict
+
+# ──────────────────────────────────────────────────────────
+# INPUT SCHEMAS
+# ──────────────────────────────────────────────────────────
+
+class WallInput(BaseModel):
+    id: str
+    class_name: str  # 'exterior_wall', 'interior_wall', 'partition_wall'
+    length_mm: float
+    height_mm: float
+    thickness_mm: float
+    floor_type: Optional[str] = "Timber"  # 'Timber' or 'Slab'
+
+class DoorInput(BaseModel):
+    id: str
+    door_type: str  # e.g., 'Single Door', 'Double Door', 'Sliding Door', etc.
+    width_mm: float
+    height_mm: float
+    qty: int = 1
+    block_work: Optional[str] = "No"
+    is_ext: Optional[bool] = False
+    location: Optional[str] = "internal"
+
+class LintelInput(BaseModel):
+    id: str
+    wall_id: Optional[str] = None
+    start_offset: Optional[float] = None
+    end_offset: Optional[float] = None
+    measured_length: float
+    final_length: float
+    catalog_id: str
+    type: str
+    size: float
+    width: float
+    height: float
+    description: str
+    category: Optional[str] = "lintel"
+    lengthOffset: Optional[float] = 0.0
+    ply: Optional[int] = 1
+
+class TakeoffExportRequest(BaseModel):
+    walls: List[WallInput]
+    doors: List[DoorInput]
+    lintels: List[LintelInput] = []
+    project_name: Optional[str] = ""
+    client_name: Optional[str] = ""
+    detailer_name: Optional[str] = ""
+    job_no: Optional[str] = ""
+    date: Optional[str] = ""
+    wall_sides: Optional[int] = 2
+    deduct_doors: Optional[bool] = False
+
+# ──────────────────────────────────────────────────────────
+# EXPORTER IMPLEMENTATION
+# ──────────────────────────────────────────────────────────
+
+class TakeoffExporter:
+    def export(self, request: TakeoffExportRequest) -> io.BytesIO:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Material Takeoff"
+
+        FONT_NAME = "Arial"
+        thin = Side(style="thin", color="000000")
+        border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+        header_fill = PatternFill("solid", fgColor="A6A6A6")
+        subheader_fill = PatternFill("solid", fgColor="D9D9D9")
+        colhead_fill = PatternFill("solid", fgColor="F2F2F2")
+        total_fill = PatternFill("solid", fgColor="FFF2CC")
+        grand_fill = PatternFill("solid", fgColor="FFD966")
+        dark_fill = PatternFill("solid", fgColor="404040")
+
+        bold = Font(name=FONT_NAME, bold=True, size=11)
+        bold_white = Font(name=FONT_NAME, bold=True, size=11, color="FFFFFF")
+        normal = Font(name=FONT_NAME, size=11)
+        input_font = Font(name=FONT_NAME, size=11, color="0000FF")     # blue = editable input
+        italic = Font(name=FONT_NAME, size=10, italic=True, color="404040")
+        title_font = Font(name=FONT_NAME, bold=True, size=16)
+
+        center = Alignment(horizontal="center", vertical="center")
+        left = Alignment(horizontal="left", vertical="center")
+        left_indent = Alignment(horizontal="left", vertical="center", indent=1)
+        right_indent = Alignment(horizontal="right", vertical="center", indent=1)
+
+        widths = {"A": 30, "B": 14, "C": 14, "D": 16, "E": 14, "F": 12, "G": 15, "H": 12, "I": 12}
+        for col, w in widths.items():
+            ws.column_dimensions[col].width = w
+
+        def rh(r, h=18):
+            ws.row_dimensions[r].height = h
+
+        def style_range(cell_range, font=None, fill=None, align=None, border=True):
+            for row_cells in ws[cell_range]:
+                for cell in row_cells:
+                    if font: cell.font = font
+                    if fill: cell.fill = fill
+                    if align: cell.alignment = align
+                    if border: cell.border = border_all
+
+        def merge_and_label(cell_range, text, font=bold, fill=None, align=center):
+            ws.merge_cells(cell_range)
+            ws[cell_range.split(":")[0]] = text
+            style_range(cell_range, font=font, fill=fill, align=align)
+
+        row = 1
+
+        # ---------- Title ----------
+        ws.merge_cells(f"A{row}:I{row}")
+        ws[f"A{row}"] = "WALL & DOOR MATERIAL TAKE-OFF"
+        ws[f"A{row}"].font = title_font
+        ws[f"A{row}"].alignment = center
+        rh(row, 26); row += 1
+
+        ws.merge_cells(f"A{row}:I{row}")
+        ws[f"A{row}"] = "For Supplier Quotation Purposes"
+        ws[f"A{row}"].font = italic
+        ws[f"A{row}"].alignment = center
+        row += 2
+
+        # Draw a custom bottom border under row 3 (columns A to I)
+        for col in ["A", "B", "C", "D", "E", "F", "G", "H", "I"]:
+            ws[f"{col}3"].border = Border(bottom=thin)
+
+        # ---------- Project info ----------
+        info_start = row
+        ws[f"A{row}"] = "Client:"; ws[f"A{row}"].font = bold
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
+        ws[f"B{row}"] = request.client_name or ""
+
+        ws[f"E{row}"] = "Job No:"; ws[f"E{row}"].font = bold
+        ws.merge_cells(f"F{row}:I{row}")
+        style_range(f"F{row}:I{row}", font=normal)
+        ws[f"F{row}"] = request.job_no or ""
+        rh(row, 18); row += 1
+
+        ws[f"A{row}"] = "Project:"; ws[f"A{row}"].font = bold
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
+        ws[f"B{row}"] = request.project_name or ""
+        rh(row, 18); row += 1
+
+        ws[f"A{row}"] = "Detailer:"; ws[f"A{row}"].font = bold
+        ws.merge_cells(f"B{row}:D{row}")
+        style_range(f"B{row}:D{row}", font=normal)
+        ws[f"B{row}"] = request.detailer_name or ""
+
+        ws[f"E{row}"] = "Date:"; ws[f"E{row}"].font = bold
+        ws.merge_cells(f"F{row}:I{row}")
+        style_range(f"F{row}:I{row}", font=normal)
+        ws[f"F{row}"] = request.date or ""
+        rh(row, 18); row += 2
+
+        # ---------- helpers ----------
+        def add_section_header(r, text, fill=header_fill, font=bold_white):
+            merge_and_label(f"A{r}:I{r}", text, font=font, fill=fill, align=center)
+            rh(r, 20)
+
+        def add_sub_header(r, text):
+            ws.merge_cells(f"A{r}:I{r}")
+            ws[f"A{r}"] = text
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = left_indent
+            style_range(f"A{r}:I{r}", fill=subheader_fill, border=True)
+            rh(r, 17)
+
+        def add_wall_col_headers(r):
+            ws.merge_cells(f"A{r}:C{r}")
+            ws[f"A{r}"] = "Description"
+            ws[f"D{r}"] = "Length (mm)"
+            ws[f"E{r}"] = "Height (mm)"
+            ws[f"F{r}"] = "Qty"
+            ws[f"G{r}"] = "Area (m2)"
+            ws.merge_cells(f"G{r}:I{r}")
+            style_range(f"A{r}:I{r}", font=bold, fill=colhead_fill, align=center)
+            rh(r, 18)
+            return r
+
+        def add_wall_data_row(r):
+            ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
+            style_range(f"A{r}:I{r}", border=True)
+            ws[f"A{r}"].alignment = left_indent
+            ws[f"D{r}"].alignment = center
+            ws[f"D{r}"].font = input_font
+            ws[f"E{r}"].alignment = center
+            ws[f"E{r}"].font = input_font
+            ws[f"F{r}"].alignment = center
+            ws[f"F{r}"].fill = PatternFill("solid", fgColor="E7E6E6")
+            ws[f"F{r}"].font = Font(name=FONT_NAME, size=11, color="BFBFBF")
+            ws[f"G{r}"].alignment = center
+            ws[f"G{r}"].font = normal
+            sides_mult = 1 if getattr(request, 'wall_sides', 2) == 1 else 2
+            # Area = Length x Height / 1,000,000 x Qty x sides_mult
+            ws[f"G{r}"] = f'=IF(OR(D{r}="",E{r}=""),"",D{r}*E{r}/1000000*IF(F{r}="",1,F{r})*{sides_mult})'
+            ws[f"G{r}"].number_format = "0.00"
+            rh(r, 17)
+
+        def add_wall_subtotal(r, label, first, last, wall_count=0):
+            ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            # Total Length (mm) in column D
+            # Guard against a self-referencing SUM when there are no data rows
+            no_data = wall_count == 0 or first == r or last == r
+            ws[f"D{r}"] = 0 if no_data else f"=SUM(D{first}:D{last})"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = bold
+            ws[f"D{r}"].alignment = center
+            # Column E empty
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+            # Qty (wall count) in column F
+            ws[f"F{r}"] = wall_count
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+            # Total Area (m2) in column G
+            ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        height_value_font = Font(name=FONT_NAME, bold=True, size=11, color="006100")
+
+        def add_wall_height_row(r, data_rows, height_mm, label_prefix=""):
+            """Total-style row for walls at a specific height."""
+            ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
+            label = f"Total {label_prefix} ({height_mm}mm Height)" if label_prefix else f"Total Walls ({height_mm}mm Height)"
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            # Length sum from non-contiguous rows
+            length_parts = "+".join([f"D{dr}" for dr in data_rows])
+            ws[f"D{r}"] = f"={length_parts}"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = height_value_font
+            ws[f"D{r}"].alignment = center
+            # Height column shows the actual height value for this group
+            ws[f"E{r}"] = height_mm
+            ws[f"E{r}"].number_format = "#,##0"
+            ws[f"E{r}"].font = height_value_font
+            ws[f"E{r}"].alignment = center
+            # Qty = number of walls in this height group
+            ws[f"F{r}"] = len(data_rows)
+            ws[f"F{r}"].font = height_value_font
+            ws[f"F{r}"].alignment = center
+            # Area sum from non-contiguous rows
+            area_parts = "+".join([f"G{dr}" for dr in data_rows])
+            ws[f"G{r}"] = f"={area_parts}"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = height_value_font
+            ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        def add_wall_total_from_refs(r, label, ref_rows, wall_count):
+            """Total row that sums specific referenced rows (height subtotals)."""
+            ws.merge_cells(f"A{r}:C{r}")
+            ws.merge_cells(f"G{r}:I{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+            # Total Length
+            length_parts = "+".join([f"D{rr}" for rr in ref_rows])
+            ws[f"D{r}"] = f"={length_parts}"
+            ws[f"D{r}"].number_format = "#,##0"
+            ws[f"D{r}"].font = bold
+            ws[f"D{r}"].alignment = center
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+            # Qty
+            ws[f"F{r}"] = wall_count
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+            # Area
+            area_parts = "+".join([f"G{rr}" for rr in ref_rows])
+            ws[f"G{r}"] = f"={area_parts}"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+            style_range(f"A{r}:I{r}", fill=grand_fill, border=True)
+            rh(r, 18)
+
+        def write_walls_with_height_groups(walls_list, label_prefix, row_start):
+            """Write wall data rows, then (if 2+ distinct heights) height-grouped total-style rows.
+            Returns (next_row, height_sub_rows_or_None, first_data_row, last_data_row).
+            When only one height is present, height_sub_rows is None and the caller should
+            total directly off first_data_row:last_data_row instead."""
+            r = row_start
+            if not walls_list:
+                return r, None, None, None
+
+            first_data_row = r
+            height_to_rows = defaultdict(list)
+            for w in walls_list:
+                add_wall_data_row(r)
+                ws[f"A{r}"] = f"{label_prefix} {w.id}"
+                ws[f"D{r}"] = round(w.length_mm)
+                ws[f"E{r}"] = round(w.height_mm)
+                height_to_rows[round(w.height_mm)].append(r)
+                r += 1
+            last_data_row = r - 1
+
+            # Only break out per-height total-style rows when there's more than one height group
+            if len(height_to_rows) < 2:
+                return r, None, first_data_row, last_data_row
+
+            height_sub_rows = []
+            for h_mm, data_rows in sorted(height_to_rows.items()):
+                add_wall_height_row(r, data_rows, h_mm, label_prefix=label_prefix)
+                height_sub_rows.append(r)
+                r += 1
+
+            return r, height_sub_rows, first_data_row, last_data_row
+
+        # ---------- EXTERIOR WALL ----------
+        add_section_header(row, "EXTERIOR WALL"); row += 1
+        row = add_wall_col_headers(row) + 1
+        
+        ext_walls = [w for w in request.walls if w.class_name == "exterior_wall"]
+        first_ext = row
+        if ext_walls:
+            row, ext_height_refs, ext_first_row, ext_last_row = write_walls_with_height_groups(ext_walls, "Exterior Wall", row)
+            if ext_height_refs:
+                add_wall_total_from_refs(row, "Total Exterior Wall", ext_height_refs, wall_count=len(ext_walls))
+            else:
+                add_wall_subtotal(row, "Total Exterior Wall", ext_first_row, ext_last_row, wall_count=len(ext_walls))
+        else:
+            add_wall_subtotal(row, "Total Exterior Wall", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        ext_total_row = row
+        row += 1
+
+        # ---------- INTERIOR WALL ----------
+        add_section_header(row, "INTERIOR WALL"); row += 1
+        row = add_wall_col_headers(row) + 1
+
+        # Load Bearing Wall (All interior_walls)
+        add_sub_header(row, "Load Bearing Wall"); row += 1
+        lb_walls = [w for w in request.walls if w.class_name == "interior_wall"]
+        first_lb = row
+        if lb_walls:
+            row, lb_height_refs, lb_first_row, lb_last_row = write_walls_with_height_groups(lb_walls, "Load Bearing Wall", row)
+            if lb_height_refs:
+                add_wall_total_from_refs(row, "Subtotal - Load Bearing", lb_height_refs, wall_count=len(lb_walls))
+            else:
+                add_wall_subtotal(row, "Subtotal - Load Bearing", lb_first_row, lb_last_row, wall_count=len(lb_walls))
+        else:
+            add_wall_subtotal(row, "Subtotal - Load Bearing", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        lb_total_row = row
+        row += 1
+
+        # Non-Load Bearing Wall (Partition Walls)
+        add_sub_header(row, "Non-Load Bearing Wall"); row += 1
+        nlb_walls = [w for w in request.walls if w.class_name == "partition_wall"]
+        first_nlb = row
+        if nlb_walls:
+            row, nlb_height_refs, nlb_first_row, nlb_last_row = write_walls_with_height_groups(nlb_walls, "Partition Wall", row)
+            if nlb_height_refs:
+                add_wall_total_from_refs(row, "Subtotal - Non-Load Bearing", nlb_height_refs, wall_count=len(nlb_walls))
+            else:
+                add_wall_subtotal(row, "Subtotal - Non-Load Bearing", nlb_first_row, nlb_last_row, wall_count=len(nlb_walls))
+        else:
+            add_wall_subtotal(row, "Subtotal - Non-Load Bearing", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        nlb_total_row = row
+        row += 1
+
+        # Total Interior Wall Area
+        int_wall_count = len(lb_walls) + len(nlb_walls)
+        ws.merge_cells(f"A{row}:C{row}")
+        ws.merge_cells(f"G{row}:I{row}")
+        ws[f"A{row}"] = "Total Interior Wall"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        # Total Length (mm) in column D
+        ws[f"D{row}"] = f"=D{lb_total_row}+D{nlb_total_row}"
+        ws[f"D{row}"].number_format = "#,##0"
+        ws[f"D{row}"].font = bold
+        ws[f"D{row}"].alignment = center
+        # Column E empty
+        ws[f"E{row}"] = ""
+        ws[f"E{row}"].font = bold
+        ws[f"E{row}"].alignment = center
+        # Qty (wall count) in column F
+        ws[f"F{row}"] = int_wall_count
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        # Total Area (m2) in column G
+        ws[f"G{row}"] = f"=G{lb_total_row}+G{nlb_total_row}"
+        ws[f"G{row}"].number_format = "0.00"
+        ws[f"G{row}"].font = bold
+        ws[f"G{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=total_fill, border=True)
+        rh(row, 18)
+        int_total_row = row
+        row += 2
+
+        # ---------- BLOCK WALL ----------
+        add_section_header(row, "BLOCK WALL"); row += 1
+        row = add_wall_col_headers(row) + 1
+
+        add_sub_header(row, "Block Work Wall"); row += 1
+        block_walls = [w for w in request.walls if w.class_name == "block_wall"]
+        first_block = row
+        if block_walls:
+            row, block_height_refs, block_first_row, block_last_row = write_walls_with_height_groups(block_walls, "Block Wall", row)
+            if block_height_refs:
+                add_wall_total_from_refs(row, "Total Block Wall", block_height_refs, wall_count=len(block_walls))
+            else:
+                add_wall_subtotal(row, "Total Block Wall", block_first_row, block_last_row, wall_count=len(block_walls))
+        else:
+            add_wall_subtotal(row, "Total Block Wall", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        block_total_row = row
+        row += 2
+
+        # ---------- FRAME HARDWARE - FLOOR BASE BREAKDOWN (CONCRETE SLAB vs TIMBER FLOOR) ----------
+        add_section_header(row, "FRAME HARDWARE - FLOOR BASE BREAKDOWN"); row += 1
+
+        # 3. Walls on Concrete Slab Floor
+        add_sub_header(row, "Walls on Concrete Slab Floor (Grouped by Height)"); row += 1
+        row = add_wall_col_headers(row) + 1
+        slab_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") == "Slab"]
+        if slab_walls:
+            row, slab_height_refs, slab_first_row, slab_last_row = write_walls_with_height_groups(slab_walls, "Slab Wall", row)
+            if slab_height_refs:
+                add_wall_total_from_refs(row, "Total Concrete Slab Floor Walls", slab_height_refs, wall_count=len(slab_walls))
+            else:
+                add_wall_subtotal(row, "Total Concrete Slab Floor Walls", slab_first_row, slab_last_row, wall_count=len(slab_walls))
+        else:
+            add_wall_subtotal(row, "Total Concrete Slab Floor Walls", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        row += 2
+
+        # 4. Walls on Timber Floor
+        add_sub_header(row, "Walls on Timber Floor (Grouped by Height)"); row += 1
+        row = add_wall_col_headers(row) + 1
+        timber_walls = [w for w in request.walls if w.class_name in ["exterior_wall", "interior_wall"] and (w.floor_type or "Timber") != "Slab"]
+        if timber_walls:
+            row, timber_height_refs, timber_first_row, timber_last_row = write_walls_with_height_groups(timber_walls, "Timber Wall", row)
+            if timber_height_refs:
+                add_wall_total_from_refs(row, "Total Timber Floor Walls", timber_height_refs, wall_count=len(timber_walls))
+            else:
+                add_wall_subtotal(row, "Total Timber Floor Walls", timber_first_row, timber_last_row, wall_count=len(timber_walls))
+        else:
+            add_wall_subtotal(row, "Total Timber Floor Walls", row, row, wall_count=0)
+            ws[f"G{row}"] = 0.00
+        row += 2
+
+        # ---------- DOORS & WINDOWS ----------
+        add_section_header(row, "DOORS & WINDOWS"); row += 1
+
+        def add_door_col_headers(r):
+            ws[f"A{r}"] = "Description / Size"
+            ws[f"B{r}"] = "Height (mm)"
+            ws[f"C{r}"] = "Width (mm)"
+            ws[f"D{r}"] = "Block Work"
+            ws[f"E{r}"] = "Qty"
+            ws[f"F{r}"] = "Area (m2)"
+            ws[f"G{r}"] = "Perimeter (m)"
+            ws[f"H{r}"] = "5.4/2"
+            ws[f"I{r}"] = "Reveal"
+            style_range(f"A{r}:I{r}", font=bold, fill=colhead_fill, align=center)
+            rh(r, 18)
+            return r
+
+        add_door_col_headers(row); row += 1
+
+        def add_door_data_row(r, desc, h_mm, w_mm, qty=1, block_work="No"):
+            ws[f"A{r}"] = desc
+            ws[f"A{r}"].alignment = left_indent
+            ws[f"A{r}"].font = normal
+            ws[f"A{r}"].border = border_all
+
+            ws[f"B{r}"] = round(h_mm)
+            ws[f"B{r}"].alignment = center
+            ws[f"B{r}"].font = input_font
+            ws[f"B{r}"].border = border_all
+
+            ws[f"C{r}"] = round(w_mm)
+            ws[f"C{r}"].alignment = center
+            ws[f"C{r}"].font = input_font
+            ws[f"C{r}"].border = border_all
+
+            ws[f"D{r}"] = block_work
+            ws[f"D{r}"].alignment = center
+            ws[f"D{r}"].font = input_font
+            ws[f"D{r}"].border = border_all
+
+            # Qty
+            ws[f"E{r}"] = qty
+            ws[f"E{r}"].alignment = center
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].border = border_all
+
+            # Area = (Height/1000) * (Width/1000) * Qty
+            ws[f"F{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",(B{r}/1000)*(C{r}/1000)*E{r})'
+            ws[f"F{r}"].number_format = "0.00"
+            ws[f"F{r}"].alignment = center
+            ws[f"F{r}"].font = normal
+            ws[f"F{r}"].border = border_all
+
+            # Perimeter = 2 * (Height/1000 + Width/1000) * Qty
+            ws[f"G{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",2*(B{r}/1000+C{r}/1000)*E{r})'
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].alignment = center
+            ws[f"G{r}"].font = normal
+            ws[f"G{r}"].border = border_all
+
+            # 5.4/2 = 2.7 * Qty
+            ws[f"H{r}"] = f'=IF(OR(E{r}="",E{r}=0),"",2.7*E{r})'
+            ws[f"H{r}"].number_format = "0.0"
+            ws[f"H{r}"].alignment = center
+            ws[f"H{r}"].font = normal
+            ws[f"H{r}"].border = border_all
+
+            # Reveal Count = piecewise condition on 1-door Perimeter * Qty
+            ws[f"I{r}"] = f'=IF(OR(B{r}="",C{r}=""),"",IF(2*(B{r}+C{r})/1000=0,0,IF(2*(B{r}+C{r})/1000<=2.7,0.5,IF(2*(B{r}+C{r})/1000<=5.4,1,IF(2*(B{r}+C{r})/1000<=7.5,1.5,IF(2*(B{r}+C{r})/1000<=10.8,2,2.5)))))*E{r})'
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].alignment = center
+            ws[f"I{r}"].font = bold
+            ws[f"I{r}"].border = border_all
+            rh(r, 17)
+
+        def add_door_subtotal(r, label, first, last):
+            no_data = first > last
+            ws.merge_cells(f"A{r}:D{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+
+            ws[f"E{r}"] = 0 if no_data else f"=SUM(E{first}:E{last})"
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+
+            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
+            ws[f"F{r}"].number_format = "0.00"
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+
+            ws[f"G{r}"] = 0 if no_data else f"=SUM(G{first}:G{last})"
+            ws[f"G{r}"].number_format = "0.00"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+
+            ws[f"H{r}"] = 0 if no_data else f"=SUM(H{first}:H{last})"
+            ws[f"H{r}"].number_format = "0.0"
+            ws[f"H{r}"].font = bold
+            ws[f"H{r}"].alignment = center
+
+            ws[f"I{r}"] = 0 if no_data else f"=SUM(I{first}:I{last})"
+            ws[f"I{r}"].number_format = "0.00"
+            ws[f"I{r}"].font = bold
+            ws[f"I{r}"].alignment = center
+
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        # Categorize doors
+        grouped_doors = defaultdict(int)
+        for d in request.doors:
+            t = d.door_type
+            t_lower = t.lower()
+            loc_lower = (d.location or "").lower()
+            is_ext = bool(
+                d.is_ext or 
+                loc_lower in ("ext", "external") or 
+                any(k in t_lower for k in ["ext", "exterior", "garage", "sgd", "msd", "entry", "balcony", "alfresco", "patio", "french", "bifold"])
+            )
+            grouped_doors[(t, d.width_mm, d.height_mm, d.block_work or "No", is_ext)] += d.qty
+
+        single_grouped = []
+        double_grouped = []
+        sliding_grouped = []
+        garage_grouped = []
+        window_grouped = []
+
+        for (t, w_mm, h_mm, bw, is_ext), qty in grouped_doors.items():
+            t_lower = t.lower()
+            item = {"width": w_mm, "height": h_mm, "qty": qty, "block_work": bw, "is_ext": is_ext}
+            if "window" in t_lower:
+                window_grouped.append(item)
+            elif "garage" in t_lower or "roller" in t_lower:
+                garage_grouped.append(item)
+            elif "double" in t_lower:
+                double_grouped.append(item)
+            elif "sliding" in t_lower or "slider" in t_lower:
+                sliding_grouped.append(item)
+            else:
+                single_grouped.append(item)
+
+        door_subtotal_rows = []
+        int_door_data_rows = []
+        ext_door_data_rows = []
+        window_data_rows = []
+
+        def calc_reveal_count(h_mm, w_mm, qty):
+            p_unit = 2 * (h_mm + w_mm) / 1000.0
+            if p_unit == 0: base = 0
+            elif p_unit <= 2.7: base = 0.5
+            elif p_unit <= 5.4: base = 1.0
+            elif p_unit <= 7.5: base = 1.5
+            elif p_unit <= 10.8: base = 2.0
+            else: base = 2.5
+            return base * qty
+
+        blockwork_reveal_count = 0
+
+        # Single Door Section
+        add_sub_header(row, "Single Door"); row += 1
+        first_single = row
+        if single_grouped:
+            sorted_single = sorted(single_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_single:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Single Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_door_subtotal(row, "Subtotal - Single Door", first_single, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Single Door", row, row - 1)
+        door_subtotal_rows.append(row)
+        row += 1
+
+        # Double Door Section
+        add_sub_header(row, "Double Door"); row += 1
+        first_double = row
+        if double_grouped:
+            sorted_double = sorted(double_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_double:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Double Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_door_subtotal(row, "Subtotal - Double Door", first_double, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Double Door", row, row - 1)
+        door_subtotal_rows.append(row)
+        row += 1
+
+        # Sliding Door Section
+        add_sub_header(row, "Sliding Door"); row += 1
+        first_sliding = row
+        if sliding_grouped:
+            sorted_sliding = sorted(sliding_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_sliding:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Sliding Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_door_subtotal(row, "Subtotal - Sliding Door", first_sliding, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Sliding Door", row, row - 1)
+        door_subtotal_rows.append(row)
+        row += 1
+
+        # Garage Door Section
+        add_sub_header(row, "Garage Door"); row += 1
+        first_garage = row
+        if garage_grouped:
+            sorted_garage = sorted(garage_grouped, key=lambda x: 1 if x.get("is_ext") else 0)
+            for item in sorted_garage:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                is_ext = item.get("is_ext")
+                tag = "External" if is_ext else "Internal"
+                if is_ext: ext_door_data_rows.append(row)
+                else: int_door_data_rows.append(row)
+                add_door_data_row(row, f"Garage Door {tag} {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_door_subtotal(row, "Subtotal - Garage Door", first_garage, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Garage Door", row, row - 1)
+        door_subtotal_rows.append(row)
+        row += 1
+
+        # TOTAL DOORS
+        ws.merge_cells(f"A{row}:D{row}")
+        ws[f"A{row}"] = "TOTAL DOORS"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"E{row}"] = f'={"+".join([f"E{r}" for r in door_subtotal_rows])}'
+        ws[f"E{row}"].font = bold
+        ws[f"E{row}"].alignment = center
+        ws[f"F{row}"] = f'={"+".join([f"F{r}" for r in door_subtotal_rows])}'
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws[f"G{row}"] = f'={"+".join([f"G{r}" for r in door_subtotal_rows])}'
+        ws[f"G{row}"].number_format = "0.00"
+        ws[f"G{row}"].font = bold
+        ws[f"G{row}"].alignment = center
+        ws[f"H{row}"] = f'={"+".join([f"H{r}" for r in door_subtotal_rows])}'
+        ws[f"H{row}"].number_format = "0.0"
+        ws[f"H{row}"].font = bold
+        ws[f"H{row}"].alignment = center
+        ws[f"I{row}"] = f'={"+".join([f"I{r}" for r in door_subtotal_rows])}'
+        ws[f"I{row}"].number_format = "0.00"
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=total_fill, border=True)
+        rh(row, 18)
+        door_total_row = row
+        row += 2
+
+        # ---------- WINDOWS ----------
+        add_section_header(row, "WINDOWS"); row += 1
+        add_door_col_headers(row); row += 1
+
+        add_sub_header(row, "Standard Window"); row += 1
+        first_window = row
+        if window_grouped:
+            for item in window_grouped:
+                bw = item.get("block_work", "No")
+                if bw == "Yes": blockwork_reveal_count += calc_reveal_count(item['height'], item['width'], item['qty'])
+                window_data_rows.append(row)
+                add_door_data_row(row, f"Window {item['width']:.1f}x{item['height']:.1f}", item['height'], item['width'], item['qty'], bw)
+                row += 1
+            add_door_subtotal(row, "Subtotal - Windows", first_window, row - 1)
+        else:
+            add_door_subtotal(row, "Subtotal - Windows", row, row - 1)
+        window_subtotal_row = row
+        window_total_row = row
+        row += 2
+
+        # --- Overall Timber Reveal & Area Summary Box (Image 3) ---
+        ws.merge_cells(f"A{row}:H{row}")
+        ws[f"A{row}"] = "Reveal For Block Work"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"I{row}"] = blockwork_reveal_count
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00BCFF"), border=True)
+        rh(row, 18); row += 1
+
+        ws.merge_cells(f"A{row}:H{row}")
+        ws[f"A{row}"] = "Total Reveal All"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        all_subtotal_rows = door_subtotal_rows + [window_subtotal_row]
+        total_reveal_terms = "+".join([f"I{r}" for r in all_subtotal_rows])
+        ws[f"I{row}"] = f"={total_reveal_terms}"
+        ws[f"I{row}"].font = bold
+        ws[f"I{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="00FF00"), border=True)
+        rh(row, 18); row += 1
+
+        int_door_terms = "+".join([f"F{r}" for r in int_door_data_rows]) if int_door_data_rows else "0.00"
+        ext_door_terms = "+".join([f"F{r}" for r in ext_door_data_rows]) if ext_door_data_rows else "0.00"
+        win_terms = "+".join([f"F{r}" for r in window_data_rows]) if window_data_rows else "0.00"
+
+        # Total Area Internal Doors (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Internal Doors (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={int_door_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        int_door_area_row = row; row += 1
+
+        # Total Area External Doors (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area External Doors (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={ext_door_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        ext_door_area_row = row; row += 1
+
+        # Total Area Windows (m2)
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Windows (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"={win_terms}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="BFDBFE"), border=True)
+        rh(row, 18)
+        win_area_row = row; row += 1
+
+        # Total Area Window and Door Grand Total Row
+        ws.merge_cells(f"A{row}:E{row}")
+        ws[f"A{row}"] = "Total Area Window and Door (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"F{row}"] = f"=F{int_door_area_row}+F{ext_door_area_row}+F{win_area_row}"
+        ws[f"F{row}"].number_format = "0.00"
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws.merge_cells(f"G{row}:I{row}")
+        style_range(f"A{row}:I{row}", fill=PatternFill("solid", fgColor="93C5FD"), border=True)
+        rh(row, 18); row += 2
+
+        # ---------- LINTELS ----------
+        add_section_header(row, "LINTELS"); row += 1
+
+        ws.merge_cells(f"A{row}:C{row}")
+        ws[f"A{row}"] = "Description"
+        ws[f"D{row}"] = "Size"
+        ws[f"E{row}"] = "Length (m)"
+        ws[f"F{row}"] = "Qty"
+        ws[f"G{row}"] = "Total LM"
+        ws.merge_cells(f"H{row}:I{row}")
+        ws[f"H{row}"] = "Size/Qty Breakdown"
+        style_range(f"A{row}:I{row}", font=bold, fill=colhead_fill, align=center)
+        rh(row, 18)
+        row += 1
+
+        def add_lintel_subtotal(r, label, first, last):
+            no_data = first > last
+            ws.merge_cells(f"A{r}:D{r}")
+            ws[f"A{r}"] = label
+            ws[f"A{r}"].font = bold
+            ws[f"A{r}"].alignment = right_indent
+
+            ws[f"E{r}"] = ""
+            ws[f"E{r}"].font = bold
+            ws[f"E{r}"].alignment = center
+
+            ws[f"F{r}"] = 0 if no_data else f"=SUM(F{first}:F{last})"
+            ws[f"F{r}"].font = bold
+            ws[f"F{r}"].alignment = center
+
+            ws[f"G{r}"] = 0.0 if no_data else f"=SUM(G{first}:G{last})"
+            ws[f"G{r}"].number_format = "0.0"
+            ws[f"G{r}"].font = bold
+            ws[f"G{r}"].alignment = center
+
+            ws.merge_cells(f"H{r}:I{r}")
+            ws[f"H{r}"] = ""
+            style_range(f"A{r}:I{r}", fill=total_fill, border=True)
+            rh(r, 18)
+
+        first_lintel = row
+        if request.lintels:
+            # Group lintels by Description (Lintel, Beam, BH) AND physical dimensions (Height x Width)
+            by_group = defaultdict(list)
+            for l in request.lintels:
+                desc_key = l.description if l.description else "Lintel"
+                h = int(round(l.height)) if getattr(l, "height", None) else 90
+                w = int(round(l.width)) if getattr(l, "width", None) else 35
+                by_group[(desc_key, h, w)].append(l)
+
+            # Sort groups by description first, then by height and width
+            sorted_groups = sorted(
+                by_group.keys(),
+                key=lambda gkey: (gkey[0], gkey[1], gkey[2])
+            )
+
+            for gkey in sorted_groups:
+                desc_label, h, w = gkey
+                items = by_group[gkey]
+                size_str = f"{h}x{w}"
+
+                length_qty = defaultdict(int)
+                for l in items:
+                    qty_to_add = l.ply if getattr(l, "ply", None) is not None else 1
+                    length_qty[l.final_length] += qty_to_add
+                sorted_lengths = sorted(length_qty.items())
+
+                group_first_row = row
+                for length, qty in sorted_lengths:
+                    ws.merge_cells(f"A{row}:C{row}")
+                    ws[f"A{row}"] = desc_label
+                    ws[f"A{row}"].alignment = left_indent
+                    ws[f"A{row}"].font = input_font
+
+                    ws[f"D{row}"] = size_str
+                    ws[f"E{row}"] = length
+                    ws[f"E{row}"].number_format = "0.0"
+                    ws[f"F{row}"] = qty
+                    ws[f"G{row}"] = f"=E{row}*F{row}"
+                    ws[f"G{row}"].number_format = "0.0"
+
+                    for col in ["D", "E", "F", "G"]:
+                        ws[f"{col}{row}"].alignment = center
+                        ws[f"{col}{row}"].font = input_font
+                    style_range(f"A{row}:G{row}", border=True)
+                    rh(row, 17)
+                    row += 1
+                group_last_row = row - 1
+
+                # One copy-paste-ready breakdown per group, e.g. "0.90/1, 1.20/1, 3.00/1"
+                breakdown_text = ", ".join(f"{qty}/{length:.1f}" for length, qty in sorted_lengths)
+                ws.merge_cells(f"H{group_first_row}:I{group_last_row}")
+                ws[f"H{group_first_row}"] = breakdown_text
+                ws[f"H{group_first_row}"].font = italic
+                ws[f"H{group_first_row}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                style_range(f"H{group_first_row}:I{group_last_row}", border=True)
+
+            add_lintel_subtotal(row, "Subtotal - Lintels", first_lintel, row - 1)
+        else:
+            add_lintel_subtotal(row, "Subtotal - Lintels", row, row - 1)
+        lintel_total_row = row
+        row += 2
+
+        # ---------- SUMMARY ----------
+        add_section_header(row, "SUMMARY", fill=dark_fill); row += 1
+
+        total_wall_count = len(ext_walls) + len(lb_walls) + len(nlb_walls) + len(block_walls)
+
+        # Row: Total Wall summary with length, qty, and area
+        ws.merge_cells(f"A{row}:C{row}")
+        ws.merge_cells(f"G{row}:I{row}")
+        ws[f"A{row}"] = "Total Wall Area - Both Sides (m2)"
+        ws[f"A{row}"].font = bold
+        ws[f"A{row}"].alignment = right_indent
+        ws[f"D{row}"] = f"=D{ext_total_row}+D{int_total_row}+D{block_total_row}"
+        ws[f"D{row}"].number_format = "#,##0"
+        ws[f"D{row}"].font = bold
+        ws[f"D{row}"].alignment = center
+        ws[f"E{row}"] = ""
+        ws[f"F{row}"] = total_wall_count
+        ws[f"F{row}"].font = bold
+        ws[f"F{row}"].alignment = center
+        ws[f"G{row}"] = f"=G{ext_total_row}+G{int_total_row}+G{block_total_row}"
+        ws[f"G{row}"].number_format = "0.00"
+        ws[f"G{row}"].font = bold
+        ws[f"G{row}"].alignment = center
+        style_range(f"A{row}:I{row}", fill=grand_fill, border=True)
+        rh(row, 19)
+        row += 1
+
+        # Door, window, lintel and block wall summary rows
+        simple_sums = [
+            ("Total Block Wall Area - Both Sides (m2)", f"=G{block_total_row}"),
+            ("Total Internal Door Area (m2)", f"=F{int_door_area_row}"),
+            ("Total External Door Area (m2)", f"=F{ext_door_area_row}"),
+            ("Total Door Opening Area (m2)", f"=F{door_total_row}"),
+            ("Total Door Quantity (pcs)", f"=E{door_total_row}"),
+            ("Total Window Opening Area (m2)", f"=F{window_total_row}"),
+            ("Total Window Quantity (pcs)", f"=E{window_total_row}"),
+            ("Total Lintel Length (LM)", f"=G{lintel_total_row}"),
+            ("Total Lintel Quantity (pcs)", f"=F{lintel_total_row}"),
+        ]
+        for label, formula in simple_sums:
+            ws.merge_cells(f"A{row}:F{row}")
+            ws.merge_cells(f"G{row}:I{row}")
+            ws[f"A{row}"] = label
+            ws[f"A{row}"].font = bold
+            ws[f"A{row}"].alignment = right_indent
+            ws[f"G{row}"] = formula
+            ws[f"G{row}"].number_format = "0.00" if "Area" in label or "LM" in label else "0"
+            ws[f"G{row}"].font = bold
+            ws[f"G{row}"].alignment = center
+            style_range(f"A{row}:I{row}", fill=grand_fill, border=True)
+            rh(row, 19)
+            row += 1
+
+        row += 1
+
+        # ---------- Notes ----------
+        ws.merge_cells(f"A{row}:I{row}")
+        ws[f"A{row}"].font = italic
+        ws[f"A{row}"].alignment = left
+        ws.merge_cells(f"A{row+1}:I{row+1}")
+
+        ws.sheet_view.showGridLines = False
+        ws.print_area = f"A1:I{row+1}"
+
+        # Save to buffer and return bytes
+        file_stream = io.BytesIO()
+        wb.save(file_stream)
+        file_stream.seek(0)
+        return file_stream

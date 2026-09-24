@@ -1,0 +1,17 @@
+{
+  "floorTypes": [
+    {
+      "id": "Timber",
+      "name": "Timber Floor",
+      "label": "Timber Floor",
+      "code": "TIMBER"
+    },
+    {
+      "id": "Slab",
+      "name": "Concrete Slab Floor",
+      "label": "Concrete Slab Floor",
+      "code": "SLAB"
+    }
+  ],
+  "defaultFloorType": "Timber"
+}
