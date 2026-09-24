@@ -35,7 +35,7 @@ function saveConfig(config) {
  *   onConfirm    — Callback({ ext, int, part, defaultHeight }) when user clicks Detect
  *   onClose      — Callback to dismiss without running
  */
-export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
+export default function WallThicknessDialog({ visible, onConfirm, onGeminiConfirm, onClose }) {
   const overlayRef = useRef(null);
   const saved = loadSavedConfig();
   const initialHeight = saved?.defaultHeight || 2700;
@@ -84,16 +84,26 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
     }
   };
 
-  const handleConfirm = () => {
+  const buildConfig = () => {
     const finalHeight = isCustomHeight ? Number(customHeightVal) : Number(defaultHeight);
-    const config = {
+    return {
       ext: extThickness,
       int: intThickness,
       part: partThickness,
       defaultHeight: finalHeight
     };
+  };
+
+  const handleConfirm = () => {
+    const config = buildConfig();
     saveConfig(config);
     onConfirm(config);
+  };
+
+  const handleGeminiConfirm = () => {
+    const config = buildConfig();
+    saveConfig(config);
+    if (onGeminiConfirm) onGeminiConfirm({ ...config, provider: 'gemini' });
   };
 
   const handleOverlayClick = (e) => {
@@ -284,17 +294,25 @@ export default function WallThicknessDialog({ visible, onConfirm, onClose }) {
           <button
             onClick={handleConfirm}
             style={{
-              flex: 2, padding: '10px 16px', fontSize: 13, fontWeight: 700,
+              flex: 1.5, padding: '10px 12px', fontSize: 12, fontWeight: 700,
               background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
-              color: 'white', border: 'none',
-              borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
-              boxShadow: '0 4px 12px rgba(37,99,235,0.3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+              color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer'
             }}
-            onMouseOver={e => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(37,99,235,0.45)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseOut={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(37,99,235,0.3)'; e.currentTarget.style.transform = 'none'; }}
           >
-            <span>🚀</span> Run Wall AI
+            Local AI
+          </button>
+          <button
+            onClick={handleGeminiConfirm}
+            disabled={!onGeminiConfirm}
+            title="Rebuild current-page walls from the plan image using Gemini"
+            style={{
+              flex: 1.5, padding: '10px 12px', fontSize: 12, fontWeight: 700,
+              background: onGeminiConfirm ? 'linear-gradient(135deg, #7c3aed 0%, #9333ea 100%)' : '#cbd5e1',
+              color: 'white', border: 'none', borderRadius: 8,
+              cursor: onGeminiConfirm ? 'pointer' : 'not-allowed'
+            }}
+          >
+            ✨ Gemini Rebuild
           </button>
         </div>
       </div>

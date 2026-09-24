@@ -945,6 +945,39 @@ async def wall_segment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/gemini/rebuild-walls")
+async def gemini_rebuild_walls(
+    file: UploadFile = File(...),
+    real_scale: Optional[float] = Form(1.0),
+    ext_thickness: Optional[int] = Form(90),
+    int_thickness: Optional[int] = Form(70),
+    part_thickness: Optional[int] = Form(70),
+    username: str = Depends(validate_session)
+):
+    """Experimental explicit Gemini wall rebuild. Does not mutate saved jobs by itself."""
+    from services.gemini_wall_service import rebuild_walls_with_gemini
+
+    content = await file.read()
+    wall_thicknesses = {
+        "ext": ext_thickness or 90,
+        "int": int_thickness or 70,
+        "part": part_thickness or 70,
+    }
+    try:
+        return await run_in_threadpool(
+            rebuild_walls_with_gemini,
+            image_bytes=content,
+            real_scale=real_scale or 1.0,
+            wall_thicknesses=wall_thicknesses,
+        )
+    except RuntimeError as exc:
+        logger.error("Gemini wall rebuild failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        logger.error("Unexpected Gemini wall rebuild error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/predict_wall_stream")
 async def predict_wall_stream(
     file: UploadFile = File(...),

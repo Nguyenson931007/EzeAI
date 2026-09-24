@@ -69,6 +69,10 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "EzeFloor AI Support")
 
+# Gemini wall rebuild (experimental, explicit user action only)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_WALL_MODEL = os.getenv("GEMINI_WALL_MODEL", "gemini-2.5-flash")
+
 # Session / security
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
 SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", "1800"))

@@ -938,7 +938,7 @@ export const useAIController = (
         if (saved) activeThicknesses = JSON.parse(saved);
       } catch (e) { }
     }
-    const { ext = 90, int = 70, part = 70, defaultHeight = 2700 } = activeThicknesses || {};
+    const { ext = 90, int = 70, part = 70, defaultHeight = 2700, provider = "local" } = activeThicknesses || {};
 
     const job = startROIJob();
     try {
@@ -946,6 +946,57 @@ export const useAIController = (
       const conf = String(useAIConfigStore.getState().config?.walls ?? "0.001");
       const existingWallsSnapshot = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
       let isCacheHit = false;
+
+      if (provider === "gemini") {
+        setCacheStatus("Gemini is rebuilding walls...");
+        setRoiProgress(35);
+        const result = await ApiService.rebuildWallsWithGemini(blob, realScale, activeThicknesses, job.controller.signal);
+        const detectedWalls = (result?.walls || []).map((w) => {
+          const rawCls = getWallClass(w);
+          const class_name = rawCls;
+          const wall_type = class_name === "exterior_wall" ? "ext" : (class_name === "block_wall" ? "block" : (class_name === "partition_wall" ? "part" : "int"));
+          const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
+          const thickness_px = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
+          return {
+            id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            centerline: w.centerline ? w.centerline.map(pt => [pt[0] + pdfOffset.x, pt[1] + pdfOffset.y]) : null,
+            polygon: w.polygon ? w.polygon.map(pt => [pt[0] + pdfOffset.x, pt[1] + pdfOffset.y]) : null,
+            wall_type,
+            class_name,
+            is_lbw: false,
+            thickness,
+            thickness_px,
+            height: defaultHeight,
+            confidence: w.confidence,
+            gemini_reason: w.reason || "",
+            review_state: "AI_GENERATED",
+            ai_provider: "gemini"
+          };
+        }).filter(w => Array.isArray(w.centerline) && w.centerline.length === 2);
+
+        // Gemini is an explicit replacement flow. Ask once before destroying the
+        // current page's geometry so the local-AI/manual result can be kept.
+        const currentCount = existingWallsSnapshot.length;
+        const applyGemini = typeof window === "undefined"
+          ? true
+          : window.confirm(
+              `Gemini reconstructed ${detectedWalls.length} walls.\n\n` +
+              `Replace the current ${currentCount} wall(s) on this page?`
+            );
+
+        if (applyGemini) {
+          setWallsByPage(prev => ({
+            ...prev,
+            [currentPage]: recalculateAllWallsPolygons(detectedWalls)
+          }));
+          setCacheStatus(`Gemini applied ${detectedWalls.length} walls`);
+        } else {
+          setCacheStatus(`Gemini result discarded (${detectedWalls.length} walls)`);
+        }
+        setRoiProgress(100);
+        finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
+        return;
+      }
 
       await ApiService.detectWallSegStream(
         blob,

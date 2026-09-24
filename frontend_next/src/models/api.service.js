@@ -518,6 +518,25 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async rebuildWallsWithGemini(imageBlob, realScale = 1.0, wallThicknesses = null, signal = null) {
+    const fd = new FormData();
+    fd.append("file", imageBlob);
+    fd.append("real_scale", realScale || 1.0);
+    if (wallThicknesses) {
+      fd.append("ext_thickness", wallThicknesses.ext || 90);
+      fd.append("int_thickness", wallThicknesses.int || 70);
+      fd.append("part_thickness", wallThicknesses.part || 70);
+    }
+    const res = await fetch(`${BASE_URL}/api/gemini/rebuild-walls`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+      signal
+    });
+    return handleResponse(res);
+  },
+
   async detectWallSegStream(imageBlob, confidence = "0.25", realScale = 1.0, wallThicknesses = null, onEvent, signal = null, roiRect = null) {
     const fd = new FormData();
     fd.append("file", imageBlob);
