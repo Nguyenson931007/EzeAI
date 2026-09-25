@@ -1524,6 +1524,18 @@ export default function FixoutTask({
                       key={item.id || idx}
                       className={isSelected ? "task-row-selected" : undefined}
                       data-editing-row-id={isRowEditing ? item.id : undefined}
+                      onPointerDownCapture={(event) => {
+                        if (event.button !== 0) return;
+                        // Always finish the previous row before moving selection.
+                        // Pointer capture fires even when the target is a select/input,
+                        // so a nested control cannot leave the old row highlighted.
+                        const activeId = editingRowIdRef.current;
+                        if (activeId && activeId !== item.id) {
+                          handleSaveInlineEdit(activeId);
+                        }
+                        setSelectedEntryId(item.id);
+                        onSelectEntry?.(item);
+                      }}
                       onClick={(event) => {
                         if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
                         setSelectedEntryId(item.id);
@@ -1548,23 +1560,41 @@ export default function FixoutTask({
                     >
                       <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
                       <td>
-                        {isRowEditing ? <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} /> : <strong>{item.door_label || "—"}</strong>}
+                        {isRowEditing ? (
+                          <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} />
+                        ) : (
+                          <span style={{
+                            background: isSelected ? "#2563eb" : "#eff6ff",
+                            color: isSelected ? "#ffffff" : "#1d4ed8",
+                            padding: "2px 7px",
+                            borderRadius: "4px",
+                            border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
+                            display: "inline-block",
+                            fontWeight: 800
+                          }}>
+                            {item.door_label || "—"}
+                          </span>
+                        )}
                       </td>
-                      <td>
-                        <select
-                          value="fixout"
-                          onClick={(event) => event.stopPropagation()}
-                          onDoubleClick={(event) => event.stopPropagation()}
-                          onChange={(event) => {
-                            event.stopPropagation();
-                            onMoveDoorTask?.(item, event.target.value);
-                          }}
-                          style={{ ...controlStyle, width: "86px", borderColor: "#cbd5e1", fontWeight: 700 }}
-                          title="Choose which task owns this door. This routing is not saved to Procurement DB."
-                        >
-                          <option value="fixout">Fixout</option>
-                          <option value="lock_up">Lockup</option>
-                        </select>
+                      <td style={{ fontWeight: 700 }}>
+                        {isRowEditing ? (
+                          <select
+                            value="fixout"
+                            onClick={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              event.stopPropagation();
+                              onMoveDoorTask?.(item, event.target.value);
+                            }}
+                            style={{ ...controlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
+                            title="Move this door to another task. This routing is not saved to Procurement DB."
+                          >
+                            <option value="fixout">Fixout</option>
+                            <option value="lock_up">Lockup</option>
+                          </select>
+                        ) : (
+                          <span title="Double-click the row to change task">Fixout</span>
+                        )}
                       </td>
                       <td style={{ fontWeight: 600 }}>
                         {isRowEditing ? (

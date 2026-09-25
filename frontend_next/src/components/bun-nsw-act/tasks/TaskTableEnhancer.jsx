@@ -114,32 +114,61 @@ function applyStickyIdentityColumns(table) {
   });
   const labelColumn = headers.findIndex((header) => /^label\b/.test(normalizedHeader(header.innerText)));
 
-  table.querySelectorAll(".task-sticky-index-column, .task-sticky-label-column").forEach((cell) => {
-    cell.classList.remove("task-sticky-index-column", "task-sticky-label-column");
+  // One shared frozen identity block for every task table. If Label is not
+  // directly beside # (Lockup has Category + Location in between), freeze the
+  // whole contiguous block instead of letting Label overlap transparent cells.
+  table.querySelectorAll(
+    ".task-sticky-index-column, .task-sticky-label-column, .task-sticky-identity-column, .task-sticky-identity-last"
+  ).forEach((cell) => {
+    cell.classList.remove(
+      "task-sticky-index-column",
+      "task-sticky-label-column",
+      "task-sticky-identity-column",
+      "task-sticky-identity-last"
+    );
     cell.style.removeProperty("--task-sticky-left");
+    cell.style.removeProperty("--task-sticky-bg");
+    cell.style.removeProperty("background-color");
   });
 
-  const pinColumn = (columnIndex, className, left) => {
-    if (columnIndex < 0) return;
+  if (indexColumn < 0) return;
+  const lastIdentityColumn = labelColumn >= indexColumn ? labelColumn : indexColumn;
+  let left = 0;
+
+  for (let columnIndex = indexColumn; columnIndex <= lastIdentityColumn; columnIndex += 1) {
     const header = headers[columnIndex];
-    header.classList.add(className);
+    if (!header) continue;
+    const isFirst = columnIndex === indexColumn;
+    const isLabel = columnIndex === labelColumn;
+    const isLast = columnIndex === lastIdentityColumn;
+
+    header.classList.add("task-sticky-identity-column");
+    if (isFirst) header.classList.add("task-sticky-index-column");
+    if (isLabel) header.classList.add("task-sticky-label-column");
+    if (isLast) header.classList.add("task-sticky-identity-last");
     header.style.setProperty("--task-sticky-left", `${Math.max(0, left)}px`);
+
     Array.from(table.tBodies || []).forEach((tbody) => {
       Array.from(tbody.rows || []).forEach((row) => {
         if (isGroupRow(row) || !row.cells[columnIndex]) return;
         const cell = row.cells[columnIndex];
-        cell.classList.add(className);
+        cell.classList.add("task-sticky-identity-column");
+        if (isFirst) cell.classList.add("task-sticky-index-column");
+        if (isLabel) cell.classList.add("task-sticky-label-column");
+        if (isLast) cell.classList.add("task-sticky-identity-last");
         cell.style.setProperty("--task-sticky-left", `${Math.max(0, left)}px`);
-        const rowBackground = window.getComputedStyle(row).backgroundColor;
-        if (rowBackground && rowBackground !== "rgba(0, 0, 0, 0)") cell.style.backgroundColor = rowBackground;
+
+        // Sticky cells must always be opaque, otherwise the plan/canvas behind
+        // the property pane becomes visible while horizontally scrolling.
+        let rowBackground = window.getComputedStyle(row).backgroundColor;
+        if (!rowBackground || rowBackground === "rgba(0, 0, 0, 0)" || rowBackground === "transparent") {
+          rowBackground = "#ffffff";
+        }
+        cell.style.setProperty("--task-sticky-bg", rowBackground);
       });
     });
-  };
 
-  pinColumn(indexColumn, "task-sticky-index-column", 0);
-  if (labelColumn >= 0) {
-    const indexWidth = indexColumn >= 0 ? headers[indexColumn].getBoundingClientRect().width : 0;
-    pinColumn(labelColumn, "task-sticky-label-column", indexWidth);
+    left += header.getBoundingClientRect().width;
   }
 }
 
@@ -634,6 +663,19 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
       const editingRow = getEditingRow();
       if (!editingRow) return;
       if (editingRow.contains(event.target)) return;
+
+      // Remove the temporary edit/highlight shell immediately when focus moves
+      // to another row or outside the table. The task-level handler still owns
+      // the actual commit, but the previous row must never remain visually
+      // highlighted while the user is already interacting elsewhere.
+      const table = editingRow.closest("table");
+      if (table) {
+        table.querySelectorAll("tbody tr.task-row-editing-locked").forEach((row) => unlockRowEdit(row));
+        table.classList.remove("task-row-edit-layout-locked");
+      }
+      editingRow.classList.remove("task-row-selected");
+      editingRow.removeAttribute("aria-selected");
+
       captureInlineHistoryOnce();
     };
 
@@ -662,35 +704,38 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
       root.removeEventListener("click", captureBeforeSaveClick, true);
       root.removeEventListener("focusout", captureBeforeFocusCommit, true);
     };
-  }, [captureInlineHistoryOnce, taskId]);
+  }, [captureInlineHistoryOnce, taskId, unlockRowEdit]);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
 
-    const isControlTarget = (target) => Boolean(target?.closest?.(
-      "button, input, select, textarea, a, [data-search-dropdown], [role='button']"
-    ));
-
     const selectRowOnly = (event) => {
-      if (isControlTarget(event.target)) return;
+      if (event.button !== undefined && event.button !== 0) return;
       const row = event.target?.closest?.("tbody tr");
       const table = row?.closest?.("table");
       if (!row || !table || !root.contains(table) || isGroupRow(row)) return;
 
+      // There can only be one visual selection/edit shell in a task table.
+      // Clear every previous row before the target control receives focus.
       root.querySelectorAll("tbody tr.task-row-selected").forEach((selectedRow) => {
         if (selectedRow === row) return;
         selectedRow.classList.remove("task-row-selected");
         selectedRow.removeAttribute("aria-selected");
       });
+      root.querySelectorAll("tbody tr.task-row-editing-locked").forEach((editingRow) => {
+        if (editingRow === row) return;
+        unlockRowEdit(editingRow);
+      });
+
       row.classList.add("task-row-selected");
       row.setAttribute("aria-selected", "true");
     };
 
-    // Deliberately listen only for selection. Editing remains owned by each
-    // task's onDoubleClick handler, so one click can never open an editor.
-    root.addEventListener("click", selectRowOnly, false);
-    return () => root.removeEventListener("click", selectRowOnly, false);
+    // Pointer capture runs before nested selects/inputs can stop click/mousedown.
+    // This makes switching rows deterministic for mouse, pen and touch.
+    root.addEventListener("pointerdown", selectRowOnly, true);
+    return () => root.removeEventListener("pointerdown", selectRowOnly, true);
   }, [taskId]);
 
   useEffect(() => {
@@ -1078,21 +1123,31 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
           color: #ffffff !important;
           box-shadow: inset 0 -2px 0 #3b82f6;
         }
-        .task-data-table thead th.task-sticky-index-column,
-        .task-data-table thead th.task-sticky-label-column {
+        .task-data-table thead th.task-sticky-identity-column {
           position: sticky !important;
           left: var(--task-sticky-left, 0px) !important;
           z-index: 14 !important;
           background: #243f70 !important;
+          background-color: #243f70 !important;
+          background-image: none !important;
         }
-        .task-data-table tbody td.task-sticky-index-column,
-        .task-data-table tbody td.task-sticky-label-column {
+        .task-data-table tbody td.task-sticky-identity-column {
           position: sticky !important;
           left: var(--task-sticky-left, 0px) !important;
           z-index: 6 !important;
+          background: var(--task-sticky-bg, #ffffff) !important;
+          background-color: var(--task-sticky-bg, #ffffff) !important;
+          background-image: none !important;
+          opacity: 1 !important;
         }
-        .task-data-table tbody td.task-sticky-label-column {
-          box-shadow: 2px 0 0 #cbd5e1;
+        .task-data-table tbody tr.task-row-selected:not(.task-floor-group-row) > td.task-sticky-identity-column {
+          --task-sticky-bg: #eff6ff;
+          background: #eff6ff !important;
+          background-color: #eff6ff !important;
+        }
+        .task-data-table thead th.task-sticky-identity-last,
+        .task-data-table tbody td.task-sticky-identity-last {
+          box-shadow: inset -1px 0 0 #cbd5e1 !important;
         }
         .task-table-filterable-header { cursor: pointer; }
         .task-table-filterable-header:hover { background: #315487 !important; }

@@ -1689,89 +1689,71 @@ def _detect_rooms_text_roi(
                 return c["score"], c["text"], c["conf"], c.get("candidates", [])
                 
             pil_crop = Image.fromarray(roi_masked)
-            
-            # Multi-orientation scanning: test all 4 rotation angles (0°, 180°, 90°, 270°)
-            is_vertical_crop = roi_h > 1.15 * roi_w
-            if is_vertical_crop:
-                orientations = [
-                    (90, pil_crop.transpose(Image.ROTATE_270)),
-                    (270, pil_crop.transpose(Image.ROTATE_90)),
-                    (0, pil_crop),
-                    (180, pil_crop.transpose(Image.ROTATE_180)),
-                ]
-            else:
-                orientations = [
-                    (0, pil_crop),
-                    (180, pil_crop.transpose(Image.ROTATE_180)),
-                    (90, pil_crop.transpose(Image.ROTATE_270)),
-                    (270, pil_crop.transpose(Image.ROTATE_90)),
-                ]
-                
+
+            # run_ocr() already performs its own tiered orientation search
+            # (primary angle -> fallback angles -> preprocessing). The old code
+            # wrapped that OCR engine in another 0/180/90/270 loop, effectively
+            # multiplying the same expensive EasyOCR work by up to 4x (and up to
+            # 8x when the low-confidence retry ran). Run the ensemble once and
+            # use the angle it selected instead. Accuracy is preserved because
+            # orientation handling remains inside run_advanced_ocr_crop().
             best_text = ""
             best_overall_score = -9999
             best_conf = 0
             candidates = []
-            
-            for angle, img in orientations:
-                try:
-                    results = run_ocr(img)
-                    found_strong = False
-                    
-                    for r in results:
-                        text = _clean_text(r["text"])
-                        if not text:
-                            continue
-                            
-                        r_bbox = r["bbox"]
-                        
-                        orig_rx = r_bbox["x"] / upscale
-                        orig_ry = r_bbox["y"] / upscale
-                        orig_rw = r_bbox["w"] / upscale
-                        orig_rh = r_bbox["h"] / upscale
-                        
-                        if angle == 0:
-                            mapped_bbox = {"x": orig_rx + x1, "y": orig_ry + y1, "w": orig_rw, "h": orig_rh}
-                        elif angle == 180:
-                            mapped_bbox = {"x": roi_w - (orig_rx + orig_rw) + x1, "y": roi_h - (orig_ry + orig_rh) + y1, "w": orig_rw, "h": orig_rh}
-                        elif angle == 90:
-                            mapped_bbox = {"x": orig_ry + x1, "y": roi_h - (orig_rx + orig_rw) + y1, "w": orig_rh, "h": orig_rw}
-                        else: # 270
-                            mapped_bbox = {"x": roi_w - (orig_ry + orig_rh) + x1, "y": orig_rx + y1, "w": orig_rh, "h": orig_rw}
 
-                        score, final_text, text_type = _score_semantic_text(
-                            text, r["conf"], mapped_bbox, pts, rooms, idx,
-                            cx1=cx1, cy1=cy1, actual_upscale=actual_upscale, existing_rooms=existing_rooms
-                        )
-                        
-                        # Save candidate text
-                        if final_text and final_text != "UNKNOWN":
-                            candidates.append({
-                                "text": final_text,
-                                "score": round(score, 1),
-                                "conf": round(float(r["conf"]), 2),
-                                "source": f"ocr_{angle}deg"
-                            })
-                        else:
-                            candidates.append({
-                                "text": text,
-                                "score": 0.0,
-                                "conf": round(float(r["conf"]), 2),
-                                "source": "raw"
-                            })
-                        
-                        if score > best_overall_score:
-                            best_overall_score = score
-                            best_text = final_text
-                            best_conf = r["conf"]
-                            
-                        if r["conf"] > 0.6 and final_text in VALID_ROOM_WORDS and score > 80 and not is_vertical_crop:
-                            found_strong = True
-                            
-                    if found_strong:
-                        break
-                except Exception as e:
-                    pass
-            
+            try:
+                results = run_ocr(pil_crop)
+                for r in results:
+                    text = _clean_text(r["text"])
+                    if not text:
+                        continue
+
+                    meta = r.get("ocr_meta") or {}
+                    angle = int(meta.get("rotation") or 0) % 360
+                    r_bbox = r["bbox"]
+                    orig_rx = r_bbox["x"] / upscale
+                    orig_ry = r_bbox["y"] / upscale
+                    orig_rw = r_bbox["w"] / upscale
+                    orig_rh = r_bbox["h"] / upscale
+
+                    # run_ocr receives the unrotated crop and reports the chosen
+                    # internal orientation. Its public bbox currently covers the
+                    # crop, so keep coordinates in the original ROI frame.
+                    mapped_bbox = {
+                        "x": orig_rx + x1,
+                        "y": orig_ry + y1,
+                        "w": orig_rw,
+                        "h": orig_rh,
+                    }
+
+                    score, final_text, text_type = _score_semantic_text(
+                        text, r["conf"], mapped_bbox, pts, rooms, idx,
+                        cx1=cx1, cy1=cy1, actual_upscale=actual_upscale, existing_rooms=existing_rooms
+                    )
+
+                    if final_text and final_text != "UNKNOWN":
+                        candidates.append({
+                            "text": final_text,
+                            "score": round(score, 1),
+                            "conf": round(float(r["conf"]), 2),
+                            "source": f"ocr_{angle}deg"
+                        })
+                    else:
+                        candidates.append({
+                            "text": text,
+                            "score": 0.0,
+                            "conf": round(float(r["conf"]), 2),
+                            "source": f"raw_{angle}deg"
+                        })
+
+                    if score > best_overall_score:
+                        best_overall_score = score
+                        best_text = final_text
+                        best_conf = r["conf"]
+            except Exception:
+                pass
+
             # Dedup and sort candidates
             unique_cands = {}
             for c in candidates:

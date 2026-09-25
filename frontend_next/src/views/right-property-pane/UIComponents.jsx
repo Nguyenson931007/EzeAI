@@ -1072,8 +1072,20 @@ export function getCustomerFromPendingEmsJob() {
     const stored = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
     if (!stored) return null;
     const parsed = JSON.parse(stored);
-    const candidate = parsed?.client || parsed?.customer || parsed?.customer_name || parsed?.short_name || parsed?.pack;
-    return resolveCustomerPackKey(candidate);
+    const candidates = [
+      parsed?.customer_short_name,
+      parsed?.client_short_name,
+      parsed?.customer,
+      parsed?.client,
+      parsed?.short_name,
+      parsed?.customer_name,
+      parsed?.pack,
+    ];
+    for (const candidate of candidates) {
+      const resolved = resolveCustomerPackKey(candidate);
+      if (resolved) return resolved;
+    }
+    return null;
   } catch (_) {
     return null;
   }

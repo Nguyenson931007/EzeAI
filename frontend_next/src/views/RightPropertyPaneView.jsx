@@ -1751,36 +1751,45 @@ export default function RightPropertyPaneView({
   }, [user]);
 
   const hasFetchedTasksRef = React.useRef(false);
+  const serverSearchActiveRef = React.useRef(false);
 
-  // Táº£i danh sÃ¡ch Task Groups HW tá»« TaskList Web3 / Local DB
-  const fetchTasks = React.useCallback(async (forceRefresh = false) => {
+  // Read EMS jobs from the same ListJobs/ListClient source used by Procurement.
+  // Search is sent to SQL instead of filtering only the first page in memory, so
+  // older jobs (for example TESTAI) remain discoverable exactly like Procurement.
+  const fetchTasks = React.useCallback(async (forceRefresh = false, searchTerm = "") => {
+    const normalizedSearch = String(searchTerm || "").trim();
     try {
       setTaskLoading(true);
       setTaskError(null);
-      const res = await ApiService.fetchTaskListJobs(2000, forceRefresh);
+      const res = await ApiService.fetchTaskListJobs(500, forceRefresh, normalizedSearch || null);
       if (res && res.status === "success" && Array.isArray(res.data)) {
         setTaskListJobs(res.data);
-        try {
-          localStorage.setItem("cachedTaskListJobs", JSON.stringify(res.data));
-        } catch (e) { }
+        // Cache only the normal job list. Never replace it with a temporary search result.
+        if (!normalizedSearch) {
+          try {
+            localStorage.setItem("cachedTaskListJobs", JSON.stringify(res.data));
+          } catch (e) { }
+        }
       } else {
         setTaskListJobs([]);
       }
     } catch (err) {
-      console.error("Error fetching Task Groups HW:", err);
+      console.error("Error fetching EMS jobs:", err);
       let loadedFromCache = false;
-      try {
-        const cached = localStorage.getItem("cachedTaskListJobs");
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setTaskListJobs(parsed);
-            loadedFromCache = true;
+      if (!normalizedSearch) {
+        try {
+          const cached = localStorage.getItem("cachedTaskListJobs");
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setTaskListJobs(parsed);
+              loadedFromCache = true;
+            }
           }
-        }
-      } catch (e) { }
+        } catch (e) { }
+      }
       if (!loadedFromCache) {
-        setTaskError(err.message || "KhÃ´ng thá»ƒ táº£i danh sÃ¡ch Task Groups HW");
+        setTaskError(err.message || "Could not load EMS jobs");
         setTaskListJobs([]);
       }
     } finally {
@@ -1788,32 +1797,87 @@ export default function RightPropertyPaneView({
     }
   }, []);
 
-  // Tá»± Ä‘á»™ng táº£i ngáº§m danh sÃ¡ch Task Groups HW 1 láº§n duy nháº¥t khi khá»Ÿi táº¡o
+  // Initial EMS job list.
   React.useEffect(() => {
     if (!hasFetchedTasksRef.current) {
       hasFetchedTasksRef.current = true;
-      fetchTasks(false);
+      fetchTasks(false, "");
     }
   }, [fetchTasks]);
+
+  // Procurement searches the EMS database, not only the currently loaded rows.
+  // Mirror that behavior here with a small debounce to avoid one SQL call per keypress.
+  React.useEffect(() => {
+    if (!hasFetchedTasksRef.current) return undefined;
+    const q = String(taskSearch || "").trim();
+    const shouldReloadFullList = !q && serverSearchActiveRef.current;
+    if (!q && !shouldReloadFullList) return undefined;
+
+    const timer = window.setTimeout(() => {
+      serverSearchActiveRef.current = Boolean(q);
+      fetchTasks(false, q);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [taskSearch, fetchTasks]);
 
   // Xá»­ lÃ½ má»Ÿ/chá»n 1 Job Task
   const handleOpenJobTask = async (task) => {
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
-    if (setCurrentProjectName) setCurrentProjectName(targetName);
 
+    // IMPORTANT: the Client displayed on the clicked Task HW card is the
+    // authoritative customer selection. The detail API can contain older or
+    // differently-shaped customer fields, so it must not overwrite task.client.
+    const taskListClient = task.client || null;
     let currentTask = task;
     const emsId = task.id_job_ems || task.ems_id || task.hw_id || task.id;
     if (emsId) {
       try {
         const emsRes = await ApiService.getJobByEmsId(emsId);
         if (emsRes?.status === "success" && emsRes.data) {
-          currentTask = { ...task, ...emsRes.data };
+          currentTask = {
+            ...task,
+            ...emsRes.data,
+            client: taskListClient || emsRes.data.client || null,
+            task_client: taskListClient || emsRes.data.task_client || emsRes.data.client || null,
+          };
         }
       } catch (err) {
         console.warn("Could not fetch EMS details for task:", err);
       }
     }
+
+    const taskClientKey = resolveCustomerPackKey(taskListClient || currentTask.client || currentTask.task_client);
+
+    // Persist the clicked job + its exact card Client BEFORE changing the
+    // active project name. The project-name effect reads these values; doing
+    // this in the opposite order created a race where the previous customer's
+    // form/header could survive after a new job was selected.
+    try {
+      const { local_job, ...metaWithoutDrawing } = currentTask;
+      const cleanTaskMeta = {
+        ...metaWithoutDrawing,
+        client: taskListClient || metaWithoutDrawing.client || null,
+        task_client: taskListClient || metaWithoutDrawing.task_client || metaWithoutDrawing.client || null,
+        local_job: local_job ? {
+          id: local_job.id,
+          project_name: local_job.project_name,
+          room_count: local_job.room_count,
+          total_area: local_job.total_area
+        } : null
+      };
+      sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
+      try { localStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta)); } catch (_) { }
+      if (taskClientKey) {
+        sessionStorage.setItem("selectedCustomerClient", taskClientKey);
+        localStorage.setItem("selectedCustomerClient", taskClientKey);
+      }
+    } catch (_) { }
+
+    if (taskClientKey) {
+      setSelectedCustomerClient(taskClientKey);
+    }
+    if (setCurrentProjectName) setCurrentProjectName(targetName);
 
     // 0. Sá»­ dá»¥ng task_modules / selected_modules tá»« API lÃ m nguá»“n chÃ¢n lÃ½ cao nháº¥t
     const authoritativeMods = Array.isArray(currentTask.task_modules)
@@ -1828,7 +1892,7 @@ export default function RightPropertyPaneView({
         sessionStorage.setItem("selectedModules", JSON.stringify(authoritativeMods));
       } catch (_) { }
     } else {
-      const taskModules = sanitizeModuleIds(resolveTaskModules(currentTask), selectedCustomerClient);
+      const taskModules = sanitizeModuleIds(resolveTaskModules(currentTask), taskClientKey || selectedCustomerClient);
       if (taskModules && taskModules.length > 0) {
         setEnabledModuleIds(taskModules);
         try {
@@ -1837,20 +1901,8 @@ export default function RightPropertyPaneView({
       }
     }
 
-    // LÆ°u thÃ´ng tin pendingEmsJob vÃ o sessionStorage Ä‘á»ƒ Ä‘á»“ng bá»™ SQL (loáº¡i bá» data báº£n váº½ náº·ng)
-    try {
-      const { local_job, ...metaWithoutDrawing } = currentTask;
-      const cleanTaskMeta = {
-        ...metaWithoutDrawing,
-        local_job: local_job ? {
-          id: local_job.id,
-          project_name: local_job.project_name,
-          room_count: local_job.room_count,
-          total_area: local_job.total_area
-        } : null
-      };
-      sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
-    } catch (_) { }
+    // Notify ribbon/module consumers only after the authoritative job + Client
+    // context is fully stored.
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
     }

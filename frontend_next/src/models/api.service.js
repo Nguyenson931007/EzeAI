@@ -140,36 +140,12 @@ export const ApiService = {
         console.warn("[getJobByEmsId] 401 Unauthorized khi táº£i Job EMS:", emsId);
         return null;
       }
+      // Pure read: do not mutate pendingEmsJob/customer context here.
+      // The caller that owns the job click must merge the exact Task HW card
+      // Client first, then update project + customer atomically. Side effects
+      // here used to race with the click handler and could leave the old client
+      // in the ribbon while a different job was already open.
       const result = await handleResponse(res);
-      if (typeof window !== "undefined" && result?.status === "success" && result?.data) {
-        try {
-          const jobInfo = result.data;
-          const { local_job, ...metaWithoutDrawing } = jobInfo;
-          const cleanJobMeta = {
-            ...metaWithoutDrawing,
-            local_job: local_job ? {
-              id: local_job.id,
-              project_name: local_job.project_name,
-              room_count: local_job.room_count,
-              total_area: local_job.total_area
-            } : null
-          };
-          const metaStr = JSON.stringify(cleanJobMeta);
-          sessionStorage.setItem("pendingEmsJob", metaStr);
-          try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) { }
-          const authoritativeModules = Array.isArray(jobInfo.task_modules)
-            ? jobInfo.task_modules
-            : (Array.isArray(jobInfo.selected_modules)
-              ? jobInfo.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
-              : null);
-          if (Array.isArray(authoritativeModules)) {
-            const authStr = JSON.stringify(authoritativeModules);
-            sessionStorage.setItem("selectedModules", authStr);
-            try { localStorage.removeItem("selectedModules"); } catch (_) { }
-          }
-          window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: cleanJobMeta }));
-        } catch (_) { }
-      }
       return result;
     } catch (err) {
       console.warn("[getJobByEmsId] Lá»—i khi táº£i Job EMS:", err);
@@ -177,7 +153,7 @@ export const ApiService = {
     }
   },
 
-  async getTaskListJobs(maNv = null, search = null, limit = 20000, forceRefresh = false) {
+  async getTaskListJobs(maNv = null, search = null, limit = 500, forceRefresh = false) {
     const params = new URLSearchParams();
     if (maNv) params.append("ma_nv", maNv);
     if (search) params.append("search", search);
@@ -191,8 +167,8 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async fetchTaskListJobs(limit = 20000, forceRefresh = false) {
-    return this.getTaskListJobs(null, null, limit, forceRefresh);
+  async fetchTaskListJobs(limit = 500, forceRefresh = false, search = null) {
+    return this.getTaskListJobs(null, search, limit, forceRefresh);
   },
 
   async getJobProgressReport(params = {}) {

@@ -2309,10 +2309,6 @@ export default function LockupTask({
                 <thead>
                   <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
                     <th style={{
-                      position: "sticky",
-                      left: 0,
-                      zIndex: 10,
-                      background: "#1e3a5f",
                       padding: "8px 6px",
                       width: "32px",
                       minWidth: "32px",
@@ -2323,16 +2319,10 @@ export default function LockupTask({
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Category</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Location</th>
                     <th style={{
-                      position: "sticky",
-                      left: "32px",
-                      zIndex: 10,
-                      background: "#1e3a5f",
                       padding: "8px 8px",
                       width: "95px",
                       minWidth: "95px",
-                      borderBottom: "2px solid #334155",
-                      borderRight: "2px solid #475569",
-                      boxShadow: "3px 0 5px -2px rgba(0,0,0,0.25)"
+                      borderBottom: "2px solid #334155"
                     }}>Label</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Task</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door Type</th>
@@ -2493,6 +2483,16 @@ export default function LockupTask({
                         data-floor-level={rowFloor}
                         data-lockup-row-id={String(row.id)}
                         data-editing-row-id={isEditing ? String(row.id) : undefined}
+                        onPointerDownCapture={(e) => {
+                          if (e.button !== 0) return;
+                          // Commit the previous row first, then move the one-and-only
+                          // selection. Pointer capture also works when clicking controls.
+                          if (editingDoorData && editingDoorData.id !== row.id) {
+                            commitInlineEdit(editingDoorData);
+                          }
+                          setSelectedEntryId(row.id);
+                          if (onSelectEntry) onSelectEntry(row);
+                        }}
                         onClick={(e) => {
                           if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
                             e.stopPropagation();
@@ -2542,10 +2542,6 @@ export default function LockupTask({
                         }}
                       >
                         <td style={{
-                          position: "sticky",
-                          left: 0,
-                          zIndex: 2,
-                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "6px 8px",
                           fontWeight: isSelected ? 800 : 700,
                           textAlign: "center",
@@ -2553,8 +2549,7 @@ export default function LockupTask({
                           width: "32px",
                           minWidth: "32px",
                           maxWidth: "32px",
-                          borderBottom: "1px solid #e2e8f0",
-                          borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
+                          borderBottom: "1px solid #e2e8f0"
                         }}>{idx + 1}</td>
 
                         <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
@@ -2604,15 +2599,10 @@ export default function LockupTask({
                         </td>
 
                                                 <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
-                          position: "sticky",
-                          left: "32px",
-                          zIndex: 2,
-                          background: isSelected ? "#bfdbfe" : rowBg,
                           padding: "5px 6px",
                           width: "105px",
                           minWidth: "105px",
-                          borderBottom: "1px solid #e2e8f0",
-                          borderRight: "2px solid #cbd5e1"
+                          borderBottom: "1px solid #e2e8f0"
                         }}>
                           {isCellEditing("label") ? (
                             <input
@@ -2636,21 +2626,25 @@ export default function LockupTask({
                           )}
                         </td>
 
-                                                <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          <select
-                            value="lock_up"
-                            onClick={(e) => e.stopPropagation()}
-                            onDoubleClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              onMoveDoorTask?.(row, e.target.value);
-                            }}
-                            style={{ ...inlineControlStyle, width: "86px", borderColor: "#cbd5e1", fontWeight: 700 }}
-                            title="Choose which task owns this door. This routing is not saved to Procurement DB."
-                          >
-                            <option value="lock_up">Lockup</option>
-                            <option value="fixout">Fixout</option>
-                          </select>
+                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", fontWeight: 700 }}>
+                          {isEditing ? (
+                            <select
+                              value="lock_up"
+                              onClick={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                onMoveDoorTask?.(row, e.target.value);
+                              }}
+                              style={{ ...inlineControlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
+                              title="Move this door to another task. This routing is not saved to Procurement DB."
+                            >
+                              <option value="lock_up">Lockup</option>
+                              <option value="fixout">Fixout</option>
+                            </select>
+                          ) : (
+                            <span title="Double-click the row to change task">Lockup</span>
+                          )}
                         </td>
 
                         <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>

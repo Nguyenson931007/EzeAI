@@ -30,9 +30,9 @@ export default function TaskGroupsHwPanel({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button
-            onClick={() => fetchTasks(true)}
+            onClick={() => fetchTasks(true, taskSearch)}
             disabled={taskLoading}
-            title="Làm mới danh sách từ TaskList"
+            title="Refresh jobs from the same EMS source used by Procurement"
             style={{
               background: "rgba(37,99,235,0.06)",
               border: "1px solid rgba(37,99,235,0.15)",
@@ -78,7 +78,7 @@ export default function TaskGroupsHwPanel({
       <div style={{ position: "relative" }}>
         <input
           type="text"
-          placeholder="🔍 Search Job HW, client, staff..."
+          placeholder="🔍 Search EMS job, client, builder..."
           value={taskSearch}
           onChange={(e) => {
             setTaskSearch(e.target.value);

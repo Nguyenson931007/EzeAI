@@ -374,42 +374,82 @@ def get_job_history():
 async def get_tasklist_jobs(
     ma_nv: Optional[str] = Query(None, description="Lọc theo mã nhân viên e.g. EZE0098"),
     search: Optional[str] = Query(None, description="Tìm kiếm mã Job, Client, Builder, Address"),
-    limit: int = Query(20000, ge=1, le=20000, description="Số lượng job tối đa"),
+    limit: int = Query(500, ge=1, le=500, description="Số lượng job tối đa"),
     force_refresh: bool = Query(False, description="Giữ tương thích UI; dữ liệu luôn đọc trực tiếp từ EMS")
 ):
-    """Read EMS jobs directly from ``ListJobs`` using the same source as ProcurementApp.
+    """Fast EMS job list for the Task HW panel.
 
-    This endpoint deliberately does *not* sync into ``task_group_hw_cache``.  The
-    job list is read-only and always comes from EMS, while the latest Task HW
-    group is attached when one exists so the existing EzeFloor UI can keep using
-    ``hw_id``, ``ma_nv`` and TaskList module visibility.
+    Keep the same source as ProcurementApp (ListJobs/ListClient), but only load a
+    bounded page first.  Expensive Task HW enrichment is then performed for that
+    small candidate set instead of against tens of thousands of EMS rows.
     """
     from app.mssql_db import get_mssql_connection
 
-    limit_val = max(1, min(int(limit or 20000), 20000))
+    # ProcurementApp intentionally keeps job-list requests bounded (<= 500).
+    # EzeFloor used to request 20,000 rows and then enrich every row, which made
+    # this panel much slower despite displaying only a few dozen cards.
+    limit_val = max(1, min(int(limit or 500), 500))
     clean_manv = ma_nv.strip() if isinstance(ma_nv, str) and ma_nv.strip() else None
     clean_search = search.strip() if isinstance(search, str) and search.strip() else None
 
-    where = ["ISNULL(lj.IsDelete, 0) = 0"]
-    params = []
-    if clean_manv:
-        where.append("UPPER(LTRIM(RTRIM(COALESCE(aj.MaNV, '')))) = UPPER(%s)")
-        params.append(clean_manv)
+    from app.customer_modules.registry import CUSTOMER_TASKS
+
+    procurement_client_short_names = tuple(CUSTOMER_TASKS.keys())
+    procurement_client_full_names = ("Cairns Hardware Whole Of House",)
+
+    short_name_placeholders = ", ".join(["%s"] * len(procurement_client_short_names))
+    full_name_placeholders = ", ".join(["%s"] * len(procurement_client_full_names))
+
+    candidate_where = [
+        "ISNULL(lj.IsDelete, 0) = 0",
+        f"(lc.ShortName IN ({short_name_placeholders}) OR lj.Client IN ({full_name_placeholders}))",
+        "(lc.IsDelete = 0 OR lc.IsDelete IS NULL OR lc.ClientName IS NULL)",
+    ]
+    params = list(procurement_client_short_names) + list(procurement_client_full_names)
+
+    # Match Procurement's server-side job search.  Search stays global even
+    # though the normal list is capped to 500 recent jobs.
     if clean_search:
-        where.append("""(
+        candidate_where.append("""(
             lj.JobNumber LIKE %s
             OR lj.ClientJobNumber LIKE %s
-            OR lj.Client LIKE %s
-            OR lc.ShortName LIKE %s
             OR lj.Builder LIKE %s
             OR lj.Address LIKE %s
-            OR aj.MaNV LIKE %s
+            OR lj.Client LIKE %s
+            OR lc.ShortName LIKE %s
         )""")
         pattern = f"%{clean_search}%"
-        params.extend([pattern] * 7)
+        params.extend([pattern] * 6)
 
+    staff_where = ""
+    if clean_manv:
+        staff_where = "WHERE UPPER(LTRIM(RTRIM(COALESCE(aj.MaNV, '')))) = UPPER(%s)"
+        params.append(clean_manv)
+
+    # IMPORTANT: TOP is applied to ListJobs *before* OUTER APPLY task_group_hw.
+    # The old query applied Task HW lookup while scanning up to 20k EMS jobs.
     sql = f"""
-        SELECT TOP {limit_val}
+        WITH candidate_jobs AS (
+            SELECT TOP {limit_val}
+                lj.IDJob,
+                lj.JobNumber,
+                lj.ClientJobNumber,
+                lj.Client,
+                lj.Builder,
+                lj.Address,
+                lj.Suburb,
+                lj.TrangThai,
+                lj.NgayCapNhat,
+                COALESCE(NULLIF(lc.ShortName, ''), lj.Client) AS resolved_client,
+                COALESCE(lc.ClientName, lj.Client) AS resolved_client_name
+            FROM [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj WITH (NOLOCK)
+            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc WITH (NOLOCK)
+                ON lc.ClientName = lj.Client
+                AND ISNULL(lc.IsDelete, 0) = 0
+            WHERE {' AND '.join(candidate_where)}
+            ORDER BY lj.NgayCapNhat DESC, lj.JobNumber DESC
+        )
+        SELECT
             CAST(lj.IDJob AS NVARCHAR(100)) AS id_job_ems,
             tghw.hw_id,
             tghw.id_assign_ems,
@@ -417,8 +457,8 @@ async def get_tasklist_jobs(
             tghw.progress,
             tghw.is_done,
             lj.JobNumber AS job_number,
-            COALESCE(NULLIF(lc.ShortName, ''), lj.Client) AS client,
-            COALESCE(lc.ClientName, lj.Client) AS client_name,
+            lj.resolved_client AS client,
+            lj.resolved_client_name AS client_name,
             lj.ClientJobNumber AS customer_reference_number,
             lj.Builder AS builder,
             lj.Address AS address,
@@ -426,10 +466,7 @@ async def get_tasklist_jobs(
             lj.TrangThai AS status,
             lj.NgayCapNhat AS updated_at,
             aj.MaNV AS ma_nv
-        FROM [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj WITH (NOLOCK)
-        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc WITH (NOLOCK)
-            ON lc.ClientName = lj.Client
-            AND ISNULL(lc.IsDelete, 0) = 0
+        FROM candidate_jobs AS lj
         OUTER APPLY (
             SELECT TOP 1
                 t.id AS hw_id,
@@ -445,7 +482,7 @@ async def get_tasklist_jobs(
         LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] AS aj WITH (NOLOCK)
             ON aj.ID = tghw.id_assign_ems
             AND ISNULL(aj.IsDelete, 0) = 0
-        WHERE {' AND '.join(where)}
+        {staff_where}
         ORDER BY lj.NgayCapNhat DESC, lj.JobNumber DESC
     """
 
@@ -468,20 +505,35 @@ async def get_tasklist_jobs(
             except Exception:
                 pass
 
-    # Attach EzeFloor local drawing state without changing EMS/Procurement data.
+    # Only compare local drawings for the EMS jobs actually returned.  The old
+    # code scanned the entire local jobs table on every Task HW refresh/search.
     local_by_project = {}
     local_conn = None
     try:
-        local_conn = get_db_connection()
-        local_cursor = local_conn.cursor()
-        local_cursor.execute("SELECT id, project_name, room_count, total_area FROM jobs")
-        for row in local_cursor.fetchall() or []:
-            item = dict(row) if isinstance(row, dict) or hasattr(row, "keys") else {
-                "id": row[0], "project_name": row[1], "room_count": row[2], "total_area": row[3]
-            }
-            key = str(item.get("project_name") or "").strip().lower()
-            if key:
-                local_by_project[key] = item
+        job_numbers = sorted({
+            str(row.get("job_number") or "").strip().lower()
+            for row in ems_rows
+            if str(row.get("job_number") or "").strip()
+        })
+        if job_numbers:
+            local_conn = get_db_connection()
+            local_cursor = local_conn.cursor()
+            placeholders = ", ".join(["?"] * len(job_numbers))
+            local_cursor.execute(
+                f"""
+                SELECT id, project_name, room_count, total_area
+                FROM jobs
+                WHERE LOWER(TRIM(project_name)) IN ({placeholders})
+                """,
+                tuple(job_numbers),
+            )
+            for row in local_cursor.fetchall() or []:
+                item = dict(row) if isinstance(row, dict) or hasattr(row, "keys") else {
+                    "id": row[0], "project_name": row[1], "room_count": row[2], "total_area": row[3]
+                }
+                key = str(item.get("project_name") or "").strip().lower()
+                if key:
+                    local_by_project[key] = item
     except Exception as exc:
         logger.warning(f"[ems-jobs] Không thể đối chiếu local jobs (non-fatal): {exc}")
     finally:
@@ -521,25 +573,20 @@ async def get_tasklist_jobs(
                 "room_count": local_job.get("room_count"),
                 "total_area": local_job.get("total_area"),
             } if has_local else None,
+            # Task module selection is intentionally lazy-loaded by open-by-ems
+            # when the user clicks a job.  It is not needed to render this list.
+            "task_modules_configured": False,
+            "selected_modules": None,
+            "task_modules": None,
+            "selected_task_count": None,
         })
-
-    hw_ids = [item.get("hw_id") for item in results if item.get("hw_id")]
-    module_selections = _load_tasklist_module_selections(hw_ids) if hw_ids else {}
-    for item in results:
-        selection = module_selections.get(str(item.get("hw_id") or ""))
-        configured = bool(selection and selection.get("configured"))
-        selected_modules = list(selection.get("selected_modules") or []) if configured else None
-        item["task_modules_configured"] = configured
-        item["selected_modules"] = selected_modules
-        item["task_modules"] = selected_modules
-        item["selected_task_count"] = len(selected_modules) if configured else None
 
     return {
         "status": "success",
         "total": len(results),
         "completed_count": sum(1 for item in results if item["has_local_job"]),
         "data": results,
-        "source": "ems_listjobs_direct",
+        "source": "ems_listjobs_direct_fast",
     }
 
 
