@@ -1061,7 +1061,8 @@ export default function FixoutTask({
   onAddDataAI,
   onSelectEntry,
   activeJobNumber,
-  onClearData
+  onClearData,
+  onMoveDoorTask
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
   const activeCustomerShortName = getActiveClientShortName();
@@ -1450,19 +1451,19 @@ export default function FixoutTask({
             <tr>
               <th style={{ width: "38px", textAlign: "center" }}>#</th>
               <th style={{ width: "92px" }}>Label</th>
-              <th style={{ width: "112px" }}>Category</th>
-              <th style={{ width: "125px" }}>Door Type</th>
+              <th style={{ width: "92px" }}>Task</th>
+              <th style={{ width: "105px" }}>Door Type</th>
               <th style={{ width: "72px", textAlign: "center" }}>Height</th>
               <th style={{ width: "72px", textAlign: "center" }}>Width</th>
               <th style={{ width: "66px", textAlign: "center" }}>Thicks</th>
-              <th style={{ width: "78px", textAlign: "center" }}>Wall</th>
-              <th style={{ width: "108px" }}>Frame</th>
-              <th style={{ width: "88px" }}>Lift / Pivot</th>
-              <th style={{ width: "82px" }}>Handing</th>
-              <th style={{ width: "70px" }}>Hole</th>
-              <th style={{ width: "82px" }}>Finish</th>
-              <th style={{ width: "150px" }}>Furniture</th>
-              <th style={{ width: "118px" }}>Door Stop</th>
+              <th style={{ width: "92px" }}>Jamb / wall</th>
+              <th style={{ width: "108px" }}>Jamb Size</th>
+              <th style={{ width: "92px" }}>Hung</th>
+              <th style={{ width: "150px" }}>Type</th>
+              <th style={{ width: "70px" }}>HF/HO</th>
+              <th style={{ width: "82px" }}>Color</th>
+              <th style={{ width: "118px" }}>Stop</th>
+              <th style={{ width: "150px" }}>Door Furniture</th>
               <th style={{ width: "55px", textAlign: "center" }}>Qty</th>
               <th style={{ width: "42px" }}></th>
             </tr>
@@ -1493,6 +1494,8 @@ export default function FixoutTask({
                   const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
                   const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
                   const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
+                  const jambWallStr = item.wall_width ? `${String(item.wall_width).replace(/mm/gi, "").trim()}mm Wall` : "—";
+                  const hungStr = item.handing || item.lift_off_pivot || "—";
 
                   const isRowEditing = editingRowId === item.id;
                   const editCategory = isRowEditing ? (editRowData.category || item.category || "cavity") : item.category;
@@ -1547,6 +1550,22 @@ export default function FixoutTask({
                       <td>
                         {isRowEditing ? <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} /> : <strong>{item.door_label || "—"}</strong>}
                       </td>
+                      <td>
+                        <select
+                          value="fixout"
+                          onClick={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          onChange={(event) => {
+                            event.stopPropagation();
+                            onMoveDoorTask?.(item, event.target.value);
+                          }}
+                          style={{ ...controlStyle, width: "86px", borderColor: "#cbd5e1", fontWeight: 700 }}
+                          title="Choose which task owns this door. This routing is not saved to Procurement DB."
+                        >
+                          <option value="fixout">Fixout</option>
+                          <option value="lock_up">Lockup</option>
+                        </select>
+                      </td>
                       <td style={{ fontWeight: 600 }}>
                         {isRowEditing ? (
                           <select value={editCategory} onChange={(event) => setEditField("category", event.target.value)} style={controlStyle}>
@@ -1555,14 +1574,6 @@ export default function FixoutTask({
                             <option value="loose-jamb">Loose Jamb</option>
                           </select>
                         ) : modeLabel(item.category)}
-                      </td>
-                      <td>
-                        {isRowEditing ? (
-                          <select value={editRowData.door_type || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
-                            <option value="">—</option>
-                            {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-                          </select>
-                        ) : (item.door_type || "—")}
                       </td>
                       <td style={{ textAlign: "center" }}>
                         {isRowEditing ? <select value={String(editRowData.height || item.height || 2040)} onChange={(event) => setEditField("height", event.target.value)} style={controlStyle}>{editHeightOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.height || 2040)}
@@ -1579,7 +1590,7 @@ export default function FixoutTask({
                             <option value="">—</option>
                             {OPT.wallWidth.map((value) => <option key={value} value={value}>{value}</option>)}
                           </select>
-                        ) : (item.wall_width || "—")}
+                        ) : jambWallStr}
                       </td>
                       <td>
                         {isRowEditing ? (
@@ -1595,16 +1606,36 @@ export default function FixoutTask({
                           )
                         ) : frameDisplay}
                       </td>
-                      <td>{isRowEditing ? <select value={editRowData.lift_off_pivot || "None"} onChange={(event) => setEditField("lift_off_pivot", event.target.value)} style={controlStyle}>{OPT.liftOff.map((value) => <option key={value} value={value}>{value}</option>)}</select> : liftOffStr}</td>
-                      <td>{isRowEditing ? <select value={editRowData.handing || "None"} onChange={(event) => setEditField("handing", event.target.value)} style={controlStyle}>{OPT.handing.map((value) => <option key={value} value={value}>{value}</option>)}</select> : handingStr}</td>
+                      <td>
+                        {isRowEditing ? (
+                          <select
+                            value={editRowData.handing || editRowData.lift_off_pivot || "None"}
+                            onChange={(event) => {
+                              if (editIsCavity || editIsLoose) setEditField("lift_off_pivot", event.target.value);
+                              else setEditField("handing", event.target.value);
+                            }}
+                            style={controlStyle}
+                          >
+                            {Array.from(new Set([...(OPT.handing || []), ...(OPT.liftOff || [])])).map((value) => <option key={value} value={value}>{value}</option>)}
+                          </select>
+                        ) : hungStr}
+                      </td>
+                      <td>
+                        {isRowEditing ? (
+                          <select value={editRowData.door_type || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
+                            <option value="">—</option>
+                            {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                          </select>
+                        ) : (item.door_type || "—")}
+                      </td>
                       <td>{isRowEditing ? <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{OPT.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select> : holeStr}</td>
                       <td>{isRowEditing ? <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{OPT.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select> : finishStr}</td>
-                      <td>{isRowEditing ? <select value={editRowData.door_furniture || "None"} onChange={(event) => setEditField("door_furniture", event.target.value)} style={controlStyle}>{editFurnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : furnitureStr}</td>
                       <td>
                         {isRowEditing ? (
                           editIsCavity ? <span>—</span> : <select value={editRowData.door_stop || "None"} onChange={(event) => setEditField("door_stop", event.target.value)} style={controlStyle}>{OPT.stop.map((value) => <option key={value} value={value}>{value}</option>)}</select>
                         ) : doorStopStr}
                       </td>
+                      <td>{isRowEditing ? <select value={editRowData.door_furniture || "None"} onChange={(event) => setEditField("door_furniture", event.target.value)} style={controlStyle}>{editFurnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : furnitureStr}</td>
                       <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
                         {isRowEditing ? <input inputMode="numeric" value={editRowData.qty ?? 1} onChange={(event) => setEditField("qty", event.target.value)} style={{ ...controlStyle, textAlign: "center" }} /> : (item.qty || 1)}
                       </td>

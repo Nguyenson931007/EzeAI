@@ -34,6 +34,17 @@ function normalizedHeader(value) {
   return String(value || "").replace(/[▾▽]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+// One inline-edit contract for every task table:
+// double-click a row to edit, Enter commits it, Escape/click-out remains owned
+// by the task.  Legacy green Save/✓ buttons stay as internal commit hooks but
+// are hidden from the UI so every customer/task behaves the same way.
+function isInlineSaveButton(button) {
+  if (!button) return false;
+  const label = String(button.title || button.getAttribute?.("aria-label") || "").trim();
+  const text = String(button.textContent || "").replace(/\s+/g, " ").trim();
+  return /^save(?:\s+(?:row|edit))?$/i.test(label) || /^(?:save|✓)$/i.test(text);
+}
+
 function isNonFilterableHeader(value) {
   const label = normalizedHeader(value);
   return NON_FILTERABLE_HEADERS.has(label) || /^label\b/.test(label);
@@ -162,16 +173,30 @@ function updateGroupVisibility(table, collapsedGroups) {
  * Enhances the existing task tables without forcing every task to duplicate
  * sticky-header, typography, scrolling and Excel-style filter code.
  */
-export default function TaskTableEnhancer({ children, taskId }) {
+export default function TaskTableEnhancer({ children, taskId, onBeforeInlineCommit }) {
   const rootRef = useRef(null);
   const filtersRef = useRef(new Map());
   const collapsedGroupsRef = useRef(new WeakMap());
+  const inlineHistoryCapturedRef = useRef(false);
   // Shared Excel-style row edit layout lock.  Every task keeps ownership of
   // its business edit state, while this enhancer freezes the table geometry
   // before the double-click changes text cells into controls.
   const rowEditLayoutsRef = useRef(new WeakMap());
+  // Keep the original inline styles for every row that receives the temporary
+  // edit-layout lock. This matters when React switches directly from row A to
+  // row B in one render: without a per-row snapshot, row A can keep the blue
+  // editing class even though only row B is still being edited.
+  const lockedRowLayoutsRef = useRef(new WeakMap());
   const [menu, setMenu] = useState(null);
   const [draftValues, setDraftValues] = useState(() => new Set());
+
+  const captureInlineHistoryOnce = useCallback(() => {
+    if (inlineHistoryCapturedRef.current) return;
+    inlineHistoryCapturedRef.current = true;
+    if (typeof onBeforeInlineCommit === "function") {
+      onBeforeInlineCommit(taskId);
+    }
+  }, [onBeforeInlineCommit, taskId]);
 
   const captureRowEditLayout = useCallback((table, row) => {
     if (!table || !row) return;
@@ -215,9 +240,56 @@ export default function TaskTableEnhancer({ children, taskId }) {
     rowEditLayoutsRef.current.set(table, snapshot);
   }, []);
 
+  const rememberLockedRowLayout = useCallback((row) => {
+    if (!row || lockedRowLayoutsRef.current.has(row)) return;
+    lockedRowLayoutsRef.current.set(row, {
+      rowStyle: {
+        height: row.style.height,
+        minHeight: row.style.minHeight,
+        maxHeight: row.style.maxHeight,
+      },
+      cells: Array.from(row.cells || []).map((cell) => ({
+        node: cell,
+        width: cell.style.width,
+        minWidth: cell.style.minWidth,
+        maxWidth: cell.style.maxWidth,
+        height: cell.style.height,
+        minHeight: cell.style.minHeight,
+        maxHeight: cell.style.maxHeight,
+      })),
+    });
+  }, []);
+
+  const unlockRowEdit = useCallback((row) => {
+    if (!row) return;
+    const saved = lockedRowLayoutsRef.current.get(row);
+    row.classList.remove("task-row-editing-locked");
+    row.style.removeProperty("--task-edit-row-height");
+
+    if (saved) {
+      row.style.height = saved.rowStyle.height;
+      row.style.minHeight = saved.rowStyle.minHeight;
+      row.style.maxHeight = saved.rowStyle.maxHeight;
+      saved.cells.forEach(({ node, width, minWidth, maxWidth, height, minHeight, maxHeight }, index) => {
+        const target = node?.isConnected ? node : row.cells?.[index];
+        if (!target) return;
+        target.style.width = width;
+        target.style.minWidth = minWidth;
+        target.style.maxWidth = maxWidth;
+        target.style.height = height;
+        target.style.minHeight = minHeight;
+        target.style.maxHeight = maxHeight;
+      });
+      lockedRowLayoutsRef.current.delete(row);
+    }
+  }, []);
+
   const restoreRowEditLayout = useCallback((table, snapshot) => {
     if (!table || !snapshot) return;
     table.classList.remove("task-row-edit-layout-locked");
+    // A direct A -> B edit switch can leave more than one DOM row carrying
+    // the temporary lock class. Always clear every stale lock in the table.
+    table.querySelectorAll("tbody tr.task-row-editing-locked").forEach((row) => unlockRowEdit(row));
     table.style.width = snapshot.tableStyle.width;
     table.style.minWidth = snapshot.tableStyle.minWidth;
     table.style.maxWidth = snapshot.tableStyle.maxWidth;
@@ -241,14 +313,12 @@ export default function TaskTableEnhancer({ children, taskId }) {
       target.style.maxHeight = maxHeight;
     });
     if (row) {
-      row.classList.remove("task-row-editing-locked");
-      row.style.removeProperty("--task-edit-row-height");
       row.style.height = snapshot.rowStyle.height;
       row.style.minHeight = snapshot.rowStyle.minHeight;
       row.style.maxHeight = snapshot.rowStyle.maxHeight;
     }
     rowEditLayoutsRef.current.delete(table);
-  }, []);
+  }, [unlockRowEdit]);
 
   const findEditingRow = useCallback((table, snapshot) => {
     if (!table) return null;
@@ -276,6 +346,13 @@ export default function TaskTableEnhancer({ children, taskId }) {
       restoreRowEditLayout(table, snapshot);
       return;
     }
+
+    // Only one row may visually be in edit mode. React can batch "save old
+    // row" + "open new row", so explicitly unlock the previous DOM row first.
+    table.querySelectorAll("tbody tr.task-row-editing-locked").forEach((row) => {
+      if (row !== editRow) unlockRowEdit(row);
+    });
+    rememberLockedRowLayout(editRow);
 
     table.classList.add("task-row-edit-layout-locked");
     table.style.width = `${snapshot.tableWidth}px`;
@@ -307,7 +384,7 @@ export default function TaskTableEnhancer({ children, taskId }) {
       cell.style.minHeight = `${snapshot.rowHeight}px`;
       cell.style.maxHeight = `${snapshot.rowHeight}px`;
     });
-  }, [findEditingRow, restoreRowEditLayout]);
+  }, [findEditingRow, rememberLockedRowLayout, restoreRowEditLayout, unlockRowEdit]);
 
   const applyFilters = useCallback((table) => {
     if (!table) return;
@@ -429,6 +506,12 @@ export default function TaskTableEnhancer({ children, taskId }) {
       table.querySelectorAll("tbody button").forEach((button) => {
         const actionLabel = String(button.title || button.getAttribute("aria-label") || "").trim();
         button.classList.toggle("task-row-edit-action", /^edit\b/i.test(actionLabel));
+        const inlineSave = isInlineSaveButton(button);
+        button.classList.toggle("task-inline-save-button", inlineSave);
+        if (inlineSave) {
+          button.tabIndex = -1;
+          button.setAttribute("aria-hidden", "true");
+        }
       });
     });
 
@@ -497,6 +580,10 @@ export default function TaskTableEnhancer({ children, taskId }) {
       const row = event.target?.closest?.("tbody tr");
       const table = row?.closest?.("table");
       if (!row || !table || !root.contains(table) || isGroupRow(row)) return;
+      // Start a fresh logical edit transaction. History is captured lazily only
+      // when this row is actually committed, so opening then cancelling an edit
+      // never creates a no-op Ctrl+Z entry.
+      inlineHistoryCapturedRef.current = false;
       captureRowEditLayout(table, row);
       requestAnimationFrame(() => {
         applyRowEditLayout(table);
@@ -507,6 +594,75 @@ export default function TaskTableEnhancer({ children, taskId }) {
     root.addEventListener("dblclick", captureBeforeRowEdit, true);
     return () => root.removeEventListener("dblclick", captureBeforeRowEdit, true);
   }, [applyRowEditLayout, captureRowEditLayout, taskId]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    const commitInlineEditOnEnter = (event) => {
+      if (event.defaultPrevented || event.isComposing || event.key !== "Enter") return;
+      const row = event.target?.closest?.("tbody tr");
+      const table = row?.closest?.("table");
+      if (!row || !table || !root.contains(table) || isGroupRow(row)) return;
+      if (!row.querySelector("input, select, textarea, [data-search-dropdown]")) return;
+
+      const saveButton = Array.from(row.querySelectorAll("button")).find(isInlineSaveButton);
+      if (!saveButton) return;
+
+      captureInlineHistoryOnce();
+      event.preventDefault();
+      event.stopPropagation();
+      saveButton.click();
+      requestAnimationFrame(() => applyRowEditLayout(table));
+    };
+
+    root.addEventListener("keydown", commitInlineEditOnEnter, false);
+    return () => root.removeEventListener("keydown", commitInlineEditOnEnter, false);
+  }, [applyRowEditLayout, captureInlineHistoryOnce, taskId]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    const getEditingRow = () => Array.from(root.querySelectorAll("tbody tr[data-editing-row-id]"))
+      .find((row) => !isGroupRow(row));
+
+    // Most task editors auto-save when the user clicks outside the active row.
+    // Capture the pre-edit snapshot in the capture phase, before those task-level
+    // document handlers commit their React state.
+    const captureBeforeOutsideCommit = (event) => {
+      const editingRow = getEditingRow();
+      if (!editingRow) return;
+      if (editingRow.contains(event.target)) return;
+      captureInlineHistoryOnce();
+    };
+
+    // Keep compatibility with any task that still invokes its hidden internal
+    // Save hook directly. Enter also reaches this path, but the once-guard makes
+    // one row edit exactly one history transaction.
+    const captureBeforeSaveClick = (event) => {
+      const button = event.target?.closest?.("button");
+      if (!button || !root.contains(button) || !isInlineSaveButton(button)) return;
+      captureInlineHistoryOnce();
+    };
+
+    const captureBeforeFocusCommit = (event) => {
+      const editingRow = event.target?.closest?.("tbody tr[data-editing-row-id]");
+      if (!editingRow || !root.contains(editingRow)) return;
+      const nextTarget = event.relatedTarget;
+      if (nextTarget && editingRow.contains(nextTarget)) return;
+      captureInlineHistoryOnce();
+    };
+
+    document.addEventListener("mousedown", captureBeforeOutsideCommit, true);
+    root.addEventListener("click", captureBeforeSaveClick, true);
+    root.addEventListener("focusout", captureBeforeFocusCommit, true);
+    return () => {
+      document.removeEventListener("mousedown", captureBeforeOutsideCommit, true);
+      root.removeEventListener("click", captureBeforeSaveClick, true);
+      root.removeEventListener("focusout", captureBeforeFocusCommit, true);
+    };
+  }, [captureInlineHistoryOnce, taskId]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -542,6 +698,8 @@ export default function TaskTableEnhancer({ children, taskId }) {
     filtersRef.current = new Map();
     collapsedGroupsRef.current = new WeakMap();
     rowEditLayoutsRef.current = new WeakMap();
+    lockedRowLayoutsRef.current = new WeakMap();
+    inlineHistoryCapturedRef.current = false;
   }, [taskId]);
 
   useEffect(() => {
@@ -681,6 +839,11 @@ export default function TaskTableEnhancer({ children, taskId }) {
         .task-module-enhanced .task-row-edit-action,
         .task-module-enhanced table tbody button[title^="Edit" i],
         .task-module-enhanced table tbody button[aria-label^="Edit" i] {
+          display: none !important;
+        }
+        .task-module-enhanced table tbody .task-inline-save-button,
+        .task-module-enhanced table tbody button[title^="Save" i],
+        .task-module-enhanced table tbody button[aria-label^="Save" i] {
           display: none !important;
         }
         .task-module-enhanced button.task-ui-section-header-button {

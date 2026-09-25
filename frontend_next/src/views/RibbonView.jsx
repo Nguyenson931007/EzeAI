@@ -17,6 +17,7 @@ import TrussEngine from "@/engines/Truss";
 import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permissions";
 import { polygonAreaM2 } from "@/utils/geometry";
 import PdfToolsRibbon from "./ribbon/PdfToolsRibbon";
+import { getActiveClientInfo } from "@/constants/clients";
 
 const CAD_ICONS = {
   Json: () => (
@@ -441,6 +442,7 @@ export default function RibbonView({
     importTarget: contextImportTarget,
     setImportTarget: contextSetImportTarget
   } = useAppModel();
+  const [activeCustomerInfo, setActiveCustomerInfo] = useState(() => getActiveClientInfo());
   const [isExportingProcurement, setIsExportingProcurement] = useState(false);
   const [hoveredPageIdx, setHoveredPageIdx] = useState(null);
   const [showWallConfig, setShowWallConfig] = useState(false);
@@ -453,6 +455,18 @@ export default function RibbonView({
   const userMenuRef = useRef(null);
 
   const effectiveImportTarget = propsImportTarget || contextImportTarget || (activeTab === "PDF Tools" ? "pdf_tools" : "level");
+
+  useEffect(() => {
+    const refreshCustomerInfo = () => setActiveCustomerInfo(getActiveClientInfo());
+    refreshCustomerInfo();
+    if (typeof window === "undefined") return undefined;
+    window.addEventListener("task-modules-updated", refreshCustomerInfo);
+    window.addEventListener("storage", refreshCustomerInfo);
+    return () => {
+      window.removeEventListener("task-modules-updated", refreshCustomerInfo);
+      window.removeEventListener("storage", refreshCustomerInfo);
+    };
+  }, []);
   const [taskSteps, setTaskSteps] = useState(DEFAULT_TASK_STEPS);
   const [selectedStepId, setSelectedStepId] = useState("frame_hardware");
 
@@ -1210,6 +1224,28 @@ export default function RibbonView({
         </span>
         <span style={{ color: "rgba(255, 255, 255, 0.85)", fontSize: "12px", fontWeight: 600, letterSpacing: "0.2px" }}>
           {currentProjectName || "EzeFloor Workspace"}
+        </span>
+        <span
+          title={`Active customer form: ${activeCustomerInfo.displayName} (${activeCustomerInfo.shortName})`}
+          style={{
+            marginLeft: "8px",
+            display: "inline-flex",
+            alignItems: "center",
+            maxWidth: "220px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: "#dbeafe",
+            background: "rgba(59, 130, 246, 0.22)",
+            border: "1px solid rgba(147, 197, 253, 0.38)",
+            borderRadius: "999px",
+            padding: "2px 8px",
+            fontSize: "10.5px",
+            fontWeight: 700,
+            letterSpacing: "0.15px",
+          }}
+        >
+          {activeCustomerInfo.displayName} · {activeCustomerInfo.shortName}
         </span>
 
         {/* Quick Access Toolbar (Undo / Redo) */}

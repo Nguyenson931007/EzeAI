@@ -80,7 +80,9 @@ export default function TaskModulesContainer({
   walls = [],
   updateWallsProperty,
   updateDoor,
-  updateDoorsProperty
+  updateDoorsProperty,
+  onMoveDoorTask,
+  pushTaskHistory
 }) {
   if (!activeModuleTab) return null;
 
@@ -197,7 +199,10 @@ export default function TaskModulesContainer({
         )}
       </div>
 
-      <TaskTableEnhancer taskId={activeModuleTab.id}>
+      <TaskTableEnhancer
+        taskId={activeModuleTab.id}
+        onBeforeInlineCommit={pushTaskHistory}
+      >
       {/* 1. Frame Hardware */}
       {activeModuleTab.id === "frame_hardware" && FrameHardwareTask && (
         <FrameHardwareTask
@@ -353,6 +358,7 @@ export default function TaskModulesContainer({
         
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("fixout", row, targetTask)}
         />
       )}
 
@@ -375,6 +381,7 @@ export default function TaskModulesContainer({
           suppressAutoInit={Boolean(manuallyClearedTasks?.lock_up)}
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("lock_up", row, targetTask)}
         />
       )}
 

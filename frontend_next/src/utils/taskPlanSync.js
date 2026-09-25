@@ -1,4 +1,5 @@
 import { roomAreaM2, wallLengthMm } from "@/utils/procurementAutoFill";
+import { recalculateAllWallsPolygons } from "@/utils/geometry";
 
 const finite = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const text = (value) => String(value ?? "").trim();
@@ -17,6 +18,51 @@ const dimensionMm = (value, metersByDefault = false) => {
   if (/mm\s*$/.test(unit)) return amount;
   if (/m\s*$/.test(unit)) return amount * 1000;
   return metersByDefault && amount < 50 ? amount * 1000 : amount;
+};
+
+// Cladding used to bounce between metres and millimetres while editing. A row
+// such as 2700 mm could become 2700 m and then 2,700,000 mm on the next plan
+// sync. Collapse only obviously impossible wall-height magnitudes so old rows
+// repair themselves the next time they are committed.
+const normalizedWallHeightMm = (value) => {
+  const amount = parseNumber(value);
+  if (!(amount > 0)) return 0;
+  const unit = lower(value);
+  let mm;
+  if (/mm\s*$/.test(unit)) mm = amount;
+  else if (/m\s*$/.test(unit)) mm = amount <= 20 ? amount * 1000 : amount;
+  else mm = amount <= 20 ? amount * 1000 : amount;
+  while (mm > 20000) mm /= 10;
+  return mm;
+};
+
+const pointXY = (point) => Array.isArray(point)
+  ? [Number(point[0]) || 0, Number(point[1]) || 0]
+  : [Number(point?.x) || 0, Number(point?.y) || 0];
+
+const withPointXY = (point, x, y) => Array.isArray(point)
+  ? [x, y, ...point.slice(2)]
+  : { ...(point || {}), x, y };
+
+const resizeWallCenterline = (wall, targetLengthMm, scale = 1) => {
+  const centerline = wall?.centerline;
+  if (!Array.isArray(centerline) || centerline.length !== 2 || !(targetLengthMm > 0)) return null;
+  const [x1, y1] = pointXY(centerline[0]);
+  const [x2, y2] = pointXY(centerline[1]);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const currentPx = Math.hypot(dx, dy);
+  if (!(currentPx > 0)) return null;
+
+  const numericScale = finite(scale) > 0 ? finite(scale) : 1;
+  const mmPerPixel = numericScale < 0.5 ? numericScale * 1000 : numericScale;
+  if (!(mmPerPixel > 0)) return null;
+  const targetPx = targetLengthMm / mmPerPixel;
+  if (!(targetPx > 0) || Math.abs(targetPx - currentPx) < 0.0001) return null;
+
+  const ratio = targetPx / currentPx;
+  const newEnd = withPointXY(centerline[1], x1 + dx * ratio, y1 + dy * ratio);
+  return [centerline[0], newEnd];
 };
 
 const idsFor = (row, type) => {
@@ -66,7 +112,10 @@ const assignNonEmpty = (patch, key, value) => {
 const patchWallFromRow = (taskId, row) => {
   const patch = {};
   const metricTask = taskId === "cladding" || taskId === "hardies_fire_walls";
-  const height = dimensionMm(row?.height ?? row?.heightMm ?? row?.wallHeight ?? row?.wall_height, metricTask);
+  const rawHeight = row?.height ?? row?.heightMm ?? row?.wallHeight ?? row?.wall_height;
+  const height = taskId === "cladding"
+    ? normalizedWallHeightMm(rawHeight)
+    : dimensionMm(rawHeight, metricTask);
   const length = dimensionMm(row?.length ?? row?.lengthMm ?? row?.wallLength ?? row?.wall_length, metricTask);
   if (height > 0) {
     patch.height = height;
@@ -168,7 +217,7 @@ const patchRoomFromRow = (taskId, row) => {
   return patch;
 };
 
-const applyRowsToMap = (byPage, type, taskId, rows) => {
+const applyRowsToMap = (byPage, type, taskId, rows, scalesByPage = {}, fallbackScale = 1) => {
   const patches = new Map();
   (rows || []).forEach((row) => {
     const ids = idsFor(row, type);
@@ -193,32 +242,55 @@ const applyRowsToMap = (byPage, type, taskId, rows) => {
   const next = {};
   Object.entries(byPage || {}).forEach(([pageKey, items]) => {
     let pageChanged = false;
+    let pageGeometryChanged = false;
     const nextItems = (items || []).map((item) => {
       const patch = patches.get(String(item?.id));
       if (!patch) return item;
       const effectivePatch = Object.fromEntries(
         Object.entries(patch).filter(([key, value]) => !sameJson(item?.[key], value))
       );
+      if (type === "wall" && Number(patch.length_mm) > 0) {
+        const pageScale = finite(scalesByPage?.[Number(pageKey)]) || fallbackScale;
+        const liveLengthMm = wallLengthMm(item, pageScale);
+        if (Math.abs(liveLengthMm - Number(patch.length_mm)) > 0.5) {
+          const resizedCenterline = resizeWallCenterline(item, Number(patch.length_mm), pageScale);
+          if (resizedCenterline) {
+            effectivePatch.centerline = resizedCenterline;
+            pageGeometryChanged = true;
+          }
+        }
+      }
       if (!Object.keys(effectivePatch).length) return item;
       changed = true;
       pageChanged = true;
+      const nextPatch = { ...effectivePatch };
       return {
         ...item,
-        ...effectivePatch,
+        ...nextPatch,
         task_synced: true,
         data_revision: Number(item?.data_revision || 0) + 1,
         updated_at: Date.now(),
       };
     });
-    next[pageKey] = pageChanged ? nextItems : items;
+    next[pageKey] = pageChanged
+      ? (type === "wall" && pageGeometryChanged ? recalculateAllWallsPolygons(nextItems) : nextItems)
+      : items;
   });
   return changed ? next : byPage;
 };
 
-export const applyTaskRowsToPlan = ({ taskId, rows, wallsByPage, doorsByPage, roomsByPage }) => ({
-  wallsByPage: applyRowsToMap(wallsByPage, "wall", taskId, rows),
-  doorsByPage: applyRowsToMap(doorsByPage, "door", taskId, rows),
-  roomsByPage: applyRowsToMap(roomsByPage, "room", taskId, rows),
+export const applyTaskRowsToPlan = ({
+  taskId,
+  rows,
+  wallsByPage,
+  doorsByPage,
+  roomsByPage,
+  scalesByPage = {},
+  fallbackScale = 1,
+}) => ({
+  wallsByPage: applyRowsToMap(wallsByPage, "wall", taskId, rows, scalesByPage, fallbackScale),
+  doorsByPage: applyRowsToMap(doorsByPage, "door", taskId, rows, scalesByPage, fallbackScale),
+  roomsByPage: applyRowsToMap(roomsByPage, "room", taskId, rows, scalesByPage, fallbackScale),
 });
 
 // Older Insulation Auto Fill responses were aggregated by the API and dropped
@@ -340,7 +412,9 @@ const syncWallRow = (taskId, row, linked, scalesByPage, fallbackScale) => {
     const scale = finite(scalesByPage?.[x.pageIndex]) || fallbackScale;
     return sum + wallLengthMm(x.item, scale);
   }, 0);
-  const height = finite(walls[0]?.height_mm || walls[0]?.height);
+  const height = taskId === "cladding"
+    ? normalizedWallHeightMm(walls[0]?.height_mm ?? walls[0]?.height)
+    : finite(walls[0]?.height_mm || walls[0]?.height);
   const wallClass = walls[0]?.class_name || walls[0]?.wall_type || "";
   const next = { ...row };
   if (taskId === "frame_hardware") {
@@ -370,7 +444,7 @@ const syncWallRow = (taskId, row, linked, scalesByPage, fallbackScale) => {
       next.netArea = area;
     }
   } else if (taskId === "cladding" && walls.length === 1) {
-    if (height) next.height = parseNumber(row?.height) < 50 ? `${Number((height / 1000).toFixed(3))} m` : `${Math.round(height)} mm`;
+    if (height) next.height = `${Math.round(height)} mm`;
     if (length) next.length = `${Number((length / 1000).toFixed(3))} m`;
     if (walls[0]?.elevation) next.elevation = walls[0].elevation;
     if (walls[0]?.cladding_product) next.product = walls[0].cladding_product;

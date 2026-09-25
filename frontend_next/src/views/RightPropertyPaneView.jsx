@@ -90,6 +90,8 @@ import {
   buildLockupRows,
   buildWindowRows,
   isWindowOpening,
+  getDoorProcurementTask,
+  normalizeDoorProcurementTask,
   buildFlooringRows,
   buildInsulationRows,
   buildInsulationAreaRow,
@@ -146,6 +148,87 @@ function getPlanObjectBounds(objects = []) {
   if (y2 - y1 < 12) { y1 -= 10; y2 += 10; }
   return [x1 - padding, y1 - padding, x2 + padding, y2 + padding];
 }
+
+
+const normalizeDoorTaskId = (value) => normalizeDoorProcurementTask(value) || "fixout";
+
+const doorRowLinkId = (row) => row?.doorId ?? row?.door_id ?? null;
+const sameDoorLink = (a, b) => {
+  const aId = doorRowLinkId(a);
+  const bId = doorRowLinkId(b);
+  return aId !== null && aId !== undefined && bId !== null && bId !== undefined
+    ? String(aId) === String(bId)
+    : Boolean(a?.id && b?.id && String(a.id) === String(b.id));
+};
+
+const fixoutRowToLockup = (row = {}) => {
+  const category = String(row.category || row.mode || "").toLowerCase();
+  const loose = category.includes("loose");
+  const scopeRaw = String(row.scope || row.location || "internal").toLowerCase();
+  const scope = scopeRaw.includes("ext") ? "external" : "internal";
+  const wallRaw = row.jamb_or_wall || row.wall_width || "";
+  const wall = wallRaw && !/wall/i.test(String(wallRaw)) ? `${String(wallRaw).replace(/mm/gi, "").trim()}mm Wall` : wallRaw;
+  const frame = String(row.door_frame || "").trim();
+  const jambSize = row.jamb_size || ((frame && !/^(timber jamb|none|-|—)$/i.test(frame)) ? frame : "");
+  return {
+    ...row,
+    id: row.id || `lock-route-${Date.now()}`,
+    floorLevel: row.floorLevel || row.floor_level || "GF",
+    mode: loose ? "Loose" : "Prehung",
+    category: loose ? "Loose Jamb" : "Prehung",
+    scope,
+    location: scope === "external" ? "External" : "Internal",
+    label: row.label || row.door_label || row.door_name || "",
+    door_name: row.door_name || row.door_label || row.label || "",
+    door_type: row.door_type || row.door || row.product || "",
+    height: row.height || "",
+    width: row.width || "",
+    thickness: row.thickness || row.thicks || "",
+    jamb_or_wall: wall,
+    jamb_size: jambSize,
+    hung: row.hung || row.handing || row.lift_off_pivot || "",
+    type: row.type || "",
+    internal_type: row.internal_type || row.hole || "",
+    color: row.color || row.finish || "",
+    door_stop: row.door_stop || row.stop || "",
+    default_qty: Number(row.default_qty || row.qty || 1) || 1,
+  };
+};
+
+const lockupRowToFixout = (row = {}) => {
+  const modeRaw = String(row.mode || row.category || "").toLowerCase();
+  const category = modeRaw.includes("loose") ? "loose-jamb" : (/cavity|slid/.test(modeRaw) ? "cavity" : "prehung");
+  const wallValue = String(row.wall_width || row.jamb_or_wall || "").match(/\d+(?:\.\d+)?/)?.[0] || "";
+  return {
+    ...row,
+    id: row.id || `fix-route-${Date.now()}`,
+    floorLevel: row.floorLevel || row.floor_level || "GF",
+    category,
+    door_label: row.door_label || row.label || row.door_name || "",
+    door_type: row.door_type || row.door || row.product || "",
+    height: row.height || "",
+    width: row.width || "",
+    thicks: row.thicks || row.thickness || "",
+    wall_width: wallValue,
+    door_frame: row.door_frame || row.jamb_size || "Timber Jamb",
+    lift_off_pivot: row.lift_off_pivot || "",
+    handing: row.handing || row.hung || "",
+    hole: row.hole || row.internal_type || "",
+    finish: row.finish || row.color || "",
+    door_furniture: row.door_furniture || row.furniture || "None",
+    door_stop: row.door_stop || row.stop || "None",
+    qty: Number(row.qty || row.default_qty || 1) || 1,
+  };
+};
+
+const upsertDoorTaskRow = (rows = [], row) => {
+  const list = Array.isArray(rows) ? rows : [];
+  const index = list.findIndex((candidate) => sameDoorLink(candidate, row));
+  if (index < 0) return [...list, row];
+  const next = [...list];
+  next[index] = { ...next[index], ...row, id: next[index]?.id || row?.id };
+  return next;
+};
 
 /* ================================================================
    MAIN PANEL
@@ -217,7 +300,8 @@ export default function RightPropertyPaneView({
   setLayerVisibility: setLayerVisibilityProp,
   selectWall,
   onEditDoor,
-  layerOrder, activeLayerTab, setActiveLayerTab, treeSearchQuery, setTreeSearchQuery, handleAutoGroupWalls
+  layerOrder, activeLayerTab, setActiveLayerTab, treeSearchQuery, setTreeSearchQuery, handleAutoGroupWalls,
+  pushTaskHistory
 }) {
   const [defaultPitchInput, setDefaultPitchInput] = useState(22.5);
   const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
@@ -411,6 +495,9 @@ export default function RightPropertyPaneView({
   const effectiveWallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : (wallsByPageCtx || {});
   const effectiveDoorsByPage = (doorsByPageCtx && Object.keys(doorsByPageCtx).length > 0) ? doorsByPageCtx : (doorsByPageProp || {});
   const effectiveScalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : (scalesByPageCtx || {});
+  const taskSyncFallbackScale = (realScale && realScale > 0)
+    ? realScale
+    : ((scaleValue && scaleValue > 0) ? scaleValue : 1);
 
   // All task forms commit linked rows back to the same canonical plan maps.
   // The wallId/doorId/roomId relation is the shared contract; unlinked manual
@@ -424,6 +511,8 @@ export default function RightPropertyPaneView({
         wallsByPage: prev || {},
         doorsByPage: {},
         roomsByPage: {},
+        scalesByPage: effectiveScalesByPage,
+        fallbackScale: taskSyncFallbackScale,
       }).wallsByPage);
     }
     if (setDoorsByPageCtx) {
@@ -433,6 +522,8 @@ export default function RightPropertyPaneView({
         wallsByPage: {},
         doorsByPage: prev || {},
         roomsByPage: {},
+        scalesByPage: effectiveScalesByPage,
+        fallbackScale: taskSyncFallbackScale,
       }).doorsByPage);
     }
     if (setRoomsByPage) {
@@ -442,9 +533,17 @@ export default function RightPropertyPaneView({
         wallsByPage: {},
         doorsByPage: {},
         roomsByPage: prev || {},
+        scalesByPage: effectiveScalesByPage,
+        fallbackScale: taskSyncFallbackScale,
       }).roomsByPage);
     }
-  }, [setWallsByPageCtx, setDoorsByPageCtx, setRoomsByPage]);
+  }, [
+    setWallsByPageCtx,
+    setDoorsByPageCtx,
+    setRoomsByPage,
+    effectiveScalesByPage,
+    taskSyncFallbackScale,
+  ]);
 
   const queueTaskRowsToPlan = React.useCallback((taskId, rows) => {
     Promise.resolve().then(() => commitTaskRowsToPlan(taskId, rows));
@@ -3094,7 +3193,7 @@ export default function RightPropertyPaneView({
       if (manuallyClearedTasksRef.current?.lock_up || manuallyClearedTasks?.lock_up) return;
 
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-      const targetDoors = (curDoors || []).filter((door) => !isWindowOpening(door));
+      const targetDoors = (curDoors || []).filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door) === "lock_up");
 
       if (!targetDoors || targetDoors.length === 0) {
         return;
@@ -3235,6 +3334,54 @@ export default function RightPropertyPaneView({
     });
   }, [queueTaskRowsToPlan]);
 
+
+  // Lockup/Fixout routing is deliberately EzeFloor-only metadata. The selected
+  // destination moves the entered row between task states and, when linked to a
+  // canvas door, stores procurement_task on that plan object. Neither task's DB
+  // save payload contains this routing field.
+  const handleMoveDoorTask = React.useCallback((sourceTask, row, requestedTarget) => {
+    const source = normalizeDoorTaskId(sourceTask);
+    const target = normalizeDoorTaskId(requestedTarget);
+    if (!row || source === target) return;
+
+    if (typeof pushTaskHistory === "function") pushTaskHistory(source);
+
+    const linkedDoorId = doorRowLinkId(row);
+    if (linkedDoorId !== null && linkedDoorId !== undefined && typeof setDoorsByPageCtx === "function") {
+      setDoorsByPageCtx((prev) => {
+        const base = prev && Object.keys(prev).length > 0 ? prev : (effectiveDoorsByPage || {});
+        let changed = false;
+        const next = { ...base };
+        Object.entries(base).forEach(([pageKey, pageDoors]) => {
+          let pageChanged = false;
+          const mapped = (pageDoors || []).map((door) => {
+            if (String(door?.id) !== String(linkedDoorId)) return door;
+            pageChanged = true;
+            changed = true;
+            return {
+              ...door,
+              procurement_task: target,
+              data_revision: Number(door?.data_revision || 0) + 1,
+              updated_at: Date.now(),
+            };
+          });
+          if (pageChanged) next[pageKey] = mapped;
+        });
+        return changed ? next : prev;
+      });
+    }
+
+    if (source === "fixout") {
+      const moved = fixoutRowToLockup(row);
+      setFixoutDoorEntries((prev) => (prev || []).filter((candidate) => !sameDoorLink(candidate, row)));
+      setLockupEntries((prev) => upsertDoorTaskRow(prev, moved));
+    } else {
+      const moved = lockupRowToFixout(row);
+      setLockupEntries((prev) => (prev || []).filter((candidate) => !sameDoorLink(candidate, row)));
+      setFixoutDoorEntries((prev) => upsertDoorTaskRow(prev, moved));
+    }
+  }, [pushTaskHistory, setDoorsByPageCtx, effectiveDoorsByPage]);
+
   const handleSetShelvingEntries = React.useCallback((actionOrEntries) => {
     setShelvingEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
@@ -3242,6 +3389,194 @@ export default function RightPropertyPaneView({
       return next;
     });
   }, [queueTaskRowsToPlan]);
+
+  // Inline task-table edits participate in the same Ctrl+Z / Ctrl+Y history
+  // as the drawing. The interaction controller asks synchronously for the
+  // active task snapshot before a row is committed, then sends that snapshot
+  // back here when Undo/Redo applies it. Raw setters are intentional: restoring
+  // history must not immediately write the restored task rows back into the plan
+  // a second time; the CAD snapshot is restored by the controller itself.
+  const captureTaskHistoryState = React.useCallback((taskId) => {
+    const id = String(taskId || "").trim().toLowerCase();
+    const base = { version: 1, taskId: id };
+
+    switch (id) {
+      case "frame_hardware":
+        return { ...base, entries: frameWallEntries, customWallOverrides };
+      case "eaves_soffit":
+        return { ...base, entries: eavesEntries };
+      case "cladding":
+        return { ...base, entries: claddingWallEntries };
+      case "insulation":
+        return {
+          ...base,
+          wallEntries: insulationWallEntries,
+          areaEntries: insulationAreaEntries,
+          customInsWallOverrides,
+          customInsAreaOverrides,
+        };
+      case "flooring_decking":
+        return { ...base, entries: flooringEntries, customRoomOverrides };
+      case "hebel_flooring":
+        return { ...base, entries: hebelFlooringEntries };
+      case "timber_posts":
+        return { ...base, entries: timberPostEntries };
+      case "fixout":
+      case "lockup":
+      case "lock_up": {
+        const doorTaskRoutes = Object.fromEntries(Object.entries(effectiveDoorsByPage || {}).map(([pageKey, pageDoors]) => [
+          pageKey,
+          Object.fromEntries((pageDoors || []).filter((door) => door?.id !== undefined && door?.id !== null).map((door) => [
+            String(door.id),
+            normalizeDoorProcurementTask(door?.procurement_task ?? door?.procurementTask ?? door?.task_route ?? door?.taskRoute),
+          ])),
+        ]));
+        return {
+          ...base,
+          taskId: id === "fixout" ? "fixout" : "lock_up",
+          fixoutEntries: fixoutDoorEntries,
+          lockupEntries,
+          customLockupOverrides,
+          doorTaskRoutes,
+        };
+      }
+      case "windows":
+        return { ...base, entries: windowEntries };
+      case "shelving":
+        return { ...base, entries: shelvingEntries };
+      case "fow_plumbing":
+        return { ...base, entries: fowPlumbingEntries };
+      case "power_truss_braces":
+        return { ...base, entries: powerTrussEntries };
+      case "hardies_fire_walls":
+        return { ...base, entries: hardiesFireWallEntries };
+      default:
+        // Tasks without a parent-owned entered-row array still get a CAD
+        // snapshot, but there is no local row state to serialize here.
+        return base;
+    }
+  }, [
+    frameWallEntries, customWallOverrides, eavesEntries, claddingWallEntries,
+    insulationWallEntries, insulationAreaEntries, customInsWallOverrides, customInsAreaOverrides,
+    flooringEntries, customRoomOverrides, hebelFlooringEntries, timberPostEntries,
+    fixoutDoorEntries, lockupEntries, customLockupOverrides, effectiveDoorsByPage, windowEntries, shelvingEntries,
+    fowPlumbingEntries, powerTrussEntries, hardiesFireWallEntries,
+  ]);
+
+  const restoreTaskHistoryState = React.useCallback((snapshot) => {
+    if (!snapshot || typeof snapshot !== "object") return;
+    const id = String(snapshot.taskId || "").trim().toLowerCase();
+
+    switch (id) {
+      case "frame_hardware":
+        setFrameWallEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        setCustomWallOverrides(snapshot.customWallOverrides || {});
+        break;
+      case "eaves_soffit":
+        setEavesEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "cladding":
+        setCladdingWallEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "insulation":
+        setInsulationWallEntries(Array.isArray(snapshot.wallEntries) ? snapshot.wallEntries : []);
+        setInsulationAreaEntries(Array.isArray(snapshot.areaEntries) ? snapshot.areaEntries : []);
+        setCustomInsWallOverrides(snapshot.customInsWallOverrides || {});
+        setCustomInsAreaOverrides(snapshot.customInsAreaOverrides || {});
+        break;
+      case "flooring_decking":
+        setFlooringEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        setCustomRoomOverrides(snapshot.customRoomOverrides || {});
+        break;
+      case "hebel_flooring":
+        setHebelFlooringEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "timber_posts":
+        setTimberPostEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "fixout":
+      case "lockup":
+      case "lock_up": {
+        const restoredFixout = Array.isArray(snapshot.fixoutEntries)
+          ? snapshot.fixoutEntries
+          : (id === "fixout" && Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        const restoredLockup = Array.isArray(snapshot.lockupEntries)
+          ? snapshot.lockupEntries
+          : (id !== "fixout" && Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        setFixoutDoorEntries(restoredFixout);
+        setLockupEntries(restoredLockup);
+        setCustomLockupOverrides(snapshot.customLockupOverrides || {});
+
+        if (snapshot.doorTaskRoutes && typeof setDoorsByPageCtx === "function") {
+          setDoorsByPageCtx((prev) => {
+            const base = prev && Object.keys(prev).length > 0 ? prev : (effectiveDoorsByPage || {});
+            let changed = false;
+            const next = { ...base };
+            Object.entries(base).forEach(([pageKey, pageDoors]) => {
+              const pageRoutes = snapshot.doorTaskRoutes?.[pageKey] || {};
+              let pageChanged = false;
+              const mapped = (pageDoors || []).map((door) => {
+                if (door?.id === undefined || door?.id === null) return door;
+                const hasRecordedRoute = Object.prototype.hasOwnProperty.call(pageRoutes, String(door.id));
+                if (!hasRecordedRoute) return door;
+                const route = normalizeDoorProcurementTask(pageRoutes[String(door.id)]);
+                const current = normalizeDoorProcurementTask(door?.procurement_task ?? door?.procurementTask ?? door?.task_route ?? door?.taskRoute);
+                if (route === current && !door?.procurementTask && !door?.task_route && !door?.taskRoute) return door;
+                const updated = { ...door };
+                if (route) updated.procurement_task = route;
+                else delete updated.procurement_task;
+                delete updated.procurementTask;
+                delete updated.task_route;
+                delete updated.taskRoute;
+                pageChanged = true;
+                changed = true;
+                return updated;
+              });
+              if (pageChanged) next[pageKey] = mapped;
+            });
+            return changed ? next : prev;
+          });
+        }
+        break;
+      }
+      case "windows":
+        setWindowEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "shelving":
+        setShelvingEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "fow_plumbing":
+        setFowPlumbingEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "power_truss_braces":
+        setPowerTrussEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      case "hardies_fire_walls":
+        setHardiesFireWallEntries(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+        break;
+      default:
+        break;
+    }
+  }, [setDoorsByPageCtx, effectiveDoorsByPage]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleCaptureTaskHistory = (event) => {
+      if (!event?.detail) return;
+      event.detail.state = captureTaskHistoryState(event.detail.taskId);
+    };
+    const handleRestoreTaskHistory = (event) => {
+      restoreTaskHistoryState(event?.detail?.state);
+    };
+
+    window.addEventListener("ezefloor:capture-task-history", handleCaptureTaskHistory);
+    window.addEventListener("ezefloor:restore-task-history", handleRestoreTaskHistory);
+    return () => {
+      window.removeEventListener("ezefloor:capture-task-history", handleCaptureTaskHistory);
+      window.removeEventListener("ezefloor:restore-task-history", handleRestoreTaskHistory);
+    };
+  }, [captureTaskHistoryState, restoreTaskHistoryState]);
 
   // Plan geometry is the source of truth. Every plan snapshot (including a
   // manual draw, delete, Ctrl+Z and Ctrl+Y) is reconciled into task rows. Raw
@@ -3257,6 +3592,7 @@ export default function RightPropertyPaneView({
       item?.door_type, item?.scope, item?.location, item?.type, item?.class, item?.class_name,
       item?.renderClass, item?.doorTypeId, item?.is_window, item?.isWindow,
       item?.door_name, item?.doorName, item?.label, item?.category, item?.mode, item?.product,
+      item?.procurement_task, item?.procurementTask, item?.task_route, item?.taskRoute,
     ])]),
     rooms: Object.entries(roomsByPageProp || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.polygon, item?.areaM2 ?? item?.area_m2 ?? item?.area, item?.type,
@@ -3429,16 +3765,6 @@ export default function RightPropertyPaneView({
     scaleValue,
     pages,
     floorLevelForPage,
-    frameWallEntries,
-    insulationWallEntries,
-    insulationAreaEntries,
-    flooringEntries,
-    hebelFlooringEntries,
-    claddingWallEntries,
-    fixoutDoorEntries,
-    lockupEntries,
-    shelvingEntries,
-    hardiesFireWallEntries,
   ]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");
@@ -4895,6 +5221,8 @@ export default function RightPropertyPaneView({
           updateWallsProperty={updateWallsProperty}
           updateDoor={updateDoor}
           updateDoorsProperty={updateDoorsProperty}
+          onMoveDoorTask={handleMoveDoorTask}
+          pushTaskHistory={pushTaskHistory}
         />
       )}
 

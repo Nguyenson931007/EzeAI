@@ -225,13 +225,29 @@ export default function CladdingTask({
     const raw = String(value ?? "").trim().toLowerCase().replace(/,/g, "");
     const amount = parseFloat(raw.replace(/[^0-9.+-]/g, ""));
     if (!Number.isFinite(amount)) return 0;
-    if (raw.includes("mm") || amount > 50) return amount / 1000;
+    if (raw.includes("mm") || (!raw.includes("m") && amount > 50)) return amount / 1000;
     return amount;
+  };
+
+  // Cladding wall height is displayed/stored in the task as mm, while the SQL
+  // endpoint stores metres. Older inline editing could accidentally relabel
+  // 2700 mm as 2700 m on every save. This normalizer repairs those obviously
+  // inflated legacy values and keeps one stable unit contract.
+  const normalizeCladdingHeightMm = (value) => {
+    const raw = String(value ?? "").trim().toLowerCase().replace(/,/g, "");
+    const amount = parseFloat(raw.replace(/[^0-9.+-]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+    let mm;
+    if (raw.includes("mm")) mm = amount;
+    else if (raw.includes("m")) mm = amount <= 20 ? amount * 1000 : amount;
+    else mm = amount <= 20 ? amount * 1000 : amount;
+    while (mm > 20000) mm /= 10;
+    return mm;
   };
 
   const wallLinkSignature = (item) => {
     const level = normalizeFloorLevelCode(item?.floorLevel || item?.floor_level || "GF");
-    const heightM = dimensionToMetres(item?.height ?? item?.wall_height ?? item?.wallHeight);
+    const heightM = normalizeCladdingHeightMm(item?.height ?? item?.wall_height ?? item?.wallHeight) / 1000;
     const lengthM = dimensionToMetres(item?.length ?? item?.wall_length ?? item?.wallLength);
     return `${level}|${heightM.toFixed(3)}|${lengthM.toFixed(3)}`;
   };
@@ -339,10 +355,12 @@ export default function CladdingTask({
 
   const handleStartEdit = (w) => {
     setEditingRowId(w.id);
+    const heightMm = normalizeCladdingHeightMm(w.height ?? w.wallHeight ?? w.wall_height) || 2440;
+    const lengthM = dimensionToMetres(w.length ?? w.wallLength ?? w.wall_length);
     setEditRowData({
       ...w,
-      height: String(w.height || "2.44").replace("m", "").trim(),
-      length: String(w.length || "0").replace("m", "").trim(),
+      height: String(Math.round(heightMm)),
+      length: lengthM > 0 ? String(Number(lengthM.toFixed(3))) : "0",
       floorLevel: w.floorLevel || w.floor_level || "GF"
     });
   };
@@ -351,9 +369,10 @@ export default function CladdingTask({
     const targetId = idToSave || editingRowIdRef.current;
     if (!targetId || !onSetEntries) return;
     const currentData = editRowDataRef.current;
-    const h = parseFloat(currentData.height) || 2.44;
-    const l = parseFloat(currentData.length) || 0;
-    const a = Number((h * l).toFixed(2));
+    const heightMm = normalizeCladdingHeightMm(currentData.height) || 2440;
+    const heightM = heightMm / 1000;
+    const lengthM = dimensionToMetres(currentData.length);
+    const areaM2 = Number((heightM * lengthM).toFixed(2));
 
     onSetEntries(prev => {
       const currentList = Array.isArray(prev) ? prev : (entriesRef.current || []);
@@ -361,11 +380,13 @@ export default function CladdingTask({
         ...item,
         ...currentData,
         floorLevel: currentData.floorLevel || item.floorLevel || "GF",
-        height: currentData.height !== undefined ? (String(currentData.height).includes("m") ? currentData.height : `${h} m`) : item.height,
-        length: currentData.length !== undefined ? (String(currentData.length).includes("m") ? currentData.length : `${l} m`) : item.length,
-        area: `${a} m²`
+        height: `${Math.round(heightMm)} mm`,
+        length: `${Number(lengthM.toFixed(3))} m`,
+        area: `${areaM2} m²`
       } : item);
     });
+    setWallHeight(String(Number(heightM.toFixed(3))));
+    setWallLength(String(Number(lengthM.toFixed(3))));
     setEditingRowId(null);
   };
 
@@ -425,16 +446,17 @@ export default function CladdingTask({
 
         if (matchedRows.length > 0) {
           const loadedFromSql = matchedRows.map((r, idx) => {
-            const h = parseFloat(r.wall_height) || 2.44;
-            const l = parseFloat(r.wall_length) || 0.0;
-            const a = Number((h * l).toFixed(2));
+            const heightMm = normalizeCladdingHeightMm(r.wall_height) || 2440;
+            const heightM = heightMm / 1000;
+            const lengthM = dimensionToMetres(r.wall_length);
+            const areaM2 = Number((heightM * lengthM).toFixed(2));
             return {
               id: r.cladding_id ? `clad-${r.cladding_id}` : `clad-loaded-${Date.now()}-${idx}`,
               claddingId: r.cladding_id ? String(r.cladding_id) : null,
               floorLevel: r.floor_level || "GF",
-              height: `${h} m`,
-              length: `${l} m`,
-              area: `${a} m²`
+              height: `${Math.round(heightMm)} mm`,
+              length: `${Number(lengthM.toFixed(3))} m`,
+              area: `${areaM2} m²`
             };
           });
           // MSSQL intentionally stores only Cladding measurements. Reattach
@@ -446,8 +468,8 @@ export default function CladdingTask({
           }
           const first = loaded[0];
           if (first) {
-            setWallHeight(String(parseFloat(first.height) || 2.44));
-            setWallLength(String(parseFloat(first.length) || ""));
+            setWallHeight(String((normalizeCladdingHeightMm(first.height) || 2440) / 1000));
+            setWallLength(String(dimensionToMetres(first.length) || ""));
           }
           if (force) {
             setReloadMsg({ type: "success", text: `Loaded ${loaded.length} ${loaded.length === 1 ? "row" : "rows"} from SQL` });
@@ -531,12 +553,12 @@ export default function CladdingTask({
           {
             id_job_hw: savedJobId || "default",
             walls: entries.map(e => {
-              const hNum = parseFloat(String(e.height || "2.44").replace(/[^\d.]/g, "")) || 2.44;
-              const lNum = parseFloat(String(e.length || "0").replace(/[^\d.]/g, "")) || 0.0;
+              const heightMm = normalizeCladdingHeightMm(e.height ?? e.wallHeight ?? e.wall_height) || 2440;
+              const lengthM = dimensionToMetres(e.length ?? e.wallLength ?? e.wall_length);
               return {
                 floor_level: e.floorLevel || e.floor_level || floorLevel || "GF",
-                wall_height: hNum,
-                wall_length: lNum,
+                wall_height: heightMm / 1000,
+                wall_length: lengthM,
                 short_name: activeCustomerShortName
               };
             })
@@ -570,8 +592,8 @@ export default function CladdingTask({
     const newEntry = {
       id: "clad-" + Date.now(),
       floorLevel: floorLevel || "GF",
-      height: `${hM} m`,
-      length: `${lM} m`,
+      height: `${Math.round(hM * 1000)} mm`,
+      length: `${Number(lM.toFixed(3))} m`,
       area: `${areaM2} m²`
     };
 
@@ -832,8 +854,8 @@ const claddingManualRows = (() => {
                                   const nextSelected = isSelected ? null : w.id;
                                   setSelectedEntryId(nextSelected);
                                   if (!isSelected) {
-                                    setWallHeight(String(parseFloat(w.height) || 2.44));
-                                    setWallLength(String(parseFloat(w.length) || ""));
+                                    setWallHeight(String((normalizeCladdingHeightMm(w.height) || 2440) / 1000));
+                                    setWallLength(String(dimensionToMetres(w.length) || ""));
                                   }
                                   if (onSelectEntry) onSelectEntry(isSelected ? null : w);
                                 }
@@ -917,12 +939,7 @@ const claddingManualRows = (() => {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setEditingRowId(w.id);
-                                        setEditRowData({
-                                          ...w,
-                                          height: String(w.height || "2.44").replace("m", "").trim(),
-                                          length: String(w.length || "0").replace("m", "").trim()
-                                        });
+                                        handleStartEdit(w);
                                       }}
                                       style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
                                       title="Edit"

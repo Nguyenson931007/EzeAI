@@ -1267,10 +1267,28 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     return () => el.removeEventListener("wheel", handleWheel);
   }, [svgRef, activeTab]);
 
-  function captureCadHistorySnapshot(pageIndex = currentPage) {
+  // Task-table edits live in RightPropertyPaneView, outside this controller.
+  // Use synchronous CustomEvents as a tiny bridge so the unified Ctrl+Z/Ctrl+Y
+  // history can include the active task row without moving all task state into
+  // the CAD controller. The event listener writes detail.state synchronously.
+  function captureTaskHistoryState(taskId = null) {
+    if (typeof window === "undefined" || typeof CustomEvent === "undefined") return null;
+    const detail = { taskId, state: null };
+    window.dispatchEvent(new CustomEvent("ezefloor:capture-task-history", { detail }));
+    return detail.state || null;
+  }
+
+  function restoreTaskHistoryState(taskState) {
+    if (!taskState || typeof window === "undefined" || typeof CustomEvent === "undefined") return;
+    window.dispatchEvent(new CustomEvent("ezefloor:restore-task-history", {
+      detail: { state: taskState }
+    }));
+  }
+
+  function captureCadHistorySnapshot(pageIndex = currentPage, taskId = null) {
     const state = cadStateRef.current || {};
-    return {
-      version: 2,
+    const snapshot = {
+      version: 3,
       pageIndex,
       rooms: state.roomsByPage?.[pageIndex] || [],
       doors: state.doorsByPage?.[pageIndex] || [],
@@ -1278,6 +1296,12 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       lintels: state.lintelsByPage?.[pageIndex] || [],
       pdfOffset: state.pdfOffsetsByPage?.[pageIndex] || { x: 0, y: 0 },
     };
+
+    if (taskId) {
+      const taskState = captureTaskHistoryState(taskId);
+      if (taskState) snapshot.taskState = taskState;
+    }
+    return snapshot;
   }
 
   function appendCadHistorySnapshot(snapshot) {
@@ -1307,6 +1331,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         ...(snapshot.wallsByPage ? { wallsByPage: snapshot.wallsByPage } : {}),
         ...(snapshot.lintelsByPage ? { lintelsByPage: snapshot.lintelsByPage } : {}),
       };
+      restoreTaskHistoryState(snapshot.taskState);
       return;
     }
 
@@ -1332,12 +1357,64 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         return next;
       });
     }
+
+    restoreTaskHistoryState(snapshot.taskState);
+  }
+
+  // A table edit can call existing wall/door update helpers after the row state
+  // has already been committed. Those helpers normally push their own CAD
+  // history entries, which would make one row edit require multiple Ctrl+Zs.
+  // Keep them inside the same transaction for two event-loop turns.
+  const taskHistoryTransactionRef = useRef(0);
+
+  function pushTaskHistory(taskId) {
+    if (!taskId) return;
+    const snapshot = captureCadHistorySnapshot(currentPage, taskId);
+
+    // Some task components (for example Window/Lockup) can call an existing
+    // controller update from their own outside-click handler before the shared
+    // table enhancer gets the same event. If that already wrote a CAD-only
+    // snapshot for the exact same pre-edit state, upgrade that entry instead of
+    // stacking a duplicate.
+    const past = historyRef.current || [];
+    const lastEncoded = past[past.length - 1];
+    let upgradedExistingEntry = false;
+    if (lastEncoded) {
+      try {
+        const lastSnapshot = JSON.parse(lastEncoded);
+        if (!lastSnapshot?.taskState) {
+          const stripTask = (value) => {
+            const { taskState, ...cadOnly } = value || {};
+            return cadOnly;
+          };
+          if (JSON.stringify(stripTask(lastSnapshot)) === JSON.stringify(stripTask(snapshot))) {
+            const nextPast = [...past.slice(0, -1), JSON.stringify(snapshot)];
+            historyRef.current = nextPast;
+            setHistory(nextPast);
+            futureRef.current = [];
+            setFuture([]);
+            upgradedExistingEntry = true;
+          }
+        }
+      } catch {}
+    }
+    if (!upgradedExistingEntry) appendCadHistorySnapshot(snapshot);
+
+    const token = Number(taskHistoryTransactionRef.current || 0) + 1;
+    taskHistoryTransactionRef.current = token;
+    setTimeout(() => {
+      setTimeout(() => {
+        if (taskHistoryTransactionRef.current === token) taskHistoryTransactionRef.current = 0;
+      }, 0);
+    }, 0);
   }
 
   function pushHistory(newRooms, arg2, arg3, arg4) {
     // History is page-scoped: much smaller snapshots, faster Ctrl+Z, and no
     // unnecessary JSON parse/stringify of every floor on each small edit.
-    appendCadHistorySnapshot(captureCadHistorySnapshot(currentPage));
+    if (!taskHistoryTransactionRef.current) {
+      appendCadHistorySnapshot(captureCadHistorySnapshot(currentPage));
+    }
 
     let newWalls = null;
     let newDoors = null;
@@ -1386,23 +1463,30 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function undo() {
-    // Respect the active editing context. Previously any old annotation/roof
-    // history could steal Ctrl+Z from a newer wall/door edit.
-    if (activeTab === "PDF Tools" && annotationsHistory?.length > 0) {
+    const past = historyRef.current || [];
+    let lastMainSnapshot = null;
+    if (past.length > 0) {
+      try { lastMainSnapshot = JSON.parse(past[past.length - 1]); } catch {}
+    }
+    const hasPendingTaskUndo = Boolean(lastMainSnapshot?.taskState);
+
+    // A task-table commit is a unified transaction (row data + plan geometry),
+    // so it must win over an older roof/annotation stack even if that object is
+    // still selected on the canvas.
+    if (!hasPendingTaskUndo && activeTab === "PDF Tools" && annotationsHistory?.length > 0) {
       if (typeof undoAnnotation === "function") undoAnnotation();
       return;
     }
-    if (selectedType === "roof" && roofHistory?.length > 0) {
+    if (!hasPendingTaskUndo && selectedType === "roof" && roofHistory?.length > 0) {
       undoRoof();
       return;
     }
 
-    const past = historyRef.current || [];
     if (past.length > 0) {
       const encoded = past[past.length - 1];
       const prev = JSON.parse(encoded);
       const pageIndex = Number.isFinite(Number(prev?.pageIndex)) ? Number(prev.pageIndex) : currentPage;
-      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex));
+      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex, prev?.taskState?.taskId || null));
 
       const nextPast = past.slice(0, -1);
       const nextFuture = [currentEncoded, ...(futureRef.current || [])].slice(0, 120);
@@ -1425,21 +1509,27 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   }
 
   function redo() {
-    if (activeTab === "PDF Tools" && annotationsFuture?.length > 0) {
+    const ahead = futureRef.current || [];
+    let nextMainSnapshot = null;
+    if (ahead.length > 0) {
+      try { nextMainSnapshot = JSON.parse(ahead[0]); } catch {}
+    }
+    const hasPendingTaskRedo = Boolean(nextMainSnapshot?.taskState);
+
+    if (!hasPendingTaskRedo && activeTab === "PDF Tools" && annotationsFuture?.length > 0) {
       if (typeof redoAnnotation === "function") redoAnnotation();
       return;
     }
-    if (selectedType === "roof" && roofFuture?.length > 0) {
+    if (!hasPendingTaskRedo && selectedType === "roof" && roofFuture?.length > 0) {
       redoRoof();
       return;
     }
 
-    const ahead = futureRef.current || [];
     if (ahead.length > 0) {
       const encoded = ahead[0];
       const next = JSON.parse(encoded);
       const pageIndex = Number.isFinite(Number(next?.pageIndex)) ? Number(next.pageIndex) : currentPage;
-      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex));
+      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex, next?.taskState?.taskId || null));
 
       const nextPast = [...(historyRef.current || []), currentEncoded].slice(-120);
       const nextFuture = ahead.slice(1);
@@ -5932,7 +6022,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     currentMouse,
     doorPreset, setDoorPreset,
     history, future,
-    pushHistory, undo, redo,
+    pushHistory, pushTaskHistory, undo, redo,
     deleteItem, deleteAllRooms,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,

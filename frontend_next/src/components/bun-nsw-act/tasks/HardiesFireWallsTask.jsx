@@ -669,6 +669,7 @@ export default function HardiesFireWallsTask({
                             <button
                               type="button"
                               onClick={handleSaveEdit}
+                              title="Save row"
                               style={{ background: "#10b981", color: "#ffffff", border: "none", borderRadius: "4px", padding: "3px 6px", cursor: "pointer", fontSize: "10px", fontWeight: 700 }}
                             >
                               Save

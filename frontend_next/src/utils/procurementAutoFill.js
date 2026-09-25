@@ -114,6 +114,36 @@ const doorDimensions = (door) => ({
 });
 
 
+export const normalizeDoorProcurementTask = (value) => {
+  const raw = lower(value).replace(/[\s-]+/g, "_");
+  if (["lockup", "lock_up", "lockout", "lock_out"].includes(raw)) return "lock_up";
+  if (["fixout", "fix_out"].includes(raw)) return "fixout";
+  return "";
+};
+
+// Routing is EzeFloor plan/UI metadata only. Procurement DB payloads deliberately
+// whitelist their own schema and never persist this field. Explicit user routing
+// wins; otherwise external doors default to Lockup and internal doors to Fixout.
+export const getDoorProcurementTask = (door) => {
+  const explicit = normalizeDoorProcurementTask(
+    door?.procurement_task ?? door?.procurementTask ?? door?.task_route ?? door?.taskRoute
+  );
+  if (explicit) return explicit;
+
+  const scope = lower(door?.scope || door?.location);
+  const identity = [
+    door?.doorTypeId, door?.class, door?.class_name, door?.type, door?.door_type,
+    door?.door_name, door?.doorName, door?.doorLabel, door?.label,
+  ].map(lower).filter(Boolean).join(" ");
+  const isExternal = Boolean(
+    door?.is_ext === true || door?.is_exterior === true || door?.isExternal === true ||
+    scope === "external" || scope === "exterior" || scope === "ext" ||
+    /(^|[_\s-])ext(?:ernal|erior)?([_\s-]|$)/.test(identity) ||
+    /entry|front|patio|balcony|garage|external/.test(identity)
+  );
+  return isExternal ? "lock_up" : "fixout";
+};
+
 export const isWindowOpening = (item) => {
   if (!item) return false;
   const explicitWindowFlag = item.is_window ?? item.isWindow;
@@ -186,7 +216,7 @@ const explicitHanding = (d, allowed) => {
   return explicitAllowed(aliases[u] || raw, allowed);
 };
 
-export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpening(d)).map((d, idx) => {
+export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d) === "fixout").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const rawType = lower(d?.door_type || d?.type || d?.class_name);
   const cavity = /slid|cavity/.test(`${label.toLowerCase()} ${rawType}`);
@@ -223,7 +253,7 @@ export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpen
   };
 });
 
-export const buildLockupRows = (doors = []) => doors.filter((d) => !isWindowOpening(d)).map((d, idx) => {
+export const buildLockupRows = (doors = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d) === "lock_up").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const dims = doorDimensions(d);
   const explicitScope = lower(d?.scope || d?.location);

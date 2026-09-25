@@ -4,7 +4,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
-import { normalizeFloorLevel, isWindowOpening } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import {
@@ -282,6 +282,7 @@ export default function LockupTask({
   updateDoor,
   updateDoorsProperty,
   onClearData,
+  onMoveDoorTask,
   suppressAutoInit = false
 }) {
   const {
@@ -1061,7 +1062,7 @@ export default function LockupTask({
 
       // Window objects are handled by the local-only Window task. Lockup must
       // only calculate/save real door rows.
-      const nonWindowDoors = allDoors.filter((door) => !isWindowOpening(door));
+      const nonWindowDoors = allDoors.filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door) === "lock_up");
       const timberDoors = nonWindowDoors.filter(d => {
         const mat = String(d.material || d.door_material || d.material_type || "timber").trim().toLowerCase();
         return !mat || mat === "timber" || mat === "wood" || mat === "default";
@@ -2319,6 +2320,8 @@ export default function LockupTask({
                       textAlign: "center",
                       borderBottom: "2px solid #334155"
                     }}>#</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Category</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Location</th>
                     <th style={{
                       position: "sticky",
                       left: "32px",
@@ -2331,17 +2334,15 @@ export default function LockupTask({
                       borderRight: "2px solid #475569",
                       boxShadow: "3px 0 5px -2px rgba(0,0,0,0.25)"
                     }}>Label</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Category</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Location</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door type</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Size</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Task</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Door Type</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Height</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Width</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Thicks</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb / wall</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb Size</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Hung</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Type</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Weatherguard</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>DBL Rebated</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>HF/HO</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Color</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Stop</th>
@@ -2556,7 +2557,53 @@ export default function LockupTask({
                           borderLeft: isSelected ? "4px solid #2563eb" : "4px solid transparent"
                         }}>{idx + 1}</td>
 
-                        <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
+                        <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("category") ? (
+                            <select
+                              value={editIsLoose ? "Loose Jamb" : "Prehung"}
+                              onChange={(e) => {
+                                const loose = e.target.value === "Loose Jamb";
+                                updateEditingDoorField({
+                                  category: loose ? "Loose Jamb" : "Prehung",
+                                  mode: loose ? "Loose" : "Prehung",
+                                  thickness: loose ? "38" : (editIsExt ? "40" : "35")
+                                });
+                              }}
+                              style={{ ...inlineControlStyle, width: "104px" }}
+                            >
+                              <option value="Prehung">Prehung</option>
+                              <option value="Loose Jamb">Loose Jamb</option>
+                            </select>
+                          ) : categoryDisplay}
+                        </td>
+
+                                                <td data-edit-field="location" data-cell-editing={isCellEditing("location") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("location") ? (
+                            <select
+                              value={editIsExt ? "External" : "Internal"}
+                              onChange={(e) => {
+                                const ext = e.target.value === "External";
+                                updateEditingDoorField({
+                                  location: ext ? "External" : "Internal",
+                                  scope: ext ? "external" : "internal",
+                                  hung: ext ? "Hung A" : "RH",
+                                  type: ext ? "Type A" : "-",
+                                  weatherguard: ext ? "No" : "-",
+                                  dbl_rebated: ext ? "No" : "-",
+                                  internal_type: ext ? "-" : "HF",
+                                  color: ext ? "-" : "CHR",
+                                  door_stop: ext ? "DS2 with Riser" : "Cushion"
+                                });
+                              }}
+                              style={{ ...inlineControlStyle, width: "92px" }}
+                            >
+                              <option value="Internal">Internal</option>
+                              <option value="External">External</option>
+                            </select>
+                          ) : locationDisplay}
+                        </td>
+
+                                                <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
                           position: "sticky",
                           left: "32px",
                           zIndex: 2,
@@ -2589,50 +2636,21 @@ export default function LockupTask({
                           )}
                         </td>
 
-                        <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("category") ? (
-                            <select
-                              value={editIsLoose ? "Loose Jamb" : "Prehung"}
-                              onChange={(e) => {
-                                const loose = e.target.value === "Loose Jamb";
-                                updateEditingDoorField({
-                                  category: loose ? "Loose Jamb" : "Prehung",
-                                  mode: loose ? "Loose" : "Prehung",
-                                  thickness: loose ? "38" : (editIsExt ? "40" : "35")
-                                });
-                              }}
-                              style={{ ...inlineControlStyle, width: "104px" }}
-                            >
-                              <option value="Prehung">Prehung</option>
-                              <option value="Loose Jamb">Loose Jamb</option>
-                            </select>
-                          ) : categoryDisplay}
-                        </td>
-
-                        <td data-edit-field="location" data-cell-editing={isCellEditing("location") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("location") ? (
-                            <select
-                              value={editIsExt ? "External" : "Internal"}
-                              onChange={(e) => {
-                                const ext = e.target.value === "External";
-                                updateEditingDoorField({
-                                  location: ext ? "External" : "Internal",
-                                  scope: ext ? "external" : "internal",
-                                  hung: ext ? "Hung A" : "RH",
-                                  type: ext ? "Type A" : "-",
-                                  weatherguard: ext ? "No" : "-",
-                                  dbl_rebated: ext ? "No" : "-",
-                                  internal_type: ext ? "-" : "HF",
-                                  color: ext ? "-" : "CHR",
-                                  door_stop: ext ? "DS2 with Riser" : "Cushion"
-                                });
-                              }}
-                              style={{ ...inlineControlStyle, width: "92px" }}
-                            >
-                              <option value="Internal">Internal</option>
-                              <option value="External">External</option>
-                            </select>
-                          ) : locationDisplay}
+                                                <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          <select
+                            value="lock_up"
+                            onClick={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              onMoveDoorTask?.(row, e.target.value);
+                            }}
+                            style={{ ...inlineControlStyle, width: "86px", borderColor: "#cbd5e1", fontWeight: 700 }}
+                            title="Choose which task owns this door. This routing is not saved to Procurement DB."
+                          >
+                            <option value="lock_up">Lockup</option>
+                            <option value="fixout">Fixout</option>
+                          </select>
                         </td>
 
                         <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
@@ -2649,33 +2667,35 @@ export default function LockupTask({
                           ) : (doorDisplay || "-")}
                         </td>
 
-                        <td data-edit-field="size" data-cell-editing={isCellEditing("size") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("size") ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
-                              <select
-                                value={String(editRow.height || 2040)}
-                                onChange={(e) => updateEditingDoorField({ height: e.target.value })}
-                                style={{ ...inlineControlStyle, width: "72px" }}
-                              >
-                                {mergeOptions(DOOR_HEIGHT_OPTIONS.filter((v) => v !== "Spec"), String(editRow.height || 2040)).map((opt) => (
-                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
-                                ))}
-                              </select>
-                              <span style={{ color: "#64748b" }}>×</span>
-                              <select
-                                value={String(editRow.width || 820)}
-                                onChange={(e) => updateEditingDoorField({ width: e.target.value })}
-                                style={{ ...inlineControlStyle, width: "72px" }}
-                              >
-                                {mergeOptions(DOOR_WIDTH_OPTIONS.filter((v) => v !== "Spec"), String(editRow.width || 820)).map((opt) => (
-                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
-                                ))}
-                              </select>
-                            </div>
-                          ) : sizeDisplay}
+                                                <td data-edit-field="height" data-cell-editing={isCellEditing("height") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("height") ? (
+                            <select
+                              value={String(editRow.height || 2040)}
+                              onChange={(e) => updateEditingDoorField({ height: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {mergeOptions(DOOR_HEIGHT_OPTIONS.filter((v) => v !== "Spec"), String(editRow.height || 2040)).map((opt) => (
+                                opt ? <option key={opt} value={opt}>{opt}</option> : null
+                              ))}
+                            </select>
+                          ) : (row.height || 2040)}
                         </td>
 
-                        <td data-edit-field="thickness" data-cell-editing={isCellEditing("thickness") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                        <td data-edit-field="width" data-cell-editing={isCellEditing("width") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                          {isCellEditing("width") ? (
+                            <select
+                              value={String(editRow.width || 820)}
+                              onChange={(e) => updateEditingDoorField({ width: e.target.value })}
+                              style={{ ...inlineControlStyle, width: "72px" }}
+                            >
+                              {mergeOptions(DOOR_WIDTH_OPTIONS.filter((v) => v !== "Spec"), String(editRow.width || 820)).map((opt) => (
+                                opt ? <option key={opt} value={opt}>{opt}</option> : null
+                              ))}
+                            </select>
+                          ) : (row.width || 820)}
+                        </td>
+
+                                                <td data-edit-field="thickness" data-cell-editing={isCellEditing("thickness") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
                           {isCellEditing("thickness") ? (
                             <select
                               value={String(editRow.thickness || "").replace("mm", "")}
@@ -2739,30 +2759,6 @@ export default function LockupTask({
                               ))}
                             </select>
                           ) : typeDisplay}
-                        </td>
-
-                        <td data-edit-field="weatherguard" data-cell-editing={isCellEditing("weatherguard") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("weatherguard") && editIsExt ? (
-                            <select
-                              value={editRow.weatherguard || "No"}
-                              onChange={(e) => updateEditingDoorField({ weatherguard: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {WEATHERGUARD_OPTIONS.map((opt) => <option key={opt}>{opt}</option>)}
-                            </select>
-                          ) : weatherguardDisplay}
-                        </td>
-
-                        <td data-edit-field="dbl_rebated" data-cell-editing={isCellEditing("dbl_rebated") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("dbl_rebated") && editIsExt ? (
-                            <select
-                              value={editRow.dbl_rebated || "No"}
-                              onChange={(e) => updateEditingDoorField({ dbl_rebated: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {DBL_REBATED_OPTIONS.map((opt) => <option key={opt}>{opt}</option>)}
-                            </select>
-                          ) : dblRebatedDisplay}
                         </td>
 
                         <td data-edit-field="internal_type" data-cell-editing={isCellEditing("internal_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>

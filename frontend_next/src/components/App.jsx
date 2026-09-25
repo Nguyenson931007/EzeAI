@@ -331,7 +331,7 @@ export default function App() {
     currentMouse,
     doorPreset, setDoorPreset,
     history, future,
-    pushHistory, undo, redo,
+    pushHistory, pushTaskHistory, undo, redo,
     deleteItem, deleteAllRooms,
     isMeasuring, setIsMeasuring,
     measurePoints, setMeasurePoints,
@@ -2339,6 +2339,7 @@ export default function App() {
                 setLayerVisibility={setLayerVisibility}
                 deleteItem={deleteItem}
                 selectWall={selectWall}
+                pushTaskHistory={pushTaskHistory}
               />
             )
           )}
