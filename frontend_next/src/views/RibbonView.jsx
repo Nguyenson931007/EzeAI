@@ -2502,8 +2502,12 @@ export default function RibbonView({
                       <div
                         key={`pending-level-${i}`}
                         onClick={() => {
-                          if (isChecked) setImportSelectedPages(prev => prev.filter(p => p !== i));
-                          else setImportSelectedPages(prev => [...prev, i]);
+                          setImportSelectedPages(prev => {
+                            const next = new Set(prev);
+                            if (next.has(i)) next.delete(i);
+                            else next.add(i);
+                            return Array.from(next).sort((a, b) => a - b);
+                          });
                         }}
                         style={{
                           display: 'flex', flexDirection: 'column', padding: 12,
@@ -2519,12 +2523,8 @@ export default function RibbonView({
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                if (e.target.checked) setImportSelectedPages(prev => [...prev, i]);
-                                else setImportSelectedPages(prev => prev.filter(p => p !== i));
-                              }}
-                              style={{ accentColor: '#2563eb', width: 18, height: 18, cursor: 'pointer' }}
+                              readOnly
+                              style={{ accentColor: '#2563eb', width: 18, height: 18, cursor: 'pointer', pointerEvents: 'none' }}
                             />
                             <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? '#2563eb' : '#1e293b' }}>
                               Page {i + 1}
@@ -2791,12 +2791,18 @@ export default function RibbonView({
                           <div
                             key={`pending-pdftools-${i}`}
                             onClick={() => {
-                              if (isChecked) {
-                                setImportSelectedPages(prev => prev.filter(p => p !== i));
-                              } else {
-                                setImportSelectedPages(prev => [...prev, i]);
-                                setImportPageCategories(prev => ({ ...prev, [i]: selectedStepId }));
-                              }
+                              setImportSelectedPages(prev => {
+                                const next = new Set(prev);
+                                if (next.has(i)) {
+                                  next.delete(i);
+                                } else {
+                                  next.add(i);
+                                  if (setImportPageCategories) {
+                                    setImportPageCategories(catPrev => ({ ...catPrev, [i]: selectedStepId }));
+                                  }
+                                }
+                                return Array.from(next).sort((a, b) => a - b);
+                              });
                             }}
                             style={{
                               display: 'flex', flexDirection: 'column', padding: 12,
@@ -2812,16 +2818,8 @@ export default function RibbonView({
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    if (e.target.checked) {
-                                      setImportSelectedPages(prev => [...prev, i]);
-                                      setImportPageCategories(prev => ({ ...prev, [i]: selectedStepId }));
-                                    } else {
-                                      setImportSelectedPages(prev => prev.filter(p => p !== i));
-                                    }
-                                  }}
-                                  style={{ accentColor: isCladding ? '#2563eb' : isEaves ? '#d97706' : assignedStep.color, width: 18, height: 18, cursor: 'pointer' }}
+                                  readOnly
+                                  style={{ accentColor: isCladding ? '#2563eb' : isEaves ? '#d97706' : assignedStep.color, width: 18, height: 18, cursor: 'pointer', pointerEvents: 'none' }}
                                 />
                                 <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? (isCladding ? '#2563eb' : isEaves ? '#b45309' : assignedStep.color) : '#1e293b' }}>
                                   Page {pageNum}

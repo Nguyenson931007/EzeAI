@@ -1438,7 +1438,8 @@ export default function App() {
   };
 
   function confirmImport(categoryAssignments = {}, forcedTarget = null) {
-    if (importSelectedPages.length === 0) {
+    const uniqueSelectedPages = Array.from(new Set(importSelectedPages)).sort((a, b) => a - b);
+    if (uniqueSelectedPages.length === 0) {
       setShowImportPageSelector(false);
       setIsAddingPagesMode(false);
       return;
@@ -1451,7 +1452,7 @@ export default function App() {
     const existingArchitecturalCount = isAddingPagesMode
       ? (pages || []).filter((page) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace).length
       : 0;
-    const selectedData = importSelectedPages.sort((a, b) => a - b).map((idx, selectedOrder) => {
+    const selectedData = uniqueSelectedPages.map((idx, selectedOrder) => {
       const p = pendingPages[idx];
       if (isLevel) {
         const architecturalOrder = existingArchitecturalCount + selectedOrder;
