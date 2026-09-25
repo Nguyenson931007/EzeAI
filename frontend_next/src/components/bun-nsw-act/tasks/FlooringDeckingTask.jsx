@@ -782,6 +782,28 @@ export default function FlooringDeckingTask({
     return [];
   }, [entries, selectedTaskFloor]);
 
+  const flooringScheduleRows = React.useMemo(() => {
+    const grouped = new Map();
+
+    (enteredRows || []).forEach((item) => {
+      const typeArea = String(item.typeArea || "Other").trim() || "Other";
+      const product = String(item.product || "").trim();
+      const rawArea = item.totalM2 !== undefined ? item.totalM2 : item.areaM2;
+      const areaM2 = parseFloat(String(rawArea ?? 0).replace(/m²/gi, "").trim()) || 0;
+      const key = `${typeArea.toLowerCase()}::${product.toLowerCase()}`;
+
+      const current = grouped.get(key) || { typeArea, product, totalM2: 0 };
+      current.totalM2 += areaM2;
+      grouped.set(key, current);
+    });
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const byType = a.typeArea.localeCompare(b.typeArea, undefined, { sensitivity: "base" });
+      if (byType !== 0) return byType;
+      return a.product.localeCompare(b.product, undefined, { sensitivity: "base" });
+    });
+  }, [enteredRows]);
+
   const groupedFlooringByLevel = React.useMemo(() => {
     const groups = {};
     (enteredRows || []).forEach(item => {
@@ -1372,7 +1394,39 @@ export default function FlooringDeckingTask({
 
         {isSection2Open && (
           <>
-            <div style={{ padding: "0px", overflowX: "auto" }}>
+            {flooringScheduleRows.length > 0 && (
+              <div className="task-ui-summary-subsection">
+                <div className="task-ui-summary-subsection-title">
+                  Flooring schedule — grouped by Type Area + Product
+                </div>
+                <div className="task-ui-table-scroll">
+                  <table className="task-ui-summary-table is-compact flooring-schedule-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "24%" }}>Type Area</th>
+                        <th>Product</th>
+                        <th style={{ width: "105px", textAlign: "right" }}>Total m²</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {flooringScheduleRows.map((row) => (
+                        <tr key={`${row.typeArea}::${row.product}`}>
+                          <td style={{ fontWeight: 700 }}>{row.typeArea}</td>
+                          <td style={{ fontWeight: 600 }}>{row.product || "—"}</td>
+                          <td style={{ textAlign: "right", fontWeight: 800, color: "#1d4ed8", whiteSpace: "nowrap" }}>
+                            {formatM2_4Digits(row.totalM2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="task-ui-summary-subsection">
+              <div className="task-ui-summary-subsection-title">Room / area details</div>
+              <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1626,7 +1680,8 @@ export default function FlooringDeckingTask({
               )}
             </tbody>
           </table>
-        </div>
+              </div>
+            </div>
 
         {/* ── ACTION BUTTON: SAVE ONLY (PROCUREMENT REMOVED) ── */}
         {enteredRows.length > 0 && (

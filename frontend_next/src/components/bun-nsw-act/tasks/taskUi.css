@@ -444,3 +444,19 @@ tr.task-floor-level-row td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Flooring schedule: compact roll-up of room rows that share the same type + product. */
+.flooring-schedule-table {
+  table-layout: fixed;
+}
+
+.flooring-schedule-table th,
+.flooring-schedule-table td {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.flooring-schedule-table th:last-child,
+.flooring-schedule-table td:last-child {
+  white-space: nowrap !important;
+}
