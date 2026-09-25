@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { ApiService } from "@/models/api.service";
@@ -186,7 +187,7 @@ export default function EavesSoffitTask({
   }, [beadCatalogItems]);
 
   // Material Setup State
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [sheetBrand, setSheetBrand] = useState("");
   const [sheetThickness, setSheetThickness] = useState("");
   const [soffitBatten, setSoffitBatten] = useState("");
@@ -228,7 +229,6 @@ export default function EavesSoffitTask({
 
   useEffect(() => {
     const curLevel = getLevelCode(currentPage);
-    if (curLevel) setFloorLevel(curLevel);
   }, [currentPage, pages]);
 
   const standardEavesWidths = useMemo(() => {
@@ -312,7 +312,6 @@ export default function EavesSoffitTask({
           }
           const first = loaded[0];
           if (first) {
-            setFloorLevel(first.floorLevel || "GF");
             setSheetBrand(first.brand || "FC");
             setSheetThickness(first.thickness || "4.5mm");
             if (first.batten) setSoffitBatten(first.batten);
@@ -442,7 +441,6 @@ export default function EavesSoffitTask({
   };
 
   const handleResetData = () => {
-    setFloorLevel("GF");
     setSheetBrand("FC");
     setSheetThickness("4.5mm");
     if (SOFFIT_BATTEN_OPTIONS.length > 0) setSoffitBatten(SOFFIT_BATTEN_OPTIONS[0]);
@@ -641,14 +639,6 @@ export default function EavesSoffitTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => handleReloadFromDb(true)}
-              disabled={isLoadingDb}
-              style={{ height: "28px", padding: "0 9px", border: "1px solid #cbd5e1", borderRadius: "5px", background: "#fff", color: "#334155", fontSize: "10px", fontWeight: 700, cursor: isLoadingDb ? "not-allowed" : "pointer" }}
-            >
-              {isLoadingDb ? "Loading..." : "↻ Reload SQL"}
-            </button>
           </div>
         )}
         {isMaterialOpen && (
@@ -824,7 +814,7 @@ export default function EavesSoffitTask({
                             style={{ borderBottom: "1px solid #e2e8f0" }}
                           >
                             <td style={{ padding: "7px 8px", textAlign: "center" }}>{index + 1}</td>
-                            <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.floorLevel || "GF"} onChange={(event) => setEditRowData({ ...editRowData, floorLevel: event.target.value })}>{FLOOR_LEVEL_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : level}</td>
+                            <td style={{ padding: "7px 8px", fontWeight: 700, color: "#2563eb" }}>{level}</td>
                             <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.brand || ""} onChange={(event) => setEditRowData({ ...editRowData, brand: event.target.value })}>{SHEET_BRAND_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.brand || "—")}</td>
                             <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.thickness || ""} onChange={(event) => setEditRowData({ ...editRowData, thickness: event.target.value })}>{SHEET_THICKNESS_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.thickness || "—")}</td>
                             <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.batten || ""} onChange={(event) => setEditRowData({ ...editRowData, batten: event.target.value })}>{SOFFIT_BATTEN_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.batten || "—")}</td>

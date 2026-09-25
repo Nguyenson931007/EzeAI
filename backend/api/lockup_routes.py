@@ -37,6 +37,8 @@ class LockoutItemSchema(BaseModel):
     jamb_size: Optional[str] = Field(None, description="Kích thước Jamb (e.g. 112x19mm...)")
     hung: Optional[str] = Field(None, description="Hướng mở hung (Hung A, Hung B...)")
     type: Optional[str] = Field(None, description="Kiểu khung/cấu hình cũ (Type A, Type CG...)")
+    weatherguard: Optional[Union[str, bool, int]] = Field("No", description="External door Weatherguard flag")
+    dbl_rebated: Optional[Union[str, bool, int]] = Field("No", description="External door double-rebated jamb flag")
     door_stop: Optional[str] = Field(None, description="Chặn cửa door_stop (Cushion, DS2 with Riser...)")
     internal_type: Optional[str] = Field(None, description="Internal type (HF, HO...)")
     color: Optional[str] = Field(None, description="Màu sắc color (CHR, SCH...)")
@@ -238,6 +240,8 @@ async def get_lockout_jobs(
                 lock.jamb_size,
                 lock.hung,
                 lock.[type],
+                lock.Weatherguard,
+                lock.DBLRebated,
                 lock.door_stop,
                 lock.internal_type,
                 lock.color,
@@ -293,6 +297,8 @@ async def get_lockout_jobs(
                 "jamb_size": str(r["jamb_size"]) if r.get("jamb_size") is not None else None,
                 "hung": r.get("hung"),
                 "type": r.get("type"),
+                "weatherguard": "Yes" if bool(r.get("Weatherguard")) else "No",
+                "dbl_rebated": "Yes" if bool(r.get("DBLRebated")) else "No",
                 "door_stop": r.get("door_stop"),
                 "internal_type": r.get("internal_type"),
                 "color": r.get("color"),
@@ -320,6 +326,14 @@ async def get_lockout_jobs(
 # ══════════════════════════════════════════════════════
 # 2. LƯU BÓC TÁCH LOCKUP VÀO MSSQL (POST /api/lockout/save-jobs)
 # ══════════════════════════════════════════════════════
+
+def _to_bit(value: Any) -> int:
+    """Normalize frontend Yes/No/bool values to SQL Server BIT safely."""
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, (int, float)):
+        return 1 if value else 0
+    return 1 if str(value or "").strip().lower() in {"yes", "y", "true", "1", "on"} else 0
 
 @router.post("/save-jobs")
 async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
@@ -361,6 +375,8 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                 jamb_size,
                 hung,
                 [type],
+                Weatherguard,
+                DBLRebated,
                 door_stop,
                 internal_type,
                 color,
@@ -374,7 +390,7 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
             VALUES
             (
                 NEWID(),
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );
         """
 
@@ -446,6 +462,8 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                         item.jamb_size,
                         item.hung,
                         item.type,
+                        _to_bit(item.weatherguard),
+                        _to_bit(item.dbl_rebated),
                         item.door_stop,
                         item.internal_type,
                         item.color,

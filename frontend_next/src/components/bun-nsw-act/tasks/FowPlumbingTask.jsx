@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { useAppModel } from "@/models/app.context";
@@ -576,7 +577,7 @@ export default function FowPlumbingTask({
   const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Floor level state
-  const [floorLevel, setFloorLevel] = useState(formData.floor_level || "GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
 
   // Draft input state matching screenshot
   const [itemNameDraft, setItemNameDraft] = useState("");
@@ -874,27 +875,6 @@ export default function FowPlumbingTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload FOW Plumbing from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -903,40 +883,6 @@ export default function FowPlumbingTask({
 
         {isSection1Open && (
           <div style={{ padding: "12px" }}>
-            {/* Shared Floor Level Selector at top of Card 1 */}
-            <div style={{
-              padding: "0 0 10px 0",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              borderBottom: "1px solid #f1f5f9",
-              marginBottom: "12px"
-            }}>
-              <span style={{ fontSize: "11px", color: "#334155", fontWeight: 700 }}>Floor level:</span>
-              <select
-                value={floorLevel}
-                onChange={(e) => {
-                  setFloorLevel(e.target.value);
-                  if (onChange) onChange("fow_plumbing", "floor_level", e.target.value);
-                }}
-                className="task-field-select"
-                style={{
-                  padding: "5px 8px",
-                  fontSize: "11px",
-                  borderRadius: "5px",
-                  border: "1px solid #cbd5e1",
-                  fontWeight: 700,
-                  background: "#f8fafc",
-                  minWidth: "140px",
-                  boxSizing: "border-box",
-                  height: "30px"
-                }}
-              >
-                {FLOOR_LEVEL_OPTIONS.map(opt => (
-                  <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
-                ))}
-              </select>
-            </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
               {/* Dropdown 1: Item Name (Combobox) */}

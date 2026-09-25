@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { useAppModel } from "@/models/app.context";
@@ -307,7 +308,7 @@ export default function PowerTrussBracesTask({
   const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Draft input state
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [wallHeightDraft, setWallHeightDraft] = useState("");
   const [lengthDraft, setLengthDraft] = useState("");
   const [typeDraft, setTypeDraft] = useState("Column");
@@ -446,7 +447,6 @@ export default function PowerTrussBracesTask({
           onSetEntries(loaded);
           const first = loaded[0];
           if (first) {
-            setFloorLevel(first.floorLevel || "GF");
             setWallHeightDraft(first.wallHeight || "");
             setLengthDraft(first.length || "");
             setTypeDraft(first.type || "Column");
@@ -589,27 +589,6 @@ export default function PowerTrussBracesTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload Power Truss Braces data from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -619,33 +598,6 @@ export default function PowerTrussBracesTask({
         {isSection1Open && (
           <div style={{ padding: "12px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
-              {/* Floor Level */}
-              <div style={{ flex: "1 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor level</span>
-                <select
-                  value={floorLevel}
-                  onChange={(e) => {
-                    setFloorLevel(e.target.value);
-                    if (onChange) onChange("power_truss", "floor_level", e.target.value);
-                  }}
-                  className="task-field-select"
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    fontWeight: 700,
-                    background: "#f8fafc",
-                    boxSizing: "border-box",
-                    height: "34px"
-                  }}
-                >
-                  {FLOOR_LEVEL_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
-                  ))}
-                </select>
-              </div>
 
               {/* Wall Height */}
               <InputField
@@ -778,7 +730,6 @@ export default function PowerTrussBracesTask({
                                   const nextSelected = isSelected ? null : item.id;
                                   setSelectedEntryId(nextSelected);
                                   if (!isSelected) {
-                                    setFloorLevel(item.floorLevel || item.floor_level || "GF");
                                     setWallHeightDraft(item.wallHeight || item.wall_height || "");
                                     setLengthDraft(item.length || "");
                                     setTypeDraft(item.type || "Column");

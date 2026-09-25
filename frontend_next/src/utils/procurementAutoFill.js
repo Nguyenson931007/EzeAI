@@ -113,6 +113,71 @@ const doorDimensions = (door) => ({
   height: finite(door?.height_mm || door?.door_height || door?.height),
 });
 
+
+export const isWindowOpening = (item) => {
+  if (!item) return false;
+  const explicitWindowFlag = item.is_window ?? item.isWindow;
+  if (explicitWindowFlag === true || explicitWindowFlag === 1 || lower(explicitWindowFlag) === "true") return true;
+
+  const values = [
+    item.type,
+    item.class,
+    item.class_name,
+    item.renderClass,
+    item.doorTypeId,
+    item.door_type,
+    item.doorType,
+    item.product,
+    item.mode,
+    item.category,
+  ].map(lower).filter(Boolean);
+
+  if (values.some((value) => (
+    value === "window" ||
+    value === "win_standard" ||
+    value.startsWith("window_") ||
+    value.startsWith("win_") ||
+    /(^|[\s_-])window([\s_-]|$)/.test(value)
+  ))) {
+    return true;
+  }
+
+  const rawId = lower(item.id || item.doorId || item.door_id);
+  if (/^(?:win|window)[_-]/.test(rawId)) return true;
+
+  const label = text(item.door_name || item.doorName || item.doorLabel || item.label);
+  return /^w[-_ ]?\d+[a-z]?$/i.test(label);
+};
+
+export const buildWindowRows = (doors = []) => doors
+  .filter(isWindowOpening)
+  .map((d, idx) => {
+    const dims = doorDimensions(d);
+    const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `W-${idx + 1}`;
+    const wallThickness = finite(d?.wall_thickness || d?.thickness_mm || d?.parent_wall_thickness);
+    const explicitScope = lower(d?.scope || d?.location);
+    const scope = explicitScope === "external" || explicitScope === "exterior"
+      ? "External"
+      : explicitScope === "internal" || explicitScope === "interior"
+        ? "Internal"
+        : "";
+    return {
+      id: `window-local-${d?.id ?? idx}`,
+      doorId: d?.id,
+      objectType: "window",
+      isWindow: true,
+      floorLevel: text(d?.__floorLevel || d?.floorLevel || d?.floor_level) || "GF",
+      label,
+      windowType: text(d?.window_type || d?.door_type || d?.product || d?.type_name || d?.type),
+      height: dims.height ? Math.round(dims.height) : "",
+      width: dims.width ? Math.round(dims.width) : "",
+      wallThickness: wallThickness ? Math.round(wallThickness) : "",
+      location: scope,
+      sourcePageIndex: d?.__sourcePageIndex,
+      autofill_source: "drawing",
+    };
+  });
+
 const explicitHanding = (d, allowed) => {
   const raw = text(d?.handing || d?.hung || d?.hingeSide || d?.hinge_side);
   if (!raw) return "";
@@ -121,7 +186,7 @@ const explicitHanding = (d, allowed) => {
   return explicitAllowed(aliases[u] || raw, allowed);
 };
 
-export const buildFixoutRows = (doors = []) => doors.map((d, idx) => {
+export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpening(d)).map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const rawType = lower(d?.door_type || d?.type || d?.class_name);
   const cavity = /slid|cavity/.test(`${label.toLowerCase()} ${rawType}`);
@@ -158,7 +223,7 @@ export const buildFixoutRows = (doors = []) => doors.map((d, idx) => {
   };
 });
 
-export const buildLockupRows = (doors = []) => doors.map((d, idx) => {
+export const buildLockupRows = (doors = []) => doors.filter((d) => !isWindowOpening(d)).map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const dims = doorDimensions(d);
   const explicitScope = lower(d?.scope || d?.location);

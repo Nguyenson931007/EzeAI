@@ -6,9 +6,10 @@ import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 const DATA_ROW_SELECTOR = "tbody tr";
 const NON_FILTERABLE_HEADERS = new Set(["#", "stt", "số thứ tự", "no", "no.", "label"]);
 const NON_EDITABLE_HEADERS = new Set(["#", "stt", "số thứ tự", "no", "no."]);
-// Entered/result tables are read-only summaries. Inputs/dropdowns live in the
-// task forms above; this enhancer must never turn summary cells into editors.
-const SHARED_CELL_EDIT_TASKS = new Set();
+// Row interaction is shared here for every task:
+// - single click selects/highlights a row only
+// - double click is reserved for the task's own inline editor
+// Never synthesize editing from a single click in this shared layer.
 
 function isGroupRow(row) {
   const cells = Array.from(row?.cells || []);
@@ -165,115 +166,148 @@ export default function TaskTableEnhancer({ children, taskId }) {
   const rootRef = useRef(null);
   const filtersRef = useRef(new Map());
   const collapsedGroupsRef = useRef(new WeakMap());
-  const cellEditsRef = useRef(new WeakMap());
+  // Shared Excel-style row edit layout lock.  Every task keeps ownership of
+  // its business edit state, while this enhancer freezes the table geometry
+  // before the double-click changes text cells into controls.
+  const rowEditLayoutsRef = useRef(new WeakMap());
   const [menu, setMenu] = useState(null);
   const [draftValues, setDraftValues] = useState(() => new Set());
 
-  const restoreTableWidths = useCallback((table, editState) => {
-    if (!table || !editState?.layoutSnapshot) return;
-    const { tableStyle, headers } = editState.layoutSnapshot;
-    table.style.width = tableStyle.width;
-    table.style.minWidth = tableStyle.minWidth;
-    table.style.tableLayout = tableStyle.tableLayout;
-    headers.forEach(({ header, width, minWidth, maxWidth }) => {
-      if (!header?.isConnected) return;
-      header.style.width = width;
-      header.style.minWidth = minWidth;
-      header.style.maxWidth = maxWidth;
-    });
+  const captureRowEditLayout = useCallback((table, row) => {
+    if (!table || !row) return;
+    const headerRow = table.tHead?.rows?.[table.tHead.rows.length - 1];
+    const headers = Array.from(headerRow?.cells || []);
+    const cells = Array.from(row.cells || []);
+    const bodyRows = Array.from(table.querySelectorAll("tbody tr"));
+    const snapshot = {
+      rowIndex: bodyRows.indexOf(row),
+      tableWidth: Math.max(1, Math.ceil(table.getBoundingClientRect().width)),
+      rowHeight: Math.max(1, Math.ceil(row.getBoundingClientRect().height)),
+      tableStyle: {
+        width: table.style.width,
+        minWidth: table.style.minWidth,
+        maxWidth: table.style.maxWidth,
+        tableLayout: table.style.tableLayout,
+      },
+      headers: headers.map((header) => ({
+        node: header,
+        widthPx: Math.max(1, Math.ceil(header.getBoundingClientRect().width)),
+        width: header.style.width,
+        minWidth: header.style.minWidth,
+        maxWidth: header.style.maxWidth,
+      })),
+      rowStyle: {
+        height: row.style.height,
+        minHeight: row.style.minHeight,
+        maxHeight: row.style.maxHeight,
+      },
+      cells: cells.map((cell) => ({
+        node: cell,
+        widthPx: Math.max(1, Math.ceil(cell.getBoundingClientRect().width)),
+        width: cell.style.width,
+        minWidth: cell.style.minWidth,
+        maxWidth: cell.style.maxWidth,
+        height: cell.style.height,
+        minHeight: cell.style.minHeight,
+        maxHeight: cell.style.maxHeight,
+      })),
+    };
+    rowEditLayoutsRef.current.set(table, snapshot);
   }, []);
 
-  const clearCellEditView = useCallback((table, editState, removeState = false) => {
-    table?.classList.remove("task-cell-editing-table");
-    table?.querySelectorAll(".task-active-edit-cell, .task-cell-editor-suppressed").forEach((cell) => {
-      cell.classList.remove("task-active-edit-cell", "task-cell-editor-suppressed");
-      cell.removeAttribute("data-task-display-value");
+  const restoreRowEditLayout = useCallback((table, snapshot) => {
+    if (!table || !snapshot) return;
+    table.classList.remove("task-row-edit-layout-locked");
+    table.style.width = snapshot.tableStyle.width;
+    table.style.minWidth = snapshot.tableStyle.minWidth;
+    table.style.maxWidth = snapshot.tableStyle.maxWidth;
+    table.style.tableLayout = snapshot.tableStyle.tableLayout;
+    snapshot.headers.forEach(({ node, width, minWidth, maxWidth }) => {
+      if (!node?.isConnected) return;
+      node.style.width = width;
+      node.style.minWidth = minWidth;
+      node.style.maxWidth = maxWidth;
     });
-    if (removeState) {
-      restoreTableWidths(table, editState);
-      cellEditsRef.current.delete(table);
+    const bodyRows = Array.from(table.querySelectorAll("tbody tr"));
+    const row = bodyRows[snapshot.rowIndex];
+    snapshot.cells.forEach(({ node, width, minWidth, maxWidth, height, minHeight, maxHeight }, index) => {
+      const target = node?.isConnected ? node : row?.cells?.[index];
+      if (!target) return;
+      target.style.width = width;
+      target.style.minWidth = minWidth;
+      target.style.maxWidth = maxWidth;
+      target.style.height = height;
+      target.style.minHeight = minHeight;
+      target.style.maxHeight = maxHeight;
+    });
+    if (row) {
+      row.classList.remove("task-row-editing-locked");
+      row.style.removeProperty("--task-edit-row-height");
+      row.style.height = snapshot.rowStyle.height;
+      row.style.minHeight = snapshot.rowStyle.minHeight;
+      row.style.maxHeight = snapshot.rowStyle.maxHeight;
     }
-  }, [restoreTableWidths]);
+    rowEditLayoutsRef.current.delete(table);
+  }, []);
 
-  const applyCellEditView = useCallback((table) => {
-    const editState = cellEditsRef.current.get(table);
-    if (!editState) return;
-    clearCellEditView(table, editState, false);
-
-    const explicitRow = table.querySelector(
-      'tbody tr[data-editing-row-id], tbody tr[data-editing-area-row-id], tbody tr[data-lockup-row-id] [data-cell-editing="true"]'
+  const findEditingRow = useCallback((table, snapshot) => {
+    if (!table) return null;
+    let row = table.querySelector(
+      'tbody tr[data-editing-row-id], tbody tr[data-editing-area-row-id]'
     );
-    let editRow = explicitRow?.tagName === "TR" ? explicitRow : explicitRow?.closest?.("tr");
-    if (!editRow && editState.row?.isConnected) {
-      const controls = editState.row.querySelectorAll("input, select, textarea, [data-search-dropdown]");
-      if (controls.length >= 2) editRow = editState.row;
-    }
+    if (row) return row;
+
+    const bodyRows = Array.from(table.querySelectorAll("tbody tr"));
+    const preferred = snapshot?.rowIndex >= 0 ? bodyRows[snapshot.rowIndex] : null;
+    const hasEditor = (candidate) => Boolean(
+      candidate && !isGroupRow(candidate) && candidate.querySelector(
+        'input, select, textarea, [data-search-dropdown]'
+      )
+    );
+    if (hasEditor(preferred)) return preferred;
+    return bodyRows.find(hasEditor) || null;
+  }, []);
+
+  const applyRowEditLayout = useCallback((table) => {
+    const snapshot = rowEditLayoutsRef.current.get(table);
+    if (!snapshot) return;
+    const editRow = findEditingRow(table, snapshot);
     if (!editRow) {
-      clearCellEditView(table, editState, true);
+      restoreRowEditLayout(table, snapshot);
       return;
     }
 
-    const cells = Array.from(editRow.cells || []);
-    if (!cells.length) return;
-    table.classList.add("task-cell-editing-table");
-    cells.forEach((cell, columnIndex) => {
-      const editor = cell.querySelector("input, select, textarea, [data-search-dropdown]");
-      if (!editor) return;
-      if (columnIndex === editState.columnIndex) {
-        cell.classList.add("task-active-edit-cell");
-        return;
-      }
-      cell.classList.add("task-cell-editor-suppressed");
-      cell.dataset.taskDisplayValue = editState.values[columnIndex] || "-";
+    table.classList.add("task-row-edit-layout-locked");
+    table.style.width = `${snapshot.tableWidth}px`;
+    table.style.minWidth = `${snapshot.tableWidth}px`;
+    table.style.maxWidth = `${snapshot.tableWidth}px`;
+    table.style.tableLayout = "fixed";
+
+    snapshot.headers.forEach(({ node, widthPx }) => {
+      if (!node?.isConnected) return;
+      node.style.width = `${widthPx}px`;
+      node.style.minWidth = `${widthPx}px`;
+      node.style.maxWidth = `${widthPx}px`;
     });
-  }, [clearCellEditView]);
 
-  const beginSharedCellEdit = useCallback((table, row, columnIndex) => {
-    let editState = cellEditsRef.current.get(table);
-    const isSameEditingRow = editState?.row === row && (
-      row.hasAttribute("data-editing-row-id") ||
-      row.hasAttribute("data-editing-area-row-id") ||
-      row.querySelectorAll("input, select, textarea, [data-search-dropdown]").length >= 2
-    );
+    editRow.classList.add("task-row-editing-locked");
+    editRow.style.setProperty("--task-edit-row-height", `${snapshot.rowHeight}px`);
+    editRow.style.height = `${snapshot.rowHeight}px`;
+    editRow.style.minHeight = `${snapshot.rowHeight}px`;
+    editRow.style.maxHeight = `${snapshot.rowHeight}px`;
 
-    if (!editState || !isSameEditingRow) {
-      if (editState) clearCellEditView(table, editState, true);
-      const headerRow = table.tHead?.rows?.[table.tHead.rows.length - 1];
-      const headers = Array.from(headerRow?.cells || []);
-      editState = {
-        row,
-        columnIndex,
-        values: Array.from(row.cells || []).map((cell) => String(cell.innerText || "").replace(/\s+/g, " ").trim()),
-        layoutSnapshot: {
-          tableStyle: {
-            width: table.style.width,
-            minWidth: table.style.minWidth,
-            tableLayout: table.style.tableLayout,
-          },
-          headers: headers.map((header) => ({
-            header,
-            width: header.style.width,
-            minWidth: header.style.minWidth,
-            maxWidth: header.style.maxWidth,
-          })),
-        },
-      };
-      const tableWidth = Math.ceil(table.getBoundingClientRect().width);
-      headers.forEach((header) => {
-        const width = Math.ceil(header.getBoundingClientRect().width);
-        header.style.width = `${width}px`;
-        header.style.minWidth = `${width}px`;
-        header.style.maxWidth = `${width}px`;
-      });
-      table.style.width = `${tableWidth}px`;
-      table.style.minWidth = `${tableWidth}px`;
-      table.style.tableLayout = "fixed";
-      cellEditsRef.current.set(table, editState);
-    } else {
-      editState.columnIndex = columnIndex;
-      applyCellEditView(table);
-    }
-  }, [applyCellEditView, clearCellEditView]);
+    const liveCells = Array.from(editRow.cells || []);
+    snapshot.cells.forEach(({ widthPx }, index) => {
+      const cell = liveCells[index];
+      if (!cell) return;
+      cell.style.width = `${widthPx}px`;
+      cell.style.minWidth = `${widthPx}px`;
+      cell.style.maxWidth = `${widthPx}px`;
+      cell.style.height = `${snapshot.rowHeight}px`;
+      cell.style.minHeight = `${snapshot.rowHeight}px`;
+      cell.style.maxHeight = `${snapshot.rowHeight}px`;
+    });
+  }, [findEditingRow, restoreRowEditLayout]);
 
   const applyFilters = useCallback((table) => {
     if (!table) return;
@@ -386,7 +420,11 @@ export default function TaskTableEnhancer({ children, taskId }) {
       }
       applyStickyIdentityColumns(table);
       applyFilters(table);
-      applyCellEditView(table);
+      applyRowEditLayout(table);
+
+      dataRows(table).forEach((row) => {
+        row.classList.add("task-row-selectable");
+      });
 
       table.querySelectorAll("tbody button").forEach((button) => {
         const actionLabel = String(button.title || button.getAttribute("aria-label") || "").trim();
@@ -399,15 +437,6 @@ export default function TaskTableEnhancer({ children, taskId }) {
       const card = header?.closest(".task-ui-entered-card") || header?.parentElement;
       header?.classList.add("task-entered-section-header");
       card?.classList.add("task-ui-card", "task-ui-entered-card");
-      card?.querySelectorAll("table").forEach((table) => {
-        table.classList.add("task-summary-readonly");
-        table.dataset.taskSummaryReadonly = "true";
-      });
-    });
-
-    root.querySelectorAll(".task-ui-entered-card table").forEach((table) => {
-      table.classList.add("task-summary-readonly");
-      table.dataset.taskSummaryReadonly = "true";
     });
 
     root.querySelectorAll("div").forEach((element) => {
@@ -435,7 +464,7 @@ export default function TaskTableEnhancer({ children, taskId }) {
         (bannerButtons[1] || bannerButtons[0]).classList.add("entered-task-action", "entered-task-action--confirm");
       }
     }
-  }, [applyCellEditView, applyFilters, openFilter]);
+  }, [applyFilters, applyRowEditLayout, openFilter]);
 
   useEffect(() => {
     enhanceTables();
@@ -456,67 +485,63 @@ export default function TaskTableEnhancer({ children, taskId }) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
-    const handleEditableCellClick = (event) => {
-      if (!SHARED_CELL_EDIT_TASKS.has(taskId)) return;
-      if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
-      const cell = event.target.closest("td");
-      const row = cell?.closest("tbody tr");
-      const table = row?.closest("table");
-      if (!cell || !row || !table || !root.contains(table) || isGroupRow(row)) return;
-      if (cell.hasAttribute("data-edit-field") || row.hasAttribute("data-lockup-row-id")) return;
 
-      const columnIndex = Array.from(row.cells || []).indexOf(cell);
-      const headerRow = table.tHead?.rows?.[table.tHead.rows.length - 1];
-      const headerLabel = normalizedHeader(headerRow?.cells?.[columnIndex]?.innerText);
-      if (columnIndex < 0 || NON_EDITABLE_HEADERS.has(headerLabel) || !headerLabel || /action|delete|remove/.test(headerLabel)) return;
-
-      const existingState = cellEditsRef.current.get(table);
-      const alreadyEditing = existingState?.row === row && (
-        row.hasAttribute("data-editing-row-id") ||
-        row.hasAttribute("data-editing-area-row-id") ||
-        row.querySelectorAll("input, select, textarea, [data-search-dropdown]").length >= 2
-      );
-      const editButton = (taskId === "hardies_fire_walls" || taskId === "hebel_flooring")
-        ? Array.from(row.querySelectorAll("button")).find((button) => /edit/i.test(button.title || button.getAttribute("aria-label") || ""))
-        : null;
-      if (!editButton) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      beginSharedCellEdit(table, row, columnIndex);
-      if (!alreadyEditing) {
-        window.setTimeout(() => {
-          if (!row.isConnected) return;
-          const liveEditButton = editButton?.isConnected
-            ? editButton
-            : Array.from(row.querySelectorAll("button")).find((button) => /edit/i.test(button.title || button.getAttribute("aria-label") || ""));
-          if (liveEditButton) liveEditButton.click();
-          else if (cell.isConnected) cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }));
-        }, 0);
-      }
+    // Capture the exact read-mode geometry before React swaps the row content
+    // to inputs/selects.  The business onDoubleClick handlers still own the
+    // actual edit action; this only prevents Excel-like inline editing from
+    // changing row height or column width.
+    const captureBeforeRowEdit = (event) => {
+      if (event.target?.closest?.(
+        "button, input, select, textarea, a, [data-search-dropdown], [role='button']"
+      )) return;
+      const row = event.target?.closest?.("tbody tr");
+      const table = row?.closest?.("table");
+      if (!row || !table || !root.contains(table) || isGroupRow(row)) return;
+      captureRowEditLayout(table, row);
+      requestAnimationFrame(() => {
+        applyRowEditLayout(table);
+        requestAnimationFrame(() => applyRowEditLayout(table));
+      });
     };
-    root.addEventListener("click", handleEditableCellClick, true);
-    return () => root.removeEventListener("click", handleEditableCellClick, true);
-  }, [beginSharedCellEdit, taskId]);
+
+    root.addEventListener("dblclick", captureBeforeRowEdit, true);
+    return () => root.removeEventListener("dblclick", captureBeforeRowEdit, true);
+  }, [applyRowEditLayout, captureRowEditLayout, taskId]);
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
-    const blockSummaryDoubleClick = (event) => {
-      const table = event.target?.closest?.("table.task-summary-readonly");
-      if (!table || !root.contains(table)) return;
-      event.preventDefault();
-      event.stopPropagation();
+
+    const isControlTarget = (target) => Boolean(target?.closest?.(
+      "button, input, select, textarea, a, [data-search-dropdown], [role='button']"
+    ));
+
+    const selectRowOnly = (event) => {
+      if (isControlTarget(event.target)) return;
+      const row = event.target?.closest?.("tbody tr");
+      const table = row?.closest?.("table");
+      if (!row || !table || !root.contains(table) || isGroupRow(row)) return;
+
+      root.querySelectorAll("tbody tr.task-row-selected").forEach((selectedRow) => {
+        if (selectedRow === row) return;
+        selectedRow.classList.remove("task-row-selected");
+        selectedRow.removeAttribute("aria-selected");
+      });
+      row.classList.add("task-row-selected");
+      row.setAttribute("aria-selected", "true");
     };
-    root.addEventListener("dblclick", blockSummaryDoubleClick, true);
-    return () => root.removeEventListener("dblclick", blockSummaryDoubleClick, true);
+
+    // Deliberately listen only for selection. Editing remains owned by each
+    // task's onDoubleClick handler, so one click can never open an editor.
+    root.addEventListener("click", selectRowOnly, false);
+    return () => root.removeEventListener("click", selectRowOnly, false);
   }, [taskId]);
 
   useEffect(() => {
     setMenu(null);
     filtersRef.current = new Map();
     collapsedGroupsRef.current = new WeakMap();
-    cellEditsRef.current = new WeakMap();
+    rowEditLayoutsRef.current = new WeakMap();
   }, [taskId]);
 
   useEffect(() => {
@@ -771,6 +796,15 @@ export default function TaskTableEnhancer({ children, taskId }) {
           line-height: 1.2;
           white-space: nowrap;
         }
+        .task-module-enhanced tbody tr.task-row-selectable:not(.task-floor-group-row) {
+          cursor: pointer;
+        }
+        .task-module-enhanced tbody tr.task-row-selected:not(.task-floor-group-row) {
+          box-shadow: inset 3px 0 0 #2563eb, inset 0 0 0 1px #93c5fd;
+        }
+        .task-module-enhanced tbody tr.task-row-selected:not(.task-floor-group-row) > td {
+          background-color: #eff6ff;
+        }
         .task-module-enhanced table td {
           height: 31px;
           box-sizing: border-box;
@@ -783,9 +817,58 @@ export default function TaskTableEnhancer({ children, taskId }) {
           position: relative;
           overflow: hidden;
         }
-        .task-module-enhanced td[data-cell-editing="true"] {
+        .task-module-enhanced tr.task-row-editing-locked > td {
+          height: var(--task-edit-row-height, 31px) !important;
+          min-height: var(--task-edit-row-height, 31px) !important;
+          max-height: var(--task-edit-row-height, 31px) !important;
+          padding-top: 2px !important;
+          padding-bottom: 2px !important;
+          overflow: hidden !important;
+          white-space: nowrap !important;
+          vertical-align: middle !important;
+          background-clip: padding-box;
+        }
+        .task-module-enhanced tr.task-row-editing-locked > td[data-edit-field],
+        .task-module-enhanced tr.task-row-editing-locked > td:has(input, select, textarea, [data-search-dropdown]) {
           background: #eff6ff !important;
-          box-shadow: inset 0 0 0 2px #3b82f6;
+          box-shadow: inset 0 0 0 1px #93c5fd;
+        }
+        .task-module-enhanced tr.task-row-editing-locked input,
+        .task-module-enhanced tr.task-row-editing-locked select,
+        .task-module-enhanced tr.task-row-editing-locked textarea,
+        .task-module-enhanced tr.task-row-editing-locked [data-search-dropdown] {
+          box-sizing: border-box !important;
+          width: 100% !important;
+          min-width: 0 !important;
+          max-width: 100% !important;
+          height: 24px !important;
+          min-height: 24px !important;
+          max-height: 24px !important;
+          margin: 0 !important;
+          padding-top: 1px !important;
+          padding-bottom: 1px !important;
+          line-height: 20px !important;
+        }
+        .task-module-enhanced tr.task-row-editing-locked > td > div:has(input, select, textarea, [data-search-dropdown]) {
+          box-sizing: border-box !important;
+          width: 100% !important;
+          min-width: 0 !important;
+          max-width: 100% !important;
+          height: 24px !important;
+          min-height: 24px !important;
+          max-height: 24px !important;
+          margin: 0 !important;
+          gap: 3px !important;
+          flex-wrap: nowrap !important;
+          overflow: hidden !important;
+          align-items: center !important;
+        }
+        .task-module-enhanced tr.task-row-editing-locked > td > div:has(input, select, textarea, [data-search-dropdown]) > input,
+        .task-module-enhanced tr.task-row-editing-locked > td > div:has(input, select, textarea, [data-search-dropdown]) > select {
+          flex: 1 1 0 !important;
+          width: auto !important;
+          min-width: 0 !important;
+          max-width: 100% !important;
         }
         .task-module-enhanced td[data-edit-field] > input,
         .task-module-enhanced td[data-edit-field] > select,
@@ -803,40 +886,6 @@ export default function TaskTableEnhancer({ children, taskId }) {
         .task-module-enhanced td[data-edit-field="size"] > div > select {
           width: calc(50% - 6px) !important;
           min-width: 0 !important;
-        }
-        .task-cell-editing-table .task-active-edit-cell {
-          background: #eff6ff !important;
-          box-shadow: inset 0 0 0 2px #3b82f6;
-          overflow: hidden;
-        }
-        .task-cell-editing-table tr:has(.task-active-edit-cell) {
-          background: transparent !important;
-          outline: none !important;
-        }
-        .task-cell-editing-table .task-active-edit-cell input,
-        .task-cell-editing-table .task-active-edit-cell select,
-        .task-cell-editing-table .task-active-edit-cell textarea,
-        .task-cell-editing-table .task-active-edit-cell [data-search-dropdown] {
-          width: 100% !important;
-          max-width: 100% !important;
-          min-width: 0 !important;
-          box-sizing: border-box;
-        }
-        .task-cell-editing-table .task-cell-editor-suppressed > input,
-        .task-cell-editing-table .task-cell-editor-suppressed > select,
-        .task-cell-editing-table .task-cell-editor-suppressed > textarea,
-        .task-cell-editing-table .task-cell-editor-suppressed > [data-search-dropdown],
-        .task-cell-editing-table .task-cell-editor-suppressed > div:has(input, select, textarea, [data-search-dropdown]) {
-          display: none !important;
-        }
-        .task-cell-editing-table .task-cell-editor-suppressed::after {
-          content: attr(data-task-display-value);
-          display: block;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          color: #334155;
-          font: inherit;
         }
         .task-module-enhanced input,
         .task-module-enhanced select,

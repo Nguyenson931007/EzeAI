@@ -4,7 +4,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, isWindowOpening } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import {
@@ -312,10 +312,10 @@ export default function LockupTask({
   const loadedJobRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [locationFilter, setLocationFilter] = useState(null); // null | "external" | "internal"
   
-  // Procurement-style inline row editing.
+  // Excel-style inline row editing: one double-click edits the whole row.
   const [editingDoorData, setEditingDoorData] = useState(null);
-  const [editingDoorCell, setEditingDoorCell] = useState(null);
 
   const enteredDoorsByFloor = useMemo(() => {
     const floorOrder = { GF: 0, FF: 1, SF: 2, TF: 3 };
@@ -329,6 +329,24 @@ export default function LockupTask({
       return aOrder - bOrder || a.__originalIndex - b.__originalIndex;
     });
   }, [entries]);
+
+  const filteredEnteredDoorsByFloor = useMemo(() => {
+    if (!locationFilter) return enteredDoorsByFloor;
+
+    return enteredDoorsByFloor.filter((row) => {
+      const locationText = String(row.location || row.scope || "").trim().toLowerCase();
+      const isExternal = Boolean(
+        row.isExternal ||
+        row.is_ext ||
+        row.is_exterior ||
+        locationText === "external" ||
+        locationText === "ext" ||
+        locationText.startsWith("ext")
+      );
+
+      return locationFilter === "external" ? isExternal : !isExternal;
+    });
+  }, [enteredDoorsByFloor, locationFilter]);
 
   // Collapsible States
   const [isCard1Collapsed, setIsCard1Collapsed] = useState(false);
@@ -376,9 +394,8 @@ export default function LockupTask({
     return /^(single|sliding|window|double|bifold|pocket|cavity|door|hinged|french|timber)$/i.test(String(t).trim());
   };
 
-  const beginInlineEdit = (row, cell = null) => {
+  const beginInlineEdit = (row) => {
     if (!row) return;
-    setEditingDoorCell(cell);
     const effCanvasDoor = (doors || []).find(d => matchId(row.doorId, d.id) || matchId(row.id, d.id) || matchId(row.door_id, d.id));
     const effDoorIsExt = Boolean(
       effCanvasDoor && (
@@ -537,7 +554,6 @@ export default function LockupTask({
   const commitInlineEdit = (savedData = editingDoorData) => {
     if (!savedData || !savedData.id || !onSetEntries) {
       setEditingDoorData(null);
-      setEditingDoorCell(null);
       return;
     }
 
@@ -581,12 +597,10 @@ export default function LockupTask({
 
     syncCanvasDoor(savedData);
     setEditingDoorData(null);
-    setEditingDoorCell(null);
   };
 
   const cancelInlineEdit = () => {
     setEditingDoorData(null);
-    setEditingDoorCell(null);
   };
 
   useEffect(() => {
@@ -600,8 +614,8 @@ export default function LockupTask({
     return () => document.removeEventListener("mousedown", saveWhenClickingOutsideRow, true);
   }, [editingDoorData]);
 
-  // Selecting a door from Canvas highlights the row; clicking a table cell
-  // edits only that cell so the remaining column widths stay stable.
+  // Selecting a door from Canvas highlights the row.  Editing is always whole-row
+  // and starts only from a double-click; TaskTableEnhancer keeps the geometry fixed.
 
   const lastTargetDoorIdRef = useRef(null);
   useEffect(() => {
@@ -1045,13 +1059,15 @@ export default function LockupTask({
         }
       }
 
-      // Filter timber doors only (same logic as LockoutJobsModal)
-      const timberDoors = allDoors.filter(d => {
+      // Window objects are handled by the local-only Window task. Lockup must
+      // only calculate/save real door rows.
+      const nonWindowDoors = allDoors.filter((door) => !isWindowOpening(door));
+      const timberDoors = nonWindowDoors.filter(d => {
         const mat = String(d.material || d.door_material || d.material_type || "timber").trim().toLowerCase();
         return !mat || mat === "timber" || mat === "wood" || mat === "default";
       });
 
-      const targetDoors = timberDoors.length > 0 ? timberDoors : allDoors;
+      const targetDoors = timberDoors.length > 0 ? timberDoors : nonWindowDoors;
 
       if (targetDoors.length === 0) {
         if (onSetEntries) onSetEntries([]);
@@ -1208,7 +1224,7 @@ export default function LockupTask({
     const handleSyncFromModal = (e) => {
       if (suppressAutoInit) return;
       if (e.detail?.lockoutRows && e.detail.lockoutRows.length > 0) {
-        const mapped = e.detail.lockoutRows.map((r, idx) => ({
+        const mapped = e.detail.lockoutRows.filter((row) => !isWindowOpening(row)).map((r, idx) => ({
           id: `door-sync-${Date.now()}-${idx}`,
           mode: r.mode || null,
           scope: r.scope || "internal",
@@ -1258,7 +1274,7 @@ export default function LockupTask({
         return String(v).trim();
       };
 
-      const items = (entries || []).map(item => ({
+      const items = (entries || []).filter((item) => !isWindowOpening(item)).map(item => ({
         mode: parseStr(item.mode),
         scope: parseStr(item.scope),
         label: parseStr(item.label),
@@ -1345,7 +1361,7 @@ export default function LockupTask({
             const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
             return (jn && jn === target) || (hw && hw === target);
           });
-          const validRows = matchedRows.filter(r => r.door_type || r.height || r.width || r.jamb_or_wall || r.label);
+          const validRows = matchedRows.filter(r => !isWindowOpening(r) && (r.door_type || r.height || r.width || r.jamb_or_wall || r.label));
           if (validRows.length > 0 && onSetEntries) {
             const loaded = validRows.map((r, idx) => ({
               id: `door-loaded-${Date.now()}-${idx}`,
@@ -2230,8 +2246,46 @@ export default function LockupTask({
             userSelect: "none"
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
             <span>2. Entered doors ({(entries || []).length})</span>
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{ display: "flex", alignItems: "center", gap: "4px" }}
+            >
+              {[
+                { key: "external", label: "EXT" },
+                { key: "internal", label: "INT" },
+              ].map((option) => {
+                const active = locationFilter === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setLocationFilter((current) => current === option.key ? null : option.key);
+                    }}
+                    title={active ? `Show all doors` : `Show ${option.label} doors only`}
+                    style={{
+                      minWidth: "42px",
+                      height: "24px",
+                      padding: "0 9px",
+                      borderRadius: "5px",
+                      border: active ? "1px solid #1d4ed8" : "1px solid #cbd5e1",
+                      background: active ? "#2563eb" : "#ffffff",
+                      color: active ? "#ffffff" : "#334155",
+                      fontSize: "10px",
+                      lineHeight: 1,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      boxShadow: active ? "0 1px 2px rgba(37,99,235,0.22)" : "none",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <EnteredTaskActions
             onAutoFill={handleAutoCalculateLockout}
@@ -2296,9 +2350,9 @@ export default function LockupTask({
                   </tr>
                 </thead>
                 <tbody>
-                  {enteredDoorsByFloor.map((row, idx) => {
+                  {filteredEnteredDoorsByFloor.map((row, idx) => {
                     const rowFloor = row.__displayFloor || "GF";
-                    const previousFloor = idx > 0 ? enteredDoorsByFloor[idx - 1].__displayFloor : null;
+                    const previousFloor = idx > 0 ? filteredEnteredDoorsByFloor[idx - 1].__displayFloor : null;
                     const showFloorHeader = idx === 0 || rowFloor !== previousFloor;
                     const effDoor = selectedDoorProp || selectedDoor;
                     const effDoorIds = selectedDoorIdsProp || selectedDoorIds || [];
@@ -2393,7 +2447,7 @@ export default function LockupTask({
 
                     const isEditing = editingDoorData?.id === row.id;
                     const editRow = isEditing ? editingDoorData : null;
-                    const isCellEditing = (field) => isEditing && editingDoorCell === field;
+                    const isCellEditing = () => isEditing;
                     const editIsExt = isEditing
                       ? (editRow.scope === "external" || editRow.location === "External")
                       : isExt;
@@ -2437,21 +2491,33 @@ export default function LockupTask({
                       <tr
                         data-floor-level={rowFloor}
                         data-lockup-row-id={String(row.id)}
+                        data-editing-row-id={isEditing ? String(row.id) : undefined}
                         onClick={(e) => {
                           if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
                             e.stopPropagation();
                             return;
                           }
+                          // Single click only selects/focuses the row. Inline editing is
+                          // intentionally reserved for double-click so accidental clicks
+                          // while reviewing the table do not open editors.
                           setSelectedEntryId(row.id);
                           if (onSelectEntry) onSelectEntry(row);
-                          const editableCell = e.target.closest("[data-edit-field]");
-                          const field = editableCell?.dataset?.editField;
-                          if (field) {
-                            if (editingDoorData && (editingDoorData.id !== row.id || editingDoorCell !== field)) {
-                              commitInlineEdit(editingDoorData);
-                            }
-                            beginInlineEdit(row, field);
+                        }}
+                        onDoubleClick={(e) => {
+                          if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
+                            e.stopPropagation();
+                            return;
                           }
+
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelectedEntryId(row.id);
+                          if (onSelectEntry) onSelectEntry(row);
+
+                          if (editingDoorData && editingDoorData.id !== row.id) {
+                            commitInlineEdit(editingDoorData);
+                          }
+                          if (!isEditing) beginInlineEdit(row);
                         }}
                         onKeyDown={(e) => {
                           if (!isEditing) return;
@@ -2780,10 +2846,12 @@ export default function LockupTask({
                     );
                   })}
 
-                  {(!entries || entries.length === 0) && (
+                  {filteredEnteredDoorsByFloor.length === 0 && (
                     <tr>
                       <td colSpan={18} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                        No doors entered. Use <strong>⚡ Auto Fill (AI)</strong> to populate door data from the selected plan.
+                        {(entries || []).length === 0
+                          ? <>No doors entered. Use <strong>⚡ Auto Fill (AI)</strong> to populate door data from the selected plan.</>
+                          : <>No {locationFilter === "external" ? "EXT" : "INT"} doors in this list.</>}
                       </td>
                     </tr>
                   )}
@@ -2802,7 +2870,9 @@ export default function LockupTask({
               gap: "10px"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
-                {(entries || []).length} doors entered
+                {locationFilter
+                  ? `${filteredEnteredDoorsByFloor.length} / ${(entries || []).length} doors shown`
+                  : `${(entries || []).length} doors entered`}
               </span>
 
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

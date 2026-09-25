@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { ApiService } from "@/models/api.service";
@@ -17,7 +18,9 @@ export default function CladdingTask({
   onAddDataAI,
   onSelectEntry,
   activeJobNumber,
-  onClearData
+  onClearData,
+  walls = [],
+  wallsByPage = {}
 }) {
   const appModel = useAppModel ? useAppModel() : {};
   const activeCustomerShortName = getActiveClientShortName();
@@ -147,7 +150,7 @@ export default function CladdingTask({
     }));
   }, [entries]);
 
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [wallHeight, setWallHeight] = useState("2.44");
   const [wallLength, setWallLength] = useState("");
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -160,6 +163,139 @@ export default function CladdingTask({
   const editRowDataRef = useRef({});
   const entriesRef = useRef(entries);
 
+  // Display the same human-friendly wall label that is rendered on the canvas
+  // (W-1, W-2, ...). The persistent/internal wall id can be long/opaque, so it
+  // is deliberately not shown to the user here.
+  const getWallDisplayId = (item) => {
+    const explicit = String(item?.wallDisplayId || item?.wall_display_id || "").trim();
+    const linkedWallId = item?.wallId || (Array.isArray(item?.wallIds) ? item.wallIds[0] : null);
+    if (!linkedWallId) return explicit || "—";
+
+    const rawId = String(linkedWallId || "").trim();
+    if (/^W-\d+$/i.test(rawId)) return rawId.toUpperCase();
+
+    // 1) Prefer the source page when the row knows where it came from.
+    const sourcePageIndex = Number(item?.sourcePageIndex);
+    const candidatePages = [];
+    if (Number.isFinite(sourcePageIndex) && Array.isArray(wallsByPage?.[sourcePageIndex])) {
+      candidatePages.push({ pageIndex: sourcePageIndex, pageWalls: wallsByPage[sourcePageIndex] });
+    }
+
+    // 2) Search every mounted page. This is important after SQL reload/cache
+    // hydration because old rows may have a wallId but no sourcePageIndex.
+    Object.entries(wallsByPage || {}).forEach(([pageKey, pageWalls]) => {
+      const pageIndex = Number(pageKey);
+      if (!Array.isArray(pageWalls)) return;
+      if (candidatePages.some((candidate) => candidate.pageIndex === pageIndex)) return;
+      candidatePages.push({ pageIndex, pageWalls });
+    });
+
+    // 3) Current-page walls are still a valid fallback for older callers.
+    if (Array.isArray(walls) && walls.length) {
+      candidatePages.push({ pageIndex: null, pageWalls: walls });
+    }
+
+    for (const { pageWalls } of candidatePages) {
+      const wallIndex = pageWalls.findIndex((wall) => String(wall?.id) === rawId);
+      if (wallIndex < 0) continue;
+      const wall = pageWalls[wallIndex];
+      const named = String(wall?.name || wall?.userLabel || "").trim();
+      if (named) return named;
+      return `W-${wallIndex + 1}`;
+    }
+
+    return explicit || "—";
+  };
+
+  // Wall labels such as W-1 are UI/drawing metadata only. Keep them in a small
+  // browser cache so they survive refresh/reload, but never add them to the SQL
+  // Cladding payload. The cache is scoped per job.
+  const claddingWallCacheKey = useMemo(() => {
+    const jobKey = String(
+      activeJobNumber
+      || appModel?.currentJobId
+      || appModel?.currentProjectName
+      || appModel?.current_hw_id
+      || "default"
+    ).trim().toLowerCase();
+    return `ezefloor_cladding_wall_links_v1:${encodeURIComponent(jobKey || "default")}`;
+  }, [activeJobNumber, appModel?.currentJobId, appModel?.currentProjectName, appModel?.current_hw_id]);
+
+  const dimensionToMetres = (value) => {
+    const raw = String(value ?? "").trim().toLowerCase().replace(/,/g, "");
+    const amount = parseFloat(raw.replace(/[^0-9.+-]/g, ""));
+    if (!Number.isFinite(amount)) return 0;
+    if (raw.includes("mm") || amount > 50) return amount / 1000;
+    return amount;
+  };
+
+  const wallLinkSignature = (item) => {
+    const level = normalizeFloorLevelCode(item?.floorLevel || item?.floor_level || "GF");
+    const heightM = dimensionToMetres(item?.height ?? item?.wall_height ?? item?.wallHeight);
+    const lengthM = dimensionToMetres(item?.length ?? item?.wall_length ?? item?.wallLength);
+    return `${level}|${heightM.toFixed(3)}|${lengthM.toFixed(3)}`;
+  };
+
+  const readWallLinkCache = () => {
+    if (typeof window === "undefined") return [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(claddingWallCacheKey) || "null");
+      return Array.isArray(parsed?.links) ? parsed.links : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const hydrateRowsFromWallLinkCache = (rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) return rows || [];
+    const cachedLinks = readWallLinkCache();
+    if (!cachedLinks.length) return rows;
+
+    const used = new Set();
+    return rows.map((row, rowIndex) => {
+      // Drawing-generated rows already know their wall; cache must never
+      // override a live wall link.
+      if (row?.wallId || (Array.isArray(row?.wallIds) && row.wallIds.length)) return row;
+
+      const signature = wallLinkSignature(row);
+      let matchIndex = cachedLinks.findIndex((link, index) => (
+        !used.has(index)
+        && String(link?.rowId || "") === String(row?.id || "")
+      ));
+      if (matchIndex < 0) {
+        matchIndex = cachedLinks.findIndex((link, index) => (
+          !used.has(index) && String(link?.signature || "") === signature
+        ));
+      }
+      if (matchIndex < 0 && cachedLinks[rowIndex] && !used.has(rowIndex)) {
+        // Last-resort positional fallback for duplicate dimensions. It is only
+        // used inside this local cache; nothing is written to MSSQL.
+        matchIndex = rowIndex;
+      }
+      if (matchIndex < 0) return row;
+
+      used.add(matchIndex);
+      const link = cachedLinks[matchIndex] || {};
+      const wallIds = Array.isArray(link.wallIds)
+        ? link.wallIds.filter(Boolean)
+        : (link.wallId ? [link.wallId] : []);
+      return {
+        ...row,
+        ...(link.wallId ? { wallId: link.wallId } : {}),
+        ...(wallIds.length ? { wallIds } : {}),
+        ...(link.wallDisplayId ? { wallDisplayId: link.wallDisplayId } : {}),
+        ...(Number.isFinite(Number(link.sourcePageIndex)) ? { sourcePageIndex: Number(link.sourcePageIndex) } : {}),
+      };
+    });
+  };
+
+  const clearWallLinkCache = () => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.removeItem(claddingWallCacheKey);
+    } catch {}
+  };
+
   useEffect(() => {
     editingRowIdRef.current = editingRowId;
   }, [editingRowId]);
@@ -171,6 +307,35 @@ export default function CladdingTask({
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !Array.isArray(entries) || entries.length === 0) return;
+    try {
+      const links = entries.map((item, rowIndex) => {
+        const wallDisplayId = getWallDisplayId(item);
+        const wallId = item?.wallId || (Array.isArray(item?.wallIds) ? item.wallIds[0] : null);
+        const wallIds = Array.isArray(item?.wallIds)
+          ? item.wallIds.filter(Boolean)
+          : (wallId ? [wallId] : []);
+        if (!wallId && !wallIds.length && wallDisplayId === "—") return null;
+        return {
+          rowId: item?.id || null,
+          signature: wallLinkSignature(item),
+          rowIndex,
+          wallId: wallId || null,
+          wallIds,
+          wallDisplayId: wallDisplayId === "—" ? null : wallDisplayId,
+          sourcePageIndex: Number.isFinite(Number(item?.sourcePageIndex)) ? Number(item.sourcePageIndex) : null,
+        };
+      }).filter(Boolean);
+
+      if (links.length) {
+        localStorage.setItem(claddingWallCacheKey, JSON.stringify({ version: 1, links }));
+      }
+    } catch (err) {
+      console.warn("Unable to cache Cladding wall labels:", err);
+    }
+  }, [entries, walls, wallsByPage, claddingWallCacheKey]);
 
   const handleStartEdit = (w) => {
     setEditingRowId(w.id);
@@ -239,7 +404,6 @@ export default function CladdingTask({
   const [reloadMsg, setReloadMsg] = useState(null);
 
   const handleResetData = () => {
-    setFloorLevel("GF");
     setWallHeight("2.44");
     setWallLength("");
   };
@@ -260,25 +424,28 @@ export default function CladdingTask({
         });
 
         if (matchedRows.length > 0) {
-          const loaded = matchedRows.map((r, idx) => {
+          const loadedFromSql = matchedRows.map((r, idx) => {
             const h = parseFloat(r.wall_height) || 2.44;
             const l = parseFloat(r.wall_length) || 0.0;
             const a = Number((h * l).toFixed(2));
             return {
               id: r.cladding_id ? `clad-${r.cladding_id}` : `clad-loaded-${Date.now()}-${idx}`,
+              claddingId: r.cladding_id ? String(r.cladding_id) : null,
               floorLevel: r.floor_level || "GF",
               height: `${h} m`,
               length: `${l} m`,
               area: `${a} m²`
             };
           });
+          // MSSQL intentionally stores only Cladding measurements. Reattach
+          // W-n / wallId from the browser cache for UI identification.
+          const loaded = hydrateRowsFromWallLinkCache(loadedFromSql);
 
           if (onSetEntries) {
             onSetEntries(loaded);
           }
           const first = loaded[0];
           if (first) {
-            setFloorLevel(first.floorLevel || "GF");
             setWallHeight(String(parseFloat(first.height) || 2.44));
             setWallLength(String(parseFloat(first.length) || ""));
           }
@@ -379,6 +546,8 @@ export default function CladdingTask({
 
       const res = await ApiService.saveCladdingJobs(payload);
       if (res && res.success) {
+        // Keep the current drawing-linked rows in memory after Save so their
+        // wallId -> W-n relationship is preserved in the local task cache.
         setSaveStatus("success");
         setTimeout(() => setSaveStatus(null), 3500);
       } else {
@@ -417,6 +586,11 @@ export default function CladdingTask({
       onSetEntries(prev => (prev || []).filter(e => e.id !== id));
     }
     if (selectedEntryId === id) setSelectedEntryId(null);
+  };
+
+  const handleClearCladdingData = () => {
+    clearWallLinkCache();
+    if (onClearData) onClearData();
   };
 
 const claddingManualRows = (() => {
@@ -480,27 +654,6 @@ const claddingManualRows = (() => {
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload Cladding data from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -509,30 +662,6 @@ const claddingManualRows = (() => {
 
         {isSection1Open && (
           <div style={{ padding: "12px", display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
-            {/* Floor Level */}
-            <div style={{ flex: "1 1 120px" }}>
-              <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor level</span>
-              <select
-                value={floorLevel}
-                onChange={(e) => {
-                  setFloorLevel(e.target.value);
-                  if (onChange) onChange("cladding", "floor_level", e.target.value);
-                }}
-                className="task-field-select"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  fontSize: "10.5px",
-                  borderRadius: "5px",
-                  border: "1px solid #cbd5e1",
-                  fontWeight: 700,
-                  background: "#f8fafc",
-                  boxSizing: "border-box"
-                }}
-              >
-                {FLOOR_LEVEL_OPTIONS.map(opt => <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>)}
-              </select>
-            </div>
 
             {/* Wall Height */}
             <div style={{ flex: "1 1 100px" }}>
@@ -646,7 +775,7 @@ const claddingManualRows = (() => {
           <span>3. Entered Cladding Walls ({(entries || []).length})</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("cladding")}
-            onClear={onClearData}
+            onClear={handleClearCladdingData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
           
@@ -662,7 +791,8 @@ const claddingManualRows = (() => {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
                 <thead>
                   <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
-                    <th style={{ padding: "5px 6px" }}>#</th>
+                    <th style={{ padding: "5px 6px", width: "38px" }}>#</th>
+                    <th style={{ padding: "5px 6px", width: "72px", whiteSpace: "nowrap" }}>Wall ID</th>
                     <th style={{ padding: "5px 6px" }}>Wall Height</th>
                     <th style={{ padding: "5px 6px" }}>Wall Length</th>
                     <th style={{ padding: "5px 6px", textAlign: "right", width: "45px" }}></th>
@@ -672,12 +802,13 @@ const claddingManualRows = (() => {
                   {groupedWallsByLevel.map(({ level, items }) => {
                   return (
                     <React.Fragment key={level}>
-                      <FloorLevelGroupRow level={level} colSpan={4} count={items.length} unitLabel="wall" unitLabelPlural="walls" />
+                      <FloorLevelGroupRow level={level} colSpan={5} count={items.length} unitLabel="wall" unitLabelPlural="walls" />
                       {items.map((w) => {
                           const globalIdx = (entries || []).findIndex(e => e.id === w.id);
                           const idx = globalIdx >= 0 ? globalIdx : 0;
                           const isSelected = selectedEntryId === w.id;
                           const isRowEditing = editingRowId === w.id;
+                          const wallDisplayId = getWallDisplayId(w);
 
   return (
                             <tr
@@ -701,7 +832,6 @@ const claddingManualRows = (() => {
                                   const nextSelected = isSelected ? null : w.id;
                                   setSelectedEntryId(nextSelected);
                                   if (!isSelected) {
-                                    setFloorLevel(w.floorLevel || w.floor_level || "GF");
                                     setWallHeight(String(parseFloat(w.height) || 2.44));
                                     setWallLength(String(parseFloat(w.length) || ""));
                                   }
@@ -718,6 +848,19 @@ const claddingManualRows = (() => {
                               }}
                             >
                               <td style={{ padding: "5px 6px", fontWeight: 700 }}>{idx + 1}</td>
+
+                              {/* Same wall label shown on the drawing canvas (W-1, W-2, ...). */}
+                              <td
+                                style={{
+                                  padding: "5px 6px",
+                                  whiteSpace: "nowrap",
+                                  color: wallDisplayId !== "—" ? "#0f2744" : "#94a3b8",
+                                  fontWeight: 800
+                                }}
+                                title={wallDisplayId !== "—" ? `Drawing wall ${wallDisplayId}` : "This row is not linked to a drawing wall"}
+                              >
+                                {wallDisplayId}
+                              </td>
                               
                               {/* Height */}
                               <td style={{ padding: "5px 6px" }}>
@@ -790,7 +933,7 @@ const claddingManualRows = (() => {
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); handleRemoveEntry(w.id); }}
                                       style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                                      title="Delete"
+                                      title={wallDisplayId !== "—" ? `Delete ${wallDisplayId} from Cladding` : "Delete Cladding row"}
                                     >
                                       ✕
                                     </button>
@@ -805,7 +948,7 @@ const claddingManualRows = (() => {
                   })}
                   {(!entries || entries.length === 0) && (
                     <tr>
-                      <td colSpan={4} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
+                      <td colSpan={5} style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>
                         No cladding walls entered yet. Fill the inputs above and click <b>+ Add Cladding Wall</b>.
                       </td>
                     </tr>

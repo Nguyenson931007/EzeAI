@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { polygonAreaM2 as polygonAreaM2Util, getWallClass, getBaseWallId, calcDoorWindowMetrics, getWallSideOffsets, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular, mapFloorName, convertNameToClass, classifyWallsTouchingExtEndpoints } from "@/utils/geometry";
 import { useAppModel } from "@/models/app.context";
@@ -58,6 +58,7 @@ import {
   resolveCustomerPackKey,
   getCustomerModuleIds,
   sanitizeModuleIds,
+  isLocalOnlyModuleId,
   MODULE_KEY_MAP,
   normalizeModuleId,
   isSubtaskChecked,
@@ -87,6 +88,8 @@ import { formatLintelCalloutText } from "../controllers/lintel.controller";
 import {
   buildFixoutRows,
   buildLockupRows,
+  buildWindowRows,
+  isWindowOpening,
   buildFlooringRows,
   buildInsulationRows,
   buildInsulationAreaRow,
@@ -134,9 +137,13 @@ function getPlanObjectBounds(objects = []) {
   let y1 = Math.min(...ys);
   let x2 = Math.max(...xs);
   let y2 = Math.max(...ys);
-  const padding = Math.max(30, Math.min(120, Math.max(x2 - x1, y2 - y1) * 0.18));
-  if (x2 - x1 < 20) { x1 -= 20; x2 += 20; }
-  if (y2 - y1 < 20) { y1 -= 20; y2 += 20; }
+  // Keep geometry bounds tight here. The viewport layer applies semantic
+  // padding/zoom based on whether this is a wall, opening, room or a broad
+  // task aggregate. Large fixed padding here made small task objects zoom out.
+  const maxDim = Math.max(x2 - x1, y2 - y1);
+  const padding = Math.max(8, Math.min(48, maxDim * 0.05));
+  if (x2 - x1 < 12) { x1 -= 10; x2 += 10; }
+  if (y2 - y1 < 12) { y1 -= 10; y2 += 10; }
   return [x1 - padding, y1 - padding, x2 + padding, y2 + padding];
 }
 
@@ -505,6 +512,7 @@ export default function RightPropertyPaneView({
       TimberPostsTask: pack.TimberPostsTask || fallback.TimberPostsTask || fallback2.TimberPostsTask,
       FixoutTask: pack.FixoutTask || fallback.FixoutTask || fallback2.FixoutTask,
       LockupTask: pack.LockupTask || fallback.LockupTask || fallback2.LockupTask,
+      WindowTask: pack.WindowTask || fallback.WindowTask || fallback2.WindowTask,
       ShelvingTask: pack.ShelvingTask || fallback.ShelvingTask || fallback2.ShelvingTask,
       DoorsFurnitureTask: pack.DoorsFurnitureTask || fallback.DoorsFurnitureTask || fallback2.DoorsFurnitureTask,
       FowPlumbingTask: pack.FowPlumbingTask || fallback.FowPlumbingTask || fallback2.FowPlumbingTask,
@@ -525,6 +533,7 @@ export default function RightPropertyPaneView({
     TimberPostsTask,
     FixoutTask,
     LockupTask,
+    WindowTask,
     ShelvingTask,
     DoorsFurnitureTask,
     FowPlumbingTask,
@@ -625,7 +634,8 @@ export default function RightPropertyPaneView({
       activePaneTab !== "summary" &&
       activePaneTab !== "job_task" &&
       activePaneTab !== "collapsed" &&
-      !customerModuleIds.includes(activePaneTab)
+      !customerModuleIds.includes(activePaneTab) &&
+      !isLocalOnlyModuleId(activePaneTab)
     ) {
       setActivePaneTab("explorer");
     }
@@ -646,7 +656,7 @@ export default function RightPropertyPaneView({
   // If current active tab is a module that became disabled, fallback to explorer
   React.useEffect(() => {
     if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed") {
-      if (!enabledModuleIds.includes(activePaneTab)) {
+      if (!enabledModuleIds.includes(activePaneTab) && !isLocalOnlyModuleId(activePaneTab)) {
         setActivePaneTab("explorer");
       }
     }
@@ -661,7 +671,7 @@ export default function RightPropertyPaneView({
     shelving: { room_label: "", shelf_size: "", shelf_type: "", total_length: "" },
     flooring_decking: { location: "", flooring_type: "", floor_area: "", waste_allowance: "10" },
     doors_furniture: { category: "", finish: "", dimensions: "", quantity: "1" },
-    timber_posts: { location: "", timber_size: "", height: "2700", quantity: "1" },
+    timber_posts: { location: "", timber_size: "", height: "2700", quantity: "1", floor_level: "GF", post_over: "timber", extra_support_qty: "0" },
     fow_plumbing: { fixture: "", pipe_spec: "", length: "", count: "1" },
     power_truss_braces: { truss_area: "", brace_type: "", length: "", hardware: "" },
     hardies_fire_walls: { location: "", wall_length: "", wall_height: "2.70", system_type: "", lining_spec: "" }
@@ -716,6 +726,7 @@ export default function RightPropertyPaneView({
     if (key === "fow_plumbing") setFowPlumbingEntries([]);
     if (key === "timber_posts") setTimberPostEntries([]);
     if (key === "fixout") setFixoutDoorEntries([]);
+    if (key === "windows") setWindowEntries([]);
     if (key === "power_truss_braces") setPowerTrussEntries([]);
     if (key === "lock_up") {
       setLockupEntries([]);
@@ -730,7 +741,7 @@ export default function RightPropertyPaneView({
       [key]: {
         ...(key === "cladding" || key === "flooring_decking" ? { waste_allowance: "10" } : {}),
         ...(key === "insulation" ? { stud_centres: "450" } : {}),
-        ...(key === "timber_posts" ? { height: "2700", quantity: "1" } : {}),
+        ...(key === "timber_posts" ? { height: "2700", quantity: "1", floor_level: "GF", post_over: "timber", extra_support_qty: "0" } : {}),
         ...(key === "power_truss_braces" ? { wall_height: "2700", length: "4500", type: "Column", qty: "1" } : {}),
         ...(key === "doors_furniture" || key === "fow_plumbing" ? { quantity: "1", count: "1" } : {})
       }
@@ -761,7 +772,31 @@ export default function RightPropertyPaneView({
       const matched = (pageItems || []).filter((item) => idSet.has(String(item?.id)));
       const bbox = getPlanObjectBounds(matched);
       if (bbox) {
-        zoomToBbox(pageIndex, bbox);
+        const count = matched.length;
+        let profile = "detail";
+
+        if (objectType === "door") {
+          profile = "opening";
+        } else if (objectType === "room") {
+          profile = count > 1 ? "area-group" : "room";
+        } else if (objectType === "wall") {
+          // Procurement tasks do not all mean the same visual scope.
+          // Insulation and Frame rows are often aggregates (all EXT/INT walls),
+          // while Cladding/Eaves and direct wall rows are commonly inspectable
+          // wall selections. Keep aggregate rows as a plan overview and zoom a
+          // single physical wall close enough to inspect while retaining its full run.
+          const aggregateWallTask = activePaneTab === "insulation" || activePaneTab === "frame_hardware";
+          if (count === 1) profile = "wall";
+          else if (aggregateWallTask || count >= 6) profile = "overview";
+          else profile = "wall-group";
+        }
+
+        zoomToBbox(pageIndex, bbox, {
+          profile,
+          objectCount: count,
+          taskId: activePaneTab,
+          objectType,
+        });
         return;
       }
     }
@@ -859,11 +894,12 @@ export default function RightPropertyPaneView({
       return;
     }
     if (entry.doorId) {
+      const isWindowEntry = entry.objectType === "window" || isWindowOpening(entry);
       if (setSelectedDoorIds) setSelectedDoorIds([entry.doorId]);
       if (setSelectedWallIds) setSelectedWallIds([]);
       if (setSelectedRoomIds) setSelectedRoomIds([]);
       if (setHighlightType) setHighlightType(null);
-      if (setSelectedType) setSelectedType("door");
+      if (setSelectedType) setSelectedType(isWindowEntry ? "window" : "door");
       if (setSelectedId) setSelectedId(entry.doorId);
       focusPlanObjects("door", [entry.doorId], targetPageIndex);
       return;
@@ -882,7 +918,10 @@ export default function RightPropertyPaneView({
         return fType === "slab" || cName.includes("slab") || bType.includes("slab") || bConst.includes("slab") || wAbove.includes("slab");
       };
 
-      const matchedWallIds = (walls || [])
+      const wallPool = targetPageIndex >= 0 && Array.isArray(effectiveWallsByPage?.[targetPageIndex])
+        ? effectiveWallsByPage[targetPageIndex]
+        : (walls || []);
+      const matchedWallIds = wallPool
         .filter(w => isSlabTarget ? isSlabWall(w) : !isSlabWall(w))
         .map(w => w.id);
 
@@ -899,15 +938,28 @@ export default function RightPropertyPaneView({
     // 2. EXTERNAL vs INTERNAL WALLS (Insulation Task)
     const typeStr = String(entry.type || entry.areaType || entry.category || "").toLowerCase();
     if (typeStr.includes("ext") || typeStr.includes("int") || typeStr.includes("party")) {
-      const isExtTarget = typeStr.includes("ext");
-      const isExtWall = (w) => {
+      const targetWallCategory = typeStr.includes("ext")
+        ? "ext"
+        : (typeStr.includes("party") || typeStr.includes("parti") ? "party" : "int");
+      const getInsulationWallCategory = (w) => {
         const cName = String(w.class_name || "").toLowerCase();
         const wType = String(w.wall_type || "").toLowerCase();
-        return Boolean(w.is_ext || wType === "ext" || cName.includes("exterior") || cName.includes("ext_wall"));
+        if (cName.includes("partition") || cName.includes("party") || cName.includes("parti") || wType === "part" || wType === "party") return "party";
+        if (w.is_ext || w.is_exterior || wType === "ext" || cName.includes("exterior") || cName.includes("ext_wall")) return "ext";
+        return "int";
       };
+      const targetHeight = Number.parseFloat(String(entry.height ?? entry.wallHeight ?? entry.wall_height ?? "").replace(/[^0-9.]/g, ""));
+      const wallPool = targetPageIndex >= 0 && Array.isArray(effectiveWallsByPage?.[targetPageIndex])
+        ? effectiveWallsByPage[targetPageIndex]
+        : (walls || []);
 
-      const matchedWallIds = (walls || [])
-        .filter(w => isExtTarget ? isExtWall(w) : !isExtWall(w))
+      const matchedWallIds = wallPool
+        .filter((w) => {
+          if (getInsulationWallCategory(w) !== targetWallCategory) return false;
+          if (!Number.isFinite(targetHeight) || targetHeight <= 0) return true;
+          const wallHeight = Number.parseFloat(String(w.height_mm ?? w.height ?? "").replace(/[^0-9.]/g, ""));
+          return !Number.isFinite(wallHeight) || wallHeight <= 0 || Math.abs(wallHeight - targetHeight) <= 5;
+        })
         .map(w => w.id);
 
       if (setSelectedWallIds) setSelectedWallIds(matchedWallIds);
@@ -999,7 +1051,10 @@ export default function RightPropertyPaneView({
     const doorLocStr = String(entry.location || entry.doorLabel || entry.door || entry.doorType || entry.name || "").toLowerCase().trim();
     const cleanId = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-    const matchedDoor = (doors || []).find(d => {
+    const doorPool = targetPageIndex >= 0 && Array.isArray(doorsByPageProp?.[targetPageIndex])
+      ? doorsByPageProp[targetPageIndex]
+      : (doors || []);
+    const matchedDoor = doorPool.find(d => {
       if (entry.doorId && d.id === entry.doorId) return true;
       if (entry.id && (d.id === entry.id || String(entry.id).includes(String(d.id)))) return true;
       const dLabel = String(d.label || d.name || d.door_name || "").toLowerCase().trim();
@@ -1196,6 +1251,10 @@ export default function RightPropertyPaneView({
       const rows = buildLockupRows(allDoors);
       setLockupEntries(rows);
       generatedCount = rows.length;
+    } else if (normalizedModuleId === "windows") {
+      const rows = buildWindowRows(allDoors);
+      setWindowEntries(rows);
+      generatedCount = rows.length;
     } else if (normalizedModuleId === "shelving") {
       const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
       const rows = buildShelvingRows(roomPages || []);
@@ -1264,6 +1323,7 @@ export default function RightPropertyPaneView({
         postSize: p.postSize || p.size || "Please Select",
         post: p.post || p.product || "",
         qty: p.qty || 1,
+        postOver: p.postOver || p.post_over || "timber",
         galPostSupports: p.galPostSupports || 0,
         autofill_source: "drawing",
       }));
@@ -2794,7 +2854,7 @@ export default function RightPropertyPaneView({
       });
       const { doors: rawDoors = [], lockoutRows = [] } = e.detail;
 
-      const sourceList = lockoutRows.length > 0 ? lockoutRows : rawDoors;
+      const sourceList = (lockoutRows.length > 0 ? lockoutRows : rawDoors).filter((door) => !isWindowOpening(door));
       if (sourceList.length > 0) {
         const generated = sourceList.map((d, idx) => {
           const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D${idx + 1}`).trim();
@@ -3010,6 +3070,10 @@ export default function RightPropertyPaneView({
   // Power Truss Braces Entries
   const [powerTrussEntries, setPowerTrussEntries] = React.useState([]);
 
+  // Local-only Window register. It is derived from plan objects and never
+  // persisted through Procurement APIs.
+  const [windowEntries, setWindowEntries] = React.useState([]);
+
   // 7. Lockup State & Custom Overrides
   const [lockupEntries, setLockupEntries] = React.useState([]);
   const [customLockupOverrides, setCustomLockupOverrides] = React.useState({});
@@ -3017,8 +3081,9 @@ export default function RightPropertyPaneView({
   const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
     setLockupEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
-      queueTaskRowsToPlan("lock_up", next);
-      return next;
+      const doorOnlyRows = (Array.isArray(next) ? next : []).filter((row) => !isWindowOpening(row));
+      queueTaskRowsToPlan("lock_up", doorOnlyRows);
+      return doorOnlyRows;
     });
   }, [queueTaskRowsToPlan]);
 
@@ -3029,7 +3094,7 @@ export default function RightPropertyPaneView({
       if (manuallyClearedTasksRef.current?.lock_up || manuallyClearedTasks?.lock_up) return;
 
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-      const targetDoors = curDoors || [];
+      const targetDoors = (curDoors || []).filter((door) => !isWindowOpening(door));
 
       if (!targetDoors || targetDoors.length === 0) {
         return;
@@ -3095,7 +3160,7 @@ export default function RightPropertyPaneView({
         setLockupEntries(targetDoors.map((d, idx) => buildEntry(d, idx)));
       } else {
         let changed = false;
-        const existingEntries = [...lockupEntries];
+        const existingEntries = [...lockupEntries].filter((entry) => !isWindowOpening(entry));
         const updatedEntries = existingEntries.map(entry => {
           if (!entry.doorId) return entry;
           const matchingDoor = targetDoors.find(d => matchId(d.id, entry.doorId));
@@ -3164,8 +3229,9 @@ export default function RightPropertyPaneView({
   const handleSetFixoutDoorEntries = React.useCallback((actionOrEntries) => {
     setFixoutDoorEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
-      queueTaskRowsToPlan("fixout", next);
-      return next;
+      const doorOnlyRows = (Array.isArray(next) ? next : []).filter((row) => !isWindowOpening(row));
+      queueTaskRowsToPlan("fixout", doorOnlyRows);
+      return doorOnlyRows;
     });
   }, [queueTaskRowsToPlan]);
 
@@ -3188,7 +3254,9 @@ export default function RightPropertyPaneView({
     ])]),
     doors: Object.entries(effectiveDoorsByPage || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.points, item?.width_mm ?? item?.width, item?.height_mm ?? item?.height,
-      item?.door_type, item?.scope, item?.location,
+      item?.door_type, item?.scope, item?.location, item?.type, item?.class, item?.class_name,
+      item?.renderClass, item?.doorTypeId, item?.is_window, item?.isWindow,
+      item?.door_name, item?.doorName, item?.label, item?.category, item?.mode, item?.product,
     ])]),
     rooms: Object.entries(roomsByPageProp || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.polygon, item?.areaM2 ?? item?.area_m2 ?? item?.area, item?.type,
@@ -3308,6 +3376,7 @@ export default function RightPropertyPaneView({
       cladding: claddingRows,
       fixout: buildFixoutRows(allDoors),
       lock_up: buildLockupRows(allDoors),
+      windows: buildWindowRows(allDoors),
       shelving: buildShelvingRows(allRooms),
       hardies_fire_walls: hardiesRows,
     };
@@ -3340,6 +3409,9 @@ export default function RightPropertyPaneView({
     reconcileRows("cladding", setCladdingWallEntries);
     reconcileRows("fixout", setFixoutDoorEntries);
     reconcileRows("lock_up", setLockupEntries);
+    if (!manuallyClearedTasksRef.current?.windows || planChanged) {
+      setWindowEntries(generatedByTask.windows);
+    }
     reconcileRows("shelving", setShelvingEntries);
     reconcileRows("hardies_fire_walls", setHardiesFireWallEntries);
 
@@ -4748,11 +4820,6 @@ export default function RightPropertyPaneView({
       {isTaskModuleActive && activeModuleTab && activePaneTab !== "collapsed" && (
         <TaskModulesContainer
           activeModuleTab={activeModuleTab}
-          selectedCustomerClient={selectedCustomerClient}
-          setSelectedCustomerClient={setSelectedCustomerClient}
-          CUSTOMER_TASK_PACKS={CUSTOMER_TASK_PACKS}
-          getCustomerModuleIds={getCustomerModuleIds}
-          setEnabledModuleIds={setEnabledModuleIds}
           aiGeneratedSuccess={aiGeneratedSuccess}
           handleResetModuleData={handleResetModuleData}
           setActivePaneTab={setActivePaneTab}
@@ -4774,6 +4841,7 @@ export default function RightPropertyPaneView({
           TimberPostsTask={TimberPostsTask}
           FixoutTask={FixoutTask}
           LockupTask={LockupTask}
+          WindowTask={WindowTask}
           ShelvingTask={ShelvingTask}
           DoorsFurnitureTask={DoorsFurnitureTask}
           FowPlumbingTask={FowPlumbingTask}
@@ -4807,6 +4875,7 @@ export default function RightPropertyPaneView({
           setPowerTrussEntries={setPowerTrussEntries}
           lockupEntries={lockupEntries}
           handleSetLockupEntries={handleSetLockupEntries}
+          windowEntries={windowEntries}
           hardiesFireWallEntries={hardiesFireWallEntries}
           handleSetHardiesFireWallEntries={handleSetHardiesFireWallEntries}
           selectedWall={selectedWall}

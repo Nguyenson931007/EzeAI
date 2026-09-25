@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import { ApiService } from "@/models/api.service";
 import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS } from "@/constants/procurementFormParity";
 import { useAppModel } from "@/models/app.context";
@@ -99,7 +100,7 @@ export default function FrameHardwareTask({
   const [slabWallLength, setSlabWallLength] = useState("");
   const [slabSpacing, setSlabSpacing] = useState("900");
   const [slabRodSize, setSlabRodSize] = useState("M12");
-  const [slabFloorLevel, setSlabFloorLevel] = useState("GF");
+  const currentFloorLevel = useCurrentTaskFloorLevel(formData);
   const [slabWallClass, setSlabWallClass] = useState("exterior_wall");
 
   // Timber Floor State
@@ -107,7 +108,7 @@ export default function FrameHardwareTask({
   const [timberWallLength, setTimberWallLength] = useState("");
   const [timberSpacing, setTimberSpacing] = useState("900");
   const [timberRodSize, setTimberRodSize] = useState("M12");
-  const [timberFloorLevel, setTimberFloorLevel] = useState("GF");
+
   const [timberWallClass, setTimberWallClass] = useState("exterior_wall");
 
   const LEVEL_OPTIONS = [
@@ -480,7 +481,7 @@ export default function FrameHardwareTask({
       rodDemand: demand,
       rodMapping: `${rodCount} x ${slabRodSize} Rod ${rodLength}`,
       rodsQty: `${rodCount} pcs`,
-      floorLevel: slabFloorLevel || "GF",
+      floorLevel: currentFloorLevel || "GF",
       wallClass: slabWallClass || "exterior_wall"
     };
 
@@ -513,7 +514,7 @@ export default function FrameHardwareTask({
       rodDemand: demand,
       rodMapping: `${rodCount} x ${timberRodSize} Rod ${rodLength}`,
       rodsQty: `${rodCount} pcs`,
-      floorLevel: timberFloorLevel || "GF",
+      floorLevel: currentFloorLevel || "GF",
       wallClass: timberWallClass || "exterior_wall"
     };
 
@@ -724,9 +725,8 @@ export default function FrameHardwareTask({
     const isExternal = wallCls === "exterior_wall";
 
     const handleSelectWallRow = (targetWall) => {
-      const isCurrentlySelected = selectedEntryId === targetWall.id;
-      const nextSelected = isCurrentlySelected ? null : targetWall;
-      setSelectedEntryId(nextSelected ? targetWall.id : null);
+      const nextSelected = targetWall;
+      setSelectedEntryId(targetWall.id);
 
       if (nextSelected) {
         let targetPageIndex = -1;
@@ -756,10 +756,47 @@ export default function FrameHardwareTask({
       onSelectEntry?.(nextSelected);
     };
 
+    const isRowEditing = editingRowId === w.id;
+    const controlStyle = {
+      width: "100%",
+      minWidth: 0,
+      height: "27px",
+      boxSizing: "border-box",
+      border: "1px solid #93c5fd",
+      borderRadius: "4px",
+      background: "#fff",
+      color: "#0f172a",
+      fontSize: "10.5px",
+      padding: "2px 5px"
+    };
+
     return (
       <tr
         key={w.id || rowIdx}
-        onClick={() => handleSelectWallRow(w)}
+        data-editing-row-id={isRowEditing ? w.id : undefined}
+        onClick={(event) => {
+          if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+          handleSelectWallRow(w);
+        }}
+        onDoubleClick={(event) => {
+          if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (editingRowId && editingRowId !== w.id) handleSaveInlineEdit(editingRowId);
+          setSelectedEntryId(w.id);
+          onSelectEntry?.(w);
+          handleStartEdit(w);
+        }}
+        onKeyDown={(event) => {
+          if (!isRowEditing) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            handleSaveInlineEdit(w.id);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setEditingRowId(null);
+          }
+        }}
         style={{
           background: isSelected ? "#dbeafe" : (isHovered ? "#f1f5f9" : undefined),
           cursor: "pointer",
@@ -767,6 +804,7 @@ export default function FrameHardwareTask({
           outlineOffset: "-1px",
           transition: "background 0.15s ease"
         }}
+        title="Click to select · Double-click to edit"
       >
         <td style={{ fontWeight: 700, width: "24px" }}>{rowIdx + 1}</td>
         <td>
@@ -785,34 +823,89 @@ export default function FrameHardwareTask({
           </span>
         </td>
         <td>
-          <span style={{
-            background: isExternal ? "#ecfdf5" : "#f5f3ff",
-            color: isExternal ? "#047857" : "#6d28d9",
-            padding: "2px 6px",
-            borderRadius: "4px",
-            fontWeight: 700,
-            fontSize: "9.5px",
-            whiteSpace: "nowrap"
-          }}>
-            {isExternal ? "External" : "Load Bearing Wall"}
-          </span>
+          {isRowEditing ? (
+            <select
+              value={editRowData.wallClass || "exterior_wall"}
+              onChange={(event) => setEditRowData((prev) => ({ ...prev, wallClass: event.target.value }))}
+              style={controlStyle}
+            >
+              {WALL_CLASS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          ) : (
+            <span style={{
+              background: isExternal ? "#ecfdf5" : "#f5f3ff",
+              color: isExternal ? "#047857" : "#6d28d9",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              fontWeight: 700,
+              fontSize: "9.5px",
+              whiteSpace: "nowrap"
+            }}>
+              {isExternal ? "External" : "Load Bearing Wall"}
+            </span>
+          )}
         </td>
-        <td>{w.height || "—"}</td>
-        <td>{w.length || "—"}</td>
-        <td>{w.spacing || "—"}</td>
-        <td><strong style={{ color: "#1e3a5f" }}>{rodSizeVal || "—"}</strong></td>
-        <td style={{ textAlign: "right" }}>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              handleRemoveEntry(w.id);
-            }}
-            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-            title="Remove wall from entered data"
-          >
-            ✕
-          </button>
+        <td>
+          {isRowEditing ? (
+            <select
+              value={String(editRowData.height || "2700").replace(/mm/gi, "").trim()}
+              onChange={(event) => setEditRowData((prev) => ({ ...prev, height: event.target.value }))}
+              style={controlStyle}
+            >
+              {WALL_HEIGHT_OPTIONS.filter((value) => value !== "Select...").map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          ) : (w.height || "—")}
+        </td>
+        <td>
+          {isRowEditing ? (
+            <input
+              inputMode="decimal"
+              value={editRowData.length || ""}
+              onChange={(event) => setEditRowData((prev) => ({ ...prev, length: event.target.value }))}
+              style={controlStyle}
+            />
+          ) : (w.length || "—")}
+        </td>
+        <td>
+          {isRowEditing ? (
+            <input
+              inputMode="decimal"
+              value={editRowData.spacing || "900"}
+              onChange={(event) => setEditRowData((prev) => ({ ...prev, spacing: event.target.value }))}
+              style={controlStyle}
+            />
+          ) : (w.spacing || "—")}
+        </td>
+        <td>
+          {isRowEditing ? (
+            <select
+              value={editRowData.rodSize || "M12"}
+              onChange={(event) => setEditRowData((prev) => ({ ...prev, rodSize: event.target.value }))}
+              style={controlStyle}
+            >
+              {ROD_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          ) : <strong style={{ color: "#1e3a5f" }}>{rodSizeVal || "—"}</strong>}
+        </td>
+        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+          {isRowEditing ? (
+            <>
+              <button type="button" onClick={(event) => { event.stopPropagation(); handleSaveInlineEdit(w.id); }} style={{ background: "none", border: 0, color: "#16a34a", cursor: "pointer", fontWeight: 900 }} title="Save row">✓</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); setEditingRowId(null); }} style={{ background: "none", border: 0, color: "#64748b", cursor: "pointer", fontWeight: 900 }} title="Cancel edit">✕</button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleRemoveEntry(w.id);
+              }}
+              style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+              title="Remove wall from entered data"
+            >
+              ✕
+            </button>
+          )}
         </td>
       </tr>
     );
@@ -950,21 +1043,6 @@ export default function FrameHardwareTask({
                     </select>
                   </div>
 
-                  {/* Floor Level */}
-                  <div style={{ flex: "1 1 110px" }}>
-                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor Level</span>
-                    <select
-                      value={slabFloorLevel}
-                      onChange={(e) => setSlabFloorLevel(e.target.value)}
-                      className="task-field-select"
-                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                    >
-                      {LEVEL_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
                   {/* Wall Type */}
                   <div style={{ flex: "1.2 1 130px" }}>
                     <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Type</span>
@@ -1098,21 +1176,6 @@ export default function FrameHardwareTask({
                     >
                       <option value="M12">M12</option>
                       <option value="M16">M16</option>
-                    </select>
-                  </div>
-
-                  {/* Floor Level */}
-                  <div style={{ flex: "1 1 110px" }}>
-                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor Level</span>
-                    <select
-                      value={timberFloorLevel}
-                      onChange={(e) => setTimberFloorLevel(e.target.value)}
-                      className="task-field-select"
-                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                    >
-                      {LEVEL_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
                     </select>
                   </div>
 

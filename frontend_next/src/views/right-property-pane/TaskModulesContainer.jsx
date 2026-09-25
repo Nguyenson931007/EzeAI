@@ -3,11 +3,6 @@ import TaskTableEnhancer from "@/components/bun-nsw-act/tasks/TaskTableEnhancer"
 
 export default function TaskModulesContainer({
   activeModuleTab,
-  selectedCustomerClient,
-  setSelectedCustomerClient,
-  CUSTOMER_TASK_PACKS,
-  getCustomerModuleIds,
-  setEnabledModuleIds,
   aiGeneratedSuccess,
   handleResetModuleData,
   setActivePaneTab,
@@ -30,6 +25,7 @@ export default function TaskModulesContainer({
   TimberPostsTask,
   FixoutTask,
   LockupTask,
+  WindowTask,
   ShelvingTask,
   DoorsFurnitureTask,
   FowPlumbingTask,
@@ -64,6 +60,7 @@ export default function TaskModulesContainer({
   setPowerTrussEntries,
   lockupEntries,
   handleSetLockupEntries,
+  windowEntries,
   hardiesFireWallEntries,
   handleSetHardiesFireWallEntries,
   // Selection Props
@@ -102,137 +99,100 @@ export default function TaskModulesContainer({
         gap: "12px"
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div
-              style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "6px",
-                background: "rgba(37,99,235,0.1)",
-                color: "var(--blue)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
-              }}
-            >
-              {activeModuleTab.icon}
-            </div>
-            <h2 style={{ margin: 0, fontSize: "15px", fontWeight: "800", color: "#0f2744", letterSpacing: "-0.3px" }}>
-              {activeModuleTab.title}
-            </h2>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <button
-              onClick={() => setActivePaneTab && setActivePaneTab("collapsed")}
-              title="Close task pane"
-              style={{
-                background: "transparent",
-                color: "#94a3b8",
-                border: "none",
-                borderRadius: "6px",
-                padding: "2px 5px",
-                fontSize: "16px",
-                fontWeight: "800",
-                cursor: "pointer",
-                lineHeight: 1,
-                transition: "color 0.15s ease"
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "#94a3b8")}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {/* Customer Form Selector Toolbar */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            background: "#f8fafc",
-            border: "1px solid #e2e8f0",
-            borderRadius: "8px",
-            padding: "6px 10px",
-            marginTop: "2px"
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569", display: "flex", alignItems: "center", gap: "4px" }}>
-              <span>🏢 Client:</span>
-            </span>
-            <select
-              value={selectedCustomerClient}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (setSelectedCustomerClient) setSelectedCustomerClient(val);
-                if (getCustomerModuleIds && setEnabledModuleIds) {
-                  const nextModules = getCustomerModuleIds(val);
-                  setEnabledModuleIds(nextModules);
-                  try {
-                    localStorage.setItem("selectedCustomerClient", val);
-                    sessionStorage.setItem("selectedCustomerClient", val);
-                    localStorage.setItem("selectedModules", JSON.stringify(nextModules));
-                    sessionStorage.setItem("selectedModules", JSON.stringify(nextModules));
-                  } catch (_) {}
-                }
-              }}
-              style={{
-                padding: "3px 8px",
-                fontSize: "11.5px",
-                fontWeight: "700",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                background: "#ffffff",
-                color: "#0f2744",
-                cursor: "pointer",
-                outline: "none",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04)"
-              }}
-            >
-              {CUSTOMER_TASK_PACKS &&
-                Object.entries(CUSTOMER_TASK_PACKS).map(([key, info]) => (
-                  <option key={key} value={key}>
-                    {info.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <span
+      {/* Sticky task header + shared action slot. Actions rendered by each task
+          are portaled here so every task uses one consistent toolbar. */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          margin: "-12px -12px 0",
+          padding: "9px 12px",
+          background: "rgba(255,255,255,0.98)",
+          borderBottom: "1px solid #dbe4f0",
+          boxShadow: "0 2px 8px rgba(15,39,68,0.08)",
+          backdropFilter: "blur(4px)"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+          <div
             style={{
-              fontSize: "10.5px",
-              fontWeight: "700",
-              color: "#2563eb",
-              background: "#eff6ff",
-              border: "1px solid #bfdbfe",
-              padding: "2px 7px",
-              borderRadius: "12px"
+              width: "28px",
+              height: "28px",
+              borderRadius: "6px",
+              background: "rgba(37,99,235,0.1)",
+              color: "var(--blue)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0
             }}
           >
-            {CUSTOMER_TASK_PACKS?.[selectedCustomerClient]?.short || selectedCustomerClient}
-          </span>
+            {activeModuleTab.icon}
+          </div>
+          <h2
+            style={{
+              margin: 0,
+              minWidth: 0,
+              fontSize: "15px",
+              fontWeight: "800",
+              color: "#0f2744",
+              letterSpacing: "-0.3px",
+              whiteSpace: "nowrap"
+            }}
+          >
+            {activeModuleTab.title}
+          </h2>
+
+          <div
+            id="task-global-actions-slot"
+            style={{
+              marginLeft: "auto",
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              overflowX: "auto",
+              scrollbarWidth: "none"
+            }}
+          />
+
+          <button
+            onClick={() => setActivePaneTab && setActivePaneTab("collapsed")}
+            title="Close task pane"
+            style={{
+              background: "transparent",
+              color: "#94a3b8",
+              border: "none",
+              borderRadius: "6px",
+              padding: "2px 5px",
+              fontSize: "16px",
+              fontWeight: "800",
+              cursor: "pointer",
+              lineHeight: 1,
+              flexShrink: 0
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "#94a3b8")}
+          >
+            ✕
+          </button>
         </div>
 
         {aiGeneratedSuccess === activeModuleTab.id && (
           <div
             style={{
+              marginTop: "7px",
               background: "#ecfdf5",
               color: "#065f46",
               border: "1px solid #a7f3d0",
               borderRadius: "6px",
               padding: "5px 8px",
               fontSize: "10.5px",
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: "5px"
+              fontWeight: 600
             }}
           >
-            <span>✨ Automatically analyzed & populated AI data from drawing!</span>
+            ✨ Automatically analyzed & populated AI data from drawing!
           </div>
         )}
       </div>
@@ -291,6 +251,8 @@ export default function TaskModulesContainer({
           onSetEntries={setCladdingWallEntries}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
+          walls={walls}
+          wallsByPage={wallsByPage}
         
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleTab.id)}
@@ -410,10 +372,20 @@ export default function TaskModulesContainer({
           selectedType={selectedType}
           updateDoor={updateDoor}
           updateDoorsProperty={updateDoorsProperty}
-        
-                    suppressAutoInit={Boolean(manuallyClearedTasks?.lock_up)}
-onAddDataAI={handleAddDataAI}
+          suppressAutoInit={Boolean(manuallyClearedTasks?.lock_up)}
+          onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleTab.id)}
+        />
+      )}
+
+      {/* Local-only Window register: intentionally no Procurement API / DB save. */}
+      {activeModuleTab.id === "windows" && WindowTask && (
+        <WindowTask
+          entries={windowEntries}
+          onSelectEntry={handleSelectEntry}
+          onAutoFill={() => handleAddDataAI("windows")}
+          onClear={() => handleResetModuleData("windows")}
+          updateDoorsProperty={updateDoorsProperty}
         />
       )}
 
@@ -478,6 +450,8 @@ onAddDataAI={handleAddDataAI}
           formData={moduleFormData.final_fit || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -487,6 +461,8 @@ onAddDataAI={handleAddDataAI}
           formData={moduleFormData.sheet_schedule || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
+          onAddDataAI={handleAddDataAI}
+          onClearData={() => handleResetModuleData(activeModuleTab.id)}
         />
       )}
 
@@ -504,6 +480,8 @@ onAddDataAI={handleAddDataAI}
           selectedWallIds={selectedWallIds}
           selectedId={selectedId}
           selectedType={selectedType}
+          onAddDataAI={() => handleAddDataAI("hardies_fire_walls")}
+          onClearData={() => handleResetModuleData("hardies_fire_walls")}
         />
       )}
       </TaskTableEnhancer>

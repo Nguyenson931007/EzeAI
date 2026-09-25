@@ -5,6 +5,7 @@ export { default as InsulationTask } from "./InsulationTask";
 export { default as EavesSoffitTask } from "./EavesSoffitTask";
 export { default as CladdingTask } from "./CladdingTask";
 export { default as LockupTask } from "./LockupTask";
+export { default as WindowTask } from "./WindowTask";
 export { default as ShelvingTask } from "./ShelvingTask";
 export { default as TimberPostsTask } from "./TimberPostsTask";
 export { default as PowerTrussBracesTask } from "./PowerTrussBracesTask";

@@ -1,10 +1,12 @@
 import React, { useState } from "react";
+import EnteredTaskActions from "./EnteredTaskActions";
 
 export default function SheetScheduleTask({
   formData = {},
   onChange,
   cadMetrics = {},
-  onAddDataAI
+  onAddDataAI,
+  onClearData
 }) {
   const [isSection1Open, setIsSection1Open] = useState(false);
 
@@ -30,41 +32,20 @@ export default function SheetScheduleTask({
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <span>📄 1. Plasterboard & FC Sheet Data</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {onAddDataAI && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddDataAI("sheet_schedule");
-                }}
-                style={{
-                  background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
-                  border: "1px solid #93c5fd",
-                  color: "#1d4ed8",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  padding: "3px 9px",
-                  borderRadius: "5px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px"
-                }}
-              >
-                <span>⚡</span>
-                <span>Auto Fill (AI)</span>
-              </button>
-            )}
-            <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
-              {isSection1Open ? "▲" : "▼"}
-            </span>
-          </div>
+          <EnteredTaskActions
+            onAutoFill={() => onAddDataAI?.("sheet_schedule")}
+            onClear={onClearData}
+            isOpen={isSection1Open}
+            onToggle={() => setIsSection1Open((open) => !open)}
+          />
         </div>
 
         {isSection1Open && (
           <>
             <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ padding: "8px 10px", border: "1px solid #e2e8f0", background: "#f8fafc", borderRadius: "6px", color: "#475569", fontSize: "10.5px", fontWeight: 600, lineHeight: 1.35 }}>
+                Local planning data only. BUN-NSW-ACT Procurement does not import a Sheet Schedule database table, so this task is intentionally not saved to SQL.
+              </div>
               <div className="task-field-group">
                 <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>Plasterboard / Wall Lining Spec</span>
                 <select
@@ -108,43 +89,14 @@ export default function SheetScheduleTask({
               </div>
             </div>
 
-            {/* ── ACTION BUTTONS: SAVE & PROCUREMENT ── */}
             <div style={{
               padding: "8px 12px",
               background: "#f8fafc",
-              borderTop: "1px solid #e2e8f0",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "8px"
+              borderTop: "1px solid #e2e8f0"
             }}>
               <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>
                 {formData.sheet_qty || "—"} Sheets · {formData.sheet_length || "3600 x 1200 mm"}
               </span>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    alert(`Saved sheet data (${formData.sheet_qty || 0} sheets)`);
-                  }}
-                  style={{
-                    padding: "4px 8px",
-                    background: "#1e293b",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "5px",
-                    fontSize: "10.5px",
-                    fontWeight: "700",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.12)"
-                  }}
-                >
-                  💾 Save
-                </button>
-              </div>
             </div>
           </>
         )}

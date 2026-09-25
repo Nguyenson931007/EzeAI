@@ -565,6 +565,18 @@ export const EXTRA_MODULE_TABS = [
     )
   },
   {
+    id: "windows",
+    label: "Window",
+    title: "Windows",
+    localOnly: true,
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="3" width="18" height="18" rx="1.5" />
+        <path d="M12 3v18M3 12h18" />
+      </svg>
+    )
+  },
+  {
     id: "shelving",
     label: "Shelving",
     title: "Shelving",
@@ -670,6 +682,8 @@ export const EXTRA_MODULE_TABS = [
 ];
 
 export const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
+export const LOCAL_ONLY_MODULE_IDS = EXTRA_MODULE_TABS.filter((m) => m.localOnly).map((m) => m.id);
+export const isLocalOnlyModuleId = (moduleId) => LOCAL_ONLY_MODULE_IDS.includes(moduleId);
 
 // ── Katherine (EZE0098) 13-Task Standard HW Contract ──
 export const KATHERINE_STANDARD_STEPS = {
@@ -767,8 +781,8 @@ export function getCustomerModuleIds(customerKey, managerCode = null) {
 
   const pack = CUSTOMER_TASK_PACKS[customerKey];
   return Array.isArray(pack?.moduleIds) && pack.moduleIds.length > 0
-    ? pack.moduleIds.filter(id => ALL_MODULE_IDS.includes(id))
-    : ALL_MODULE_IDS;
+    ? pack.moduleIds.filter(id => ALL_MODULE_IDS.includes(id) && !LOCAL_ONLY_MODULE_IDS.includes(id))
+    : ALL_MODULE_IDS.filter((id) => !LOCAL_ONLY_MODULE_IDS.includes(id));
 }
 
 export function sanitizeModuleIds(moduleIds, customerKey, managerCode = null) {
@@ -804,6 +818,8 @@ export const MODULE_KEY_MAP = {
   "lock up": "lock_up",
   "lockup": "lock_up",
   "lock-up": "lock_up",
+  "windows": "windows",
+  "window": "windows",
   "shelving": "shelving",
   "shelves": "shelving",
   "shelf": "shelving",

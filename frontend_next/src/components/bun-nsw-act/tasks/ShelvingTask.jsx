@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { EnteredDataCard, TaskField as Field, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
@@ -254,7 +255,7 @@ export default function ShelvingTask({
   const [isExtrasOpen, setIsExtrasOpen] = useState(true);
 
   // Draft input state
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [typeDraft, setTypeDraft] = useState("Robe");
   const [sizeDraft, setSizeDraft] = useState("1500x450");
   const [qtyDraft, setQtyDraft] = useState("1");
@@ -389,7 +390,6 @@ export default function ShelvingTask({
           onSetEntries(loaded);
           const first = loaded[0];
           if (first) {
-            setFloorLevel(first.floorLevel || "GF");
             setTypeDraft(first.type || "Robe");
             setSizeDraft(first.size || "1500x450");
             setQtyDraft(String(first.qty || 1));
@@ -519,27 +519,6 @@ export default function ShelvingTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload Shelving data from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -549,18 +528,6 @@ export default function ShelvingTask({
         {isSection1Open && (
           <div style={{ padding: "12px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
-              {/* Floor Level Dropdown */}
-              <Field
-                label="Floor level"
-                value={floorLevel}
-                options={FLOOR_LEVEL_OPTIONS.map((opt) => ({ value: opt, label: `${opt} (${getFloorLevelDisplayName(opt)})` }))}
-                flex="1 1 120px"
-                minWidth="120px"
-                onChange={(value) => {
-                  setFloorLevel(value);
-                  onChange?.("shelving", "floor_level", value);
-                }}
-              />
 
               {/* Type Dropdown */}
               <Field
@@ -671,18 +638,34 @@ export default function ShelvingTask({
                         const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
                         const idx = globalIdx >= 0 ? globalIdx : 0;
                         const isSelected = selectedEntryId === item.id;
+                        const isRowEditing = editingRowId === item.id;
+                        const controlStyle = { width: "100%", minWidth: 0, height: "27px", border: "1px solid #93c5fd", borderRadius: "4px", background: "#fff", padding: "2px 5px", fontSize: "10.5px", boxSizing: "border-box" };
+                        const selectRow = () => {
+                          setSelectedEntryId(item.id);
+                          setTypeDraft(item.type || "Robe");
+                          setSizeDraft(normalizeShelvingSize(item.size));
+                          setQtyDraft(String(item.qty || 1));
+                        };
                         return (
                           <tr
                             key={item.id || idx}
-                            onClick={() => {
-                              const nextSelected = isSelected ? null : item.id;
-                              setSelectedEntryId(nextSelected);
-                              if (!isSelected) {
-                                setFloorLevel(item.floorLevel || item.floor_level || "GF");
-                                setTypeDraft(item.type || "Robe");
-                                setSizeDraft(normalizeShelvingSize(item.size));
-                                setQtyDraft(String(item.qty || 1));
-                              }
+                            data-editing-row-id={isRowEditing ? item.id : undefined}
+                            onClick={(event) => {
+                              if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                              selectRow();
+                            }}
+                            onDoubleClick={(event) => {
+                              if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (editingRowId && editingRowId !== item.id) handleSaveInlineEdit(editingRowId);
+                              selectRow();
+                              handleStartEdit(item);
+                            }}
+                            onKeyDown={(event) => {
+                              if (!isRowEditing) return;
+                              if (event.key === "Enter") { event.preventDefault(); handleSaveInlineEdit(item.id); }
+                              else if (event.key === "Escape") { event.preventDefault(); setEditingRowId(null); }
                             }}
                             style={{
                               background: isSelected ? "#dbeafe" : undefined,
@@ -690,23 +673,47 @@ export default function ShelvingTask({
                               outline: isSelected ? "2px solid #3b82f6" : "none",
                               outlineOffset: "-1px"
                             }}
+                            title="Click to select · Double-click to edit"
                           >
                             <td style={{ textAlign: "center", fontWeight: 700 }}>{idx + 1}</td>
-                            <td><strong style={{ color: item.type === "Linen" ? "#0f766e" : "#1d4ed8" }}>{item.type || "Robe"}</strong></td>
-                            <td>{item.size || "—"}</td>
-                            <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>{item.qty || 1}</td>
-                            <td style={{ textAlign: "right" }}>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleRemove(item.id);
-                                }}
-                                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
-                                title="Remove shelving item"
-                              >
-                                ✕
-                              </button>
+                            <td>
+                              {isRowEditing ? (
+                                <select value={editRowData.type || "Robe"} onChange={(event) => setEditRowData((prev) => ({ ...prev, type: event.target.value }))} style={controlStyle}>
+                                  {SHELVING_TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                              ) : <strong style={{ color: item.type === "Linen" ? "#0f766e" : "#1d4ed8" }}>{item.type || "Robe"}</strong>}
+                            </td>
+                            <td>
+                              {isRowEditing ? (
+                                <select value={normalizeShelvingSize(editRowData.size)} onChange={(event) => setEditRowData((prev) => ({ ...prev, size: event.target.value }))} style={controlStyle}>
+                                  {SHELVING_SIZES.map((value) => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                              ) : (item.size || "—")}
+                            </td>
+                            <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                              {isRowEditing ? (
+                                <input inputMode="numeric" value={editRowData.qty ?? 1} onChange={(event) => setEditRowData((prev) => ({ ...prev, qty: event.target.value }))} style={{ ...controlStyle, width: "64px", textAlign: "center" }} />
+                              ) : (item.qty || 1)}
+                            </td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              {isRowEditing ? (
+                                <>
+                                  <button type="button" onClick={(event) => { event.stopPropagation(); handleSaveInlineEdit(item.id); }} style={{ background: "none", border: 0, color: "#16a34a", cursor: "pointer", fontWeight: 900 }} title="Save row">✓</button>
+                                  <button type="button" onClick={(event) => { event.stopPropagation(); setEditingRowId(null); }} style={{ background: "none", border: 0, color: "#64748b", cursor: "pointer", fontWeight: 900 }} title="Cancel edit">✕</button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleRemove(item.id);
+                                  }}
+                                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px" }}
+                                  title="Remove shelving item"
+                                >
+                                  ✕
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );

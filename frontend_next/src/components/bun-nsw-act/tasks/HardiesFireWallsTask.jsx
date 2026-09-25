@@ -4,6 +4,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import EnteredTaskActions from "./EnteredTaskActions";
 
 export default function HardiesFireWallsTask({
   formData = {},
@@ -12,6 +13,7 @@ export default function HardiesFireWallsTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
+  onClearData,
   onSelectEntry,
   activeJobNumber,
   selectedWall,
@@ -27,7 +29,9 @@ export default function HardiesFireWallsTask({
 
   // Local state when external state setter isn't passed
   const [localEntries, setLocalEntries] = useState([]);
-  const wallEntries = entries && entries.length > 0 ? entries : localEntries;
+  const wallEntries = typeof onSetEntries === "function"
+    ? (Array.isArray(entries) ? entries : [])
+    : localEntries;
 
   const setEntries = (updater) => {
     if (typeof onSetEntries === "function") {
@@ -238,6 +242,14 @@ export default function HardiesFireWallsTask({
     } catch (_) {}
   };
 
+  const handleClearEntries = () => {
+    try {
+      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
+      localStorage.removeItem(`ezefloor_hardies_fire_walls_${savedJobId}`);
+    } catch (_) {}
+    onClearData?.();
+  };
+
   // ── SAVE TO DATABASE (MSSQL / API) ──
   const handleSaveToMSSQL = async () => {
     if (wallEntries.length === 0) {
@@ -320,50 +332,14 @@ export default function HardiesFireWallsTask({
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {onAddDataAI && (
-            <button
-              type="button"
-              onClick={onAddDataAI}
-              style={{
-                background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px"
-              }}
-              title="Import walls from CAD drawing"
-            >
-              <span>✨</span>
-              <span>AI Import</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleSaveToMSSQL}
-            disabled={isSaving}
-            style={{
-              background: saveStatus === "success" ? "#10b981" : saveStatus === "error" ? "#ef4444" : "linear-gradient(135deg, #f59e0b, #d97706)",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "6px",
-              padding: "6px 14px",
-              fontSize: "12px",
-              fontWeight: 700,
-              cursor: isSaving ? "not-allowed" : "pointer",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.2)"
-            }}
-          >
-            {isSaving ? "Saving..." : saveStatus === "success" ? "✓ Saved" : "💾 Save"}
-          </button>
-        </div>
+        <EnteredTaskActions
+          onAutoFill={onAddDataAI}
+          onClear={handleClearEntries}
+          onSave={handleSaveToMSSQL}
+          saveDisabled={isSaving}
+          saveStatus={isSaving ? "saving" : (saveStatus || "idle")}
+          autoFillLabel="Auto Fill"
+        />
       </div>
 
       {/* ── SECTION 1: SPECIFICATION SETUP (Collapsible) ── */}
@@ -646,17 +622,13 @@ export default function HardiesFireWallsTask({
                   const isEditing = editingRowId === w.id;
                   if (isEditing) {
                     return (
-                      <tr key={w.id} style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d" }}>
+                      <tr
+                        key={w.id}
+                        data-editing-row-id={w.id}
+                        style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d" }}
+                      >
                         <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
-                        <td style={{ padding: "6px 8px" }}>
-                          <select
-                            value={editRowData.floorLevel || "GF"}
-                            onChange={(e) => setEditRowData({ ...editRowData, floorLevel: e.target.value })}
-                            style={{ width: "58px", padding: "4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}
-                          >
-                            {["GF", "FF", "SF", "TF", "4F", "5F"].map((level) => <option key={level} value={level}>{level}</option>)}
-                          </select>
-                        </td>
+                        <td style={{ padding: "6px 8px", fontWeight: 700, color: "#2563eb" }}>{w.floorLevel || w.floor_level || "GF"}</td>
                         <td style={{ padding: "6px 8px" }}>
                           <input
                             type="text"
@@ -721,6 +693,14 @@ export default function HardiesFireWallsTask({
                         if (event.target.closest("button, input, select, textarea, a")) return;
                         if (onSelectEntry) onSelectEntry(w);
                       }}
+                      onDoubleClick={(event) => {
+                        if (event.target.closest("button, input, select, textarea, a")) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (onSelectEntry) onSelectEntry(w);
+                        handleStartEdit(w);
+                      }}
+                      title="Double-click to edit row"
                       style={{
                         borderBottom: "1px solid #e2e8f0",
                         background: idx % 2 === 0 ? "#ffffff" : "#f8fafc"

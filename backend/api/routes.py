@@ -1038,23 +1038,26 @@ async def predict_wall_stream(
             cx2 = min(img_w, int(roi_x + roi_w) + pad)
             cy2 = min(img_h, int(roi_y + roi_h) + pad)
             
-            # Crop the ROI region
+            # REAL ROI CROP for inference.  The previous implementation pasted the
+            # crop back onto a full-size white canvas.  YOLO therefore still resized the
+            # whole page to imgsz and the ROI gained no effective resolution.  Thin
+            # 70mm partitions became only a few pixels wide at inference time.
+            #
+            # Keep the crop at the document's native pixel density, run the complete wall
+            # pipeline locally, then translate every returned geometry item back into the
+            # full-page coordinate system below.
             crop_pil = img.crop((cx1, cy1, cx2, cy2))
-            
-            # Create a solid white background of the original image size
-            masked_img = Image.new("RGB", (img_w, img_h), (255, 255, 255))
-            
-            # Paste the ROI crop back at its original position
-            masked_img.paste(crop_pil, (cx1, cy1))
-            
             buf = io.BytesIO()
-            masked_img.save(buf, format="PNG")
+            crop_pil.save(buf, format="PNG")
             content_for_inference = buf.getvalue()
-            
-            shift_x = 0
-            shift_y = 0
+
+            shift_x = cx1
+            shift_y = cy1
             original_img_size = (img_w, img_h)
-            print(f"[predict_wall_stream] Masked Wall AI ROI: ({cx1},{cy1})-({cx2},{cy2}) on full-size canvas")
+            print(
+                f"[predict_wall_stream] Cropped Wall AI ROI: ({cx1},{cy1})-({cx2},{cy2}) "
+                f"=> {cx2-cx1}x{cy2-cy1}px inference canvas; shift=({shift_x},{shift_y})"
+            )
         except Exception as crop_err:
             print(f"[predict_wall_stream] Failed to mask ROI: {crop_err}, falling back to full image")
             content_for_inference = content
@@ -1107,7 +1110,11 @@ async def predict_wall_stream(
                                 w["polygon"] = [
                                     [pt[0] + shift_x, pt[1] + shift_y] for pt in w["polygon"]
                                 ]
-                            
+                            if "junction_points" in w:
+                                w["junction_points"] = [
+                                    [pt[0] + shift_x, pt[1] + shift_y] for pt in w.get("junction_points", [])
+                                ]
+
                             # Filter to keep only walls that overlap with the original user-selected ROI box
                             pts = w.get("polygon")
                             if not pts:

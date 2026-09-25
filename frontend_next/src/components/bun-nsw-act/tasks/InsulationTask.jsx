@@ -8,6 +8,7 @@ import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductL
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
+import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 
 export const DEFAULT_WALL_PRODUCTS = {
@@ -54,6 +55,40 @@ export const DEFAULT_AREA_PRODUCTS = {
     "0300792 · INSULATION BATTS G/WOOL KNAUF++240X430 EARTHWOOL R6.0 PK10 - 5.0 m²/pack",
     "0300793 · INSULATION BATTS G/WOOL KNAUF++240X580 EARTHWOOL R6.0 PK10 - 6.7 m²/pack"
   ]
+};
+
+const getInsulationBaseWallId = (id) => {
+  if (id == null || id === "") return "";
+  return String(getBaseWallId(id) || id).split("_p")[0];
+};
+
+const pxToMm = (px, scale) => {
+  const pxVal = Number(px) || 0;
+  const scaleVal = Number(scale) || 0;
+  if (pxVal <= 0 || scaleVal <= 0) return 0;
+  // EzeFloor may expose scale as either m/px (< 0.5) or mm/px.
+  return scaleVal < 0.5 ? pxVal * scaleVal * 1000 : pxVal * scaleVal;
+};
+
+const getOpeningSizeMm = (opening, scale) => {
+  const explicitWidth = Number(opening?.width_mm ?? opening?.widthMm);
+  let widthMm = Number.isFinite(explicitWidth) && explicitWidth > 0 ? explicitWidth : 0;
+
+  if (widthMm <= 0 && Number(opening?.width_px) > 0) {
+    widthMm = pxToMm(opening.width_px, scale);
+  }
+
+  if (widthMm <= 0 && Array.isArray(opening?.points) && opening.points.length >= 2) {
+    const a = opening.points[0];
+    const b = opening.points[1];
+    const px = Math.hypot((Number(b?.x) || 0) - (Number(a?.x) || 0), (Number(b?.y) || 0) - (Number(a?.y) || 0));
+    widthMm = pxToMm(px, scale);
+  }
+
+  const explicitHeight = Number(opening?.height_mm ?? opening?.heightMm ?? opening?.height);
+  const heightMm = Number.isFinite(explicitHeight) && explicitHeight > 0 ? explicitHeight : 2040;
+
+  return { widthMm, heightMm };
 };
 
 export default function InsulationTask({
@@ -447,13 +482,6 @@ export default function InsulationTask({
       const payloadWalls = [];
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
 
-      const getBaseId = (id) => {
-        if (!id) return id;
-        const str = String(id);
-        if (str.includes("_p")) return str.split("_p")[0];
-        return str;
-      };
-
       const processWalls = (pWalls, pDoors, pageName, pScale, pLevelCode) => {
         const effectiveScale = pScale || effScale;
         (pWalls || []).forEach(w => {
@@ -470,16 +498,20 @@ export default function InsulationTask({
 
           const heightMm = parseFloat(w.height_mm || w.height || 2400);
           const className = w.class_name || w.wall_type || "interior_wall";
-          const wallBaseId = getBaseId(w.id);
+          const wallBaseId = getInsulationBaseWallId(w.id);
 
           const wallDoors = (pDoors || []).filter(d => {
-            if (!d.parentWallId) return false;
-            const dBaseId = getBaseId(d.parentWallId);
-            return dBaseId === wallBaseId || d.parentWallId === w.id;
-          }).map(d => ({
-            width_mm: d.width_mm || (d.width_px ? d.width_px * effectiveScale : 820),
-            height_mm: d.height_mm || 2040
-          }));
+            const parentId = d.parentWallId || d.parent_wall_id || d.wallId || d.wall_id;
+            if (!parentId) return false;
+            const dBaseId = getInsulationBaseWallId(parentId);
+            return dBaseId === wallBaseId || String(parentId) === String(w.id);
+          }).map(d => {
+            const { widthMm, heightMm } = getOpeningSizeMm(d, effectiveScale);
+            return {
+              width_mm: widthMm,
+              height_mm: heightMm
+            };
+          }).filter(d => d.width_mm > 0 && d.height_mm > 0);
 
           payloadWalls.push({
             id: w.id,
@@ -568,6 +600,77 @@ export default function InsulationTask({
       setIsAutoFilling(false);
     }
   };
+
+  // Keep drawing-derived insulation rows in sync with the current openings on plan.
+  // Doors and windows both reduce the insulated wall area. This is UI/state-only;
+  // the existing API and database schema stay unchanged.
+  useEffect(() => {
+    if (!onSetWallEntries) return;
+
+    const fallbackScale = (realScale && realScale > 0)
+      ? realScale
+      : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
+
+    const openings = [];
+    const pageKeys = doorsByPage && Object.keys(doorsByPage);
+
+    if (pageKeys && pageKeys.length > 0) {
+      pageKeys.forEach((pageKey) => {
+        const pageIndex = Number.parseInt(pageKey, 10);
+        const pageScale = (scalesByPage && scalesByPage[pageIndex]) || fallbackScale;
+        (doorsByPage[pageKey] || []).forEach((opening) => openings.push({ opening, scale: pageScale }));
+      });
+    } else {
+      (doors || []).forEach((opening) => openings.push({ opening, scale: fallbackScale }));
+    }
+
+    onSetWallEntries((prev) => {
+      let changed = false;
+      const next = (prev || []).map((entry) => {
+        if (entry?.autofill_source !== "drawing") return entry;
+
+        const ids = [
+          ...(Array.isArray(entry.wallIds) ? entry.wallIds : []),
+          entry.wallId
+        ].filter(Boolean);
+        if (ids.length === 0) return entry;
+
+        const wallIdSet = new Set(ids.map(getInsulationBaseWallId).filter(Boolean));
+        let openingAreaM2 = 0;
+
+        openings.forEach(({ opening, scale }) => {
+          const parentId = opening?.parentWallId || opening?.parent_wall_id || opening?.wallId || opening?.wall_id;
+          if (!parentId || !wallIdSet.has(getInsulationBaseWallId(parentId))) return;
+
+          const { widthMm, heightMm } = getOpeningSizeMm(opening, scale);
+          if (widthMm > 0 && heightMm > 0) {
+            openingAreaM2 += (widthMm / 1000) * (heightMm / 1000);
+          }
+        });
+
+        const doorArea = Number(openingAreaM2.toFixed(2));
+        const heightMm = Number.parseFloat(entry.height) || 0;
+        const lengthMm = Number.parseFloat(entry.length) || 0;
+        const rakedArea = Number.parseFloat(entry.raked) || 0;
+        const grossArea = (heightMm / 1000) * (lengthMm / 1000);
+        const netArea = Number(Math.max(0, grossArea + rakedArea - doorArea).toFixed(2));
+
+        const oldDoorArea = Number(Number.parseFloat(entry.door || 0).toFixed(2));
+        const oldNetArea = Number(Number.parseFloat(entry.insulationArea ?? entry.totalArea ?? 0).toFixed(2));
+        if (oldDoorArea === doorArea && oldNetArea === netArea) return entry;
+
+        changed = true;
+        return {
+          ...entry,
+          door: doorArea,
+          insulationArea: netArea,
+          totalArea: netArea
+        };
+      });
+
+      return changed ? next : prev;
+    });
+  }, [doors, doorsByPage, scalesByPage, realScale, scaleValue, onSetWallEntries]);
 
   // Wall Inline Edit Logic
   const handleStartEdit = (w) => {

@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 export default function EnteredTaskActions({
   onAutoFill,
@@ -12,12 +13,24 @@ export default function EnteredTaskActions({
   autoFillLabel = "Auto Fill",
   saveLabel = "Save"
 }) {
+  const [portalHost, setPortalHost] = useState(null);
   const isSaving = saveStatus === "saving";
   const isSaved = saveStatus === "success";
   const isSaveError = saveStatus === "error";
 
-  return (
-    <div className="entered-task-actions" style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", marginLeft: "auto" }}>
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const resolveHost = () => setPortalHost(document.getElementById("task-global-actions-slot"));
+    resolveHost();
+    window.addEventListener("ezefloor:task-action-slot-ready", resolveHost);
+    return () => window.removeEventListener("ezefloor:task-action-slot-ready", resolveHost);
+  }, []);
+
+  const actionButtons = (onAutoFill || onClear || onSave) ? (
+    <div
+      className="entered-task-actions"
+      style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", marginLeft: "auto" }}
+    >
       {onAutoFill && (
         <button
           className="entered-task-action entered-task-action--autofill"
@@ -100,15 +113,20 @@ export default function EnteredTaskActions({
           {isSaving ? "Saving..." : isSaved ? "✓ Saved" : isSaveError ? "Retry Save" : `💾 ${saveLabel}`}
         </button>
       )}
+    </div>
+  ) : null;
 
+  return (
+    <>
+      {actionButtons ? (portalHost ? createPortal(actionButtons, portalHost) : actionButtons) : null}
       {onToggle && (
         <button
           className="entered-task-toggle"
           type="button"
           style={{
-            width: "12px",
+            width: "20px",
             height: "28px",
-            minWidth: "12px",
+            minWidth: "20px",
             border: 0,
             background: "transparent",
             color: "#64748b",
@@ -130,6 +148,6 @@ export default function EnteredTaskActions({
           {isOpen ? "▲" : "▼"}
         </button>
       )}
-    </div>
+    </>
   );
 }

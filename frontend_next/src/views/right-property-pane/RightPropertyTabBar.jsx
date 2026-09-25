@@ -94,7 +94,7 @@ export default function RightPropertyTabBar({
           <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
           {/* Dynamic Module tabs */}
-          {EXTRA_MODULE_TABS.filter((mod) => enabledModuleIds.includes(mod.id)).map((mod) => (
+          {EXTRA_MODULE_TABS.filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.id)).map((mod) => (
             <button
               key={mod.id}
               title={mod.title}

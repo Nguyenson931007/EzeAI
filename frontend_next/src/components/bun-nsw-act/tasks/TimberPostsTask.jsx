@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { ApiService } from "@/models/api.service";
@@ -233,13 +234,14 @@ export default function TimberPostsTask({
     return ["Please Select", ...types.sort()];
   }, [combinedCatalog]);
 
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [postType, setPostType] = useState("Please Select");
   const [postHeight, setPostHeight] = useState("");
   const [postSize, setPostSize] = useState("Please Select");
+  const [postOver, setPostOver] = useState(formData?.post_over === "slab" ? "slab" : "timber");
   const [postProduct, setPostProduct] = useState("");
   const [postQty, setPostQty] = useState("1");
-  const [galSupports, setGalSupports] = useState("0");
+  const [extraSupportQty, setExtraSupportQty] = useState(String(formData?.extra_support_qty ?? "0"));
 
   // Helper to get sizes for any post type
   const getSizesForPostType = useCallback((type) => {
@@ -299,10 +301,15 @@ export default function TimberPostsTask({
   }, [combinedCatalog]);
 
   const matchedPost = useMemo(() => {
+    const hMm = normalizeMm(postHeight);
     if (postProduct) {
-      return POST_STOCK_OPTIONS.find(opt => postOptionKey(opt) === postProduct) || null;
+      const selected = POST_STOCK_OPTIONS.find(opt => postOptionKey(opt) === postProduct) || null;
+      if (!selected) return null;
+      if (selected.lengthKnown === false) return selected;
+      if (!hMm) return null;
+      return Number(selected.stockLength || 0) + 1e-9 >= (hMm + 300) / 1000 ? selected : null;
     }
-    return resolveAutoMatchedPost(postType, postSize, normalizeMm(postHeight));
+    return resolveAutoMatchedPost(postType, postSize, hMm);
   }, [postProduct, postType, postSize, postHeight, POST_STOCK_OPTIONS, resolveAutoMatchedPost]);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -331,6 +338,19 @@ export default function TimberPostsTask({
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  // Keep the Procurement parity-only form controls in the shared task cache.
+  // These values are intentionally NOT written to MSSQL until the Beams table
+  // schema is verified/extended for PostOver + ExtraSupportQty.
+  useEffect(() => {
+    const nextOver = formData?.post_over === "slab" ? "slab" : "timber";
+    if (nextOver !== postOver) setPostOver(nextOver);
+  }, [formData?.post_over]);
+
+  useEffect(() => {
+    const nextExtra = String(formData?.extra_support_qty ?? "0");
+    if (nextExtra !== extraSupportQty) setExtraSupportQty(nextExtra);
+  }, [formData?.extra_support_qty]);
 
   // Group entries by FloorLevel
   const groupedPostsByLevel = useMemo(() => {
@@ -362,7 +382,7 @@ export default function TimberPostsTask({
     const pSize = item.postSize || item.size || "90×90 mm";
     const pPost = item.post || item.stock || `${pType} ${pSize} @ ${pHeight}`;
     const pQty = item.qty !== undefined ? item.qty : 1;
-    const pGal = item.galPostSupports !== undefined ? item.galPostSupports : (item.gal_post_supports || "0");
+    const pOver = item.postOver || item.post_over || "timber";
 
     setEditRowData({
       ...item,
@@ -372,7 +392,7 @@ export default function TimberPostsTask({
       postSize: pSize,
       post: pPost,
       qty: pQty,
-      galPostSupports: pGal
+      postOver: pOver
     });
   };
 
@@ -394,7 +414,9 @@ export default function TimberPostsTask({
         postSize: currentData.postSize || item.postSize || "90×90 mm",
         post: currentData.post || item.post,
         qty,
-        galPostSupports: currentData.galPostSupports !== undefined ? String(currentData.galPostSupports) : (item.galPostSupports || "0")
+        postOver: currentData.postOver === "slab" ? "slab" : "timber",
+        // Preserve the legacy DB field untouched until the Beams schema is updated.
+        galPostSupports: item.galPostSupports !== undefined ? String(item.galPostSupports) : (item.gal_post_supports || "0")
       } : item);
     });
     setEditingRowId(null);
@@ -442,6 +464,16 @@ export default function TimberPostsTask({
         });
 
         if (matchedJob && matchedJob.posts && matchedJob.posts.length > 0) {
+          // SQL only needs to preserve the calculation result for Gal Post Supports.
+          // Post Over is a UI detail that has no dedicated column in dbo.Beams, so a
+          // pure SQL reload normalizes rows to Timber and restores the saved support
+          // total as the manual/extra support quantity.  This keeps Procurement's
+          // final support quantity identical without inventing a new DB column.
+          const savedSupportTotal = matchedJob.posts.reduce((sum, p) => {
+            const value = Number.parseInt(String(p.gal_post_supports ?? "0").trim(), 10);
+            return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+          }, 0);
+
           const loaded = matchedJob.posts.map((p, idx) => ({
             id: p.id || `tp-loaded-${Date.now()}-${idx}`,
             floorLevel: p.floor_level || p.floorLevel || "GF",
@@ -450,20 +482,21 @@ export default function TimberPostsTask({
             postSize: p.post_size || "90×90 mm",
             post: p.post || `${p.post_type || "MERBAU GL17 FJL POST"} ${p.post_size || "90×90 mm"} @ ${p.post_height || "2700mm"}`,
             qty: p.qty || 1,
+            postOver: "timber",
             galPostSupports: p.gal_post_supports !== undefined ? String(p.gal_post_supports) : "0"
           }));
 
           if (onSetEntries) {
             onSetEntries(loaded);
           }
+          setExtraSupportQty(String(savedSupportTotal));
           const first = loaded[0];
           if (first) {
-            setFloorLevel(first.floorLevel || "GF");
             setPostType(first.postType || "Please Select");
             setPostHeight(String(first.postHeight || "").replace("mm", "").trim());
             setPostSize(first.postSize || "Please Select");
+            setPostOver("timber");
             setPostQty(String(first.qty || 1));
-            setGalSupports(String(first.galPostSupports || "0"));
           }
           if (force) {
             setReloadMsg({ type: "success", text: `Loaded ${loaded.length} ${loaded.length === 1 ? "row" : "rows"} from SQL` });
@@ -525,19 +558,12 @@ export default function TimberPostsTask({
     const type = postType !== "Please Select" ? postType : (POST_TYPE_OPTIONS[1] || "MERBAU GL17 FJL POST");
     const size = postSize !== "Please Select" ? postSize : (POST_SIZE_OPTIONS[1] || "90×90 mm");
 
-    let chosenItem = null;
-    if (postProduct) {
-      chosenItem = POST_STOCK_OPTIONS.find(opt => postOptionKey(opt) === postProduct);
-    }
-    if (!chosenItem) {
-      chosenItem = resolveAutoMatchedPost(type, size, hMm);
-    }
+    const chosenItem = matchedPost || resolveAutoMatchedPost(type, size, hMm);
+    if (!chosenItem) return;
 
-    const desc = chosenItem ? chosenItem.description : `${type} ${size} @ ${hMm}mm Post`;
-    const code = chosenItem ? chosenItem.code : "";
-    const stockLen = chosenItem ? chosenItem.stockLength : (hMm + 300) / 1000;
-    const gal = galSupports !== "" ? String(Math.max(0, parseInt(galSupports, 10) || 0)) : "0";
-
+    const desc = chosenItem.description;
+    const code = chosenItem.code || "";
+    const stockLen = chosenItem.stockLength || (hMm + 300) / 1000;
     const newEntry = {
       id: "post-" + Date.now() + "-" + Math.random().toString(36).substring(2, 5),
       floorLevel: floorLevel || "GF",
@@ -548,13 +574,17 @@ export default function TimberPostsTask({
       code: code,
       stockLength: stockLen,
       qty: qty,
-      galPostSupports: gal
+      postOver: postOver === "slab" ? "slab" : "timber",
+      // Legacy SQL compatibility only. Procurement parity now treats supports
+      // as a calculated summary, not as a per-row manual input.
+      galPostSupports: "0"
     };
 
     if (onSetEntries) {
       onSetEntries(prev => [...(prev || []), newEntry]);
     }
     setPostHeight("");
+    setPostQty("1");
   };
 
   const handleRemoveEntry = (id) => {
@@ -583,18 +613,30 @@ export default function TimberPostsTask({
         console.warn("No Job selected for saving TimberPosts");
       }
 
+      // dbo.Beams has only one calculation field for supports: GalPostSupports.
+      // Persist the FINAL support quantity Procurement needs (slab-post supports +
+      // manual extras) once on the first row; all remaining rows store 0.  Summing
+      // GalPostSupports therefore reproduces the exact material quantity without
+      // persisting UI-only Post Over state or adding schema columns.
+      const slabSupportQty = (entries || []).reduce((sum, entry) => {
+        const qty = Math.max(0, parseInt(String(entry.qty || 0).replace("pcs", "").trim(), 10) || 0);
+        return sum + ((entry.postOver || entry.post_over || "timber") === "slab" ? qty : 0);
+      }, 0);
+      const manualExtraSupportQty = Math.max(0, parseInt(String(extraSupportQty || "0").trim(), 10) || 0);
+      const totalGalPostSupports = slabSupportQty + manualExtraSupportQty;
+
       const payload = {
         user_update: currentUserUpdate,
         jobs: [{
           id_job_hw: jobId || "default",
-          posts: entries.map(e => ({
+          posts: entries.map((e, index) => ({
             floor_level: e.floorLevel || e.floor_level || "GF",
             post_type: String(e.postType || e.type || "").trim(),
             post_height: String(e.postHeight || e.height || "").trim(),
             post_size: String(e.postSize || e.size || "").trim(),
             post: String(e.post || e.stock || "").trim(),
             qty: Math.max(1, parseInt(String(e.qty || 1).replace("pcs", "").trim(), 10) || 1),
-            gal_post_supports: String(Math.max(0, parseInt(String(e.galPostSupports !== undefined ? e.galPostSupports : (e.gal_post_supports || "0")).trim(), 10) || 0))
+            gal_post_supports: String(index === 0 ? totalGalPostSupports : 0)
           }))
         }]
       };
@@ -647,27 +689,6 @@ export default function TimberPostsTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); handleReloadFromDb(true); }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px"
-              }}
-              title="Reload Timber Posts data from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
               {isSection1Open ? "▲" : "▼"}
             </span>
@@ -677,46 +698,14 @@ export default function TimberPostsTask({
         {isSection1Open && (
           <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
             
-            {/* ROW 1: Floor Level, Post Type & Post Height */}
+            {/* Procurement parity: one compact form with cascading dropdowns. */}
             <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              {/* Floor Level */}
-              <div style={{ flex: "1 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Floor level</span>
-                <select
-                  value={floorLevel}
-                  onChange={(e) => {
-                    setFloorLevel(e.target.value);
-                    if (onChange) onChange("timber_posts", "floor_level", e.target.value);
-                  }}
-                  className="task-field-select"
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    fontWeight: 700,
-                    background: "#f8fafc",
-                    boxSizing: "border-box"
-                  }}
-                >
-                  {FLOOR_LEVEL_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt} ({getFloorLevelDisplayName(opt)})</option>
-                  ))}
-                </select>
-              </div>
 
-              {/* Post Type */}
-              <div style={{ flex: "1.4 1 140px" }}>
+              <div style={{ flex: "1.35 1 150px", minWidth: "150px" }}>
                 <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Post Type</span>
                 <select
                   value={postType}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPostType(val);
-                    setPostSize("Please Select");
-                    setPostProduct("");
-                  }}
+                  onChange={(e) => { setPostType(e.target.value); setPostSize("Please Select"); setPostProduct(""); }}
                   className="task-field-select"
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
@@ -724,8 +713,7 @@ export default function TimberPostsTask({
                 </select>
               </div>
 
-              {/* Post Height */}
-              <div style={{ flex: "1 1 110px" }}>
+              <div style={{ flex: "0.55 1 86px", minWidth: "86px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
                   <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Post Height</span>
                   <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
@@ -734,124 +722,109 @@ export default function TimberPostsTask({
                   type="number"
                   placeholder="Required"
                   value={postHeight}
-                  onChange={(e) => setPostHeight(e.target.value)}
+                  onChange={(e) => /^\d*$/.test(e.target.value) && setPostHeight(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
                 />
               </div>
-            </div>
 
-            {/* ROW 2: Post Size & Post */}
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 120px" }}>
+              <div style={{ flex: "0.65 1 100px", minWidth: "100px" }}>
                 <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Post Size</span>
                 <select
                   value={postSize}
                   disabled={!postType || postType === "Please Select"}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPostSize(val);
-                    setPostProduct("");
-                  }}
+                  onChange={(e) => { setPostSize(e.target.value); setPostProduct(""); }}
                   className="task-field-select"
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    background: (!postType || postType === "Please Select") ? "#f1f5f9" : "#ffffff",
-                    cursor: (!postType || postType === "Please Select") ? "not-allowed" : "default"
-                  }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   {POST_SIZE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                 </select>
               </div>
 
-              <div style={{ flex: "1.8 1 180px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Post</span>
+              <div style={{ flex: "0.55 1 86px", minWidth: "86px" }}>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Post Over</span>
+                <select
+                  value={postOver}
+                  onChange={(e) => {
+                    const value = e.target.value === "slab" ? "slab" : "timber";
+                    setPostOver(value);
+                    onChange?.("timber_posts", "post_over", value);
+                  }}
+                  className="task-field-select"
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                >
+                  <option value="slab">Slab</option>
+                  <option value="timber">Timber</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ flex: "3 1 320px", minWidth: "220px" }}>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Product</span>
                 <select
                   value={postProduct}
                   disabled={!postType || postType === "Please Select" || !postSize || postSize === "Please Select"}
                   onChange={(e) => setPostProduct(e.target.value)}
                   className="task-field-select"
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    fontSize: "10.5px",
-                    borderRadius: "5px",
-                    border: "1px solid #cbd5e1",
-                    background: (!postType || postType === "Please Select" || !postSize || postSize === "Please Select") ? "#f1f5f9" : "#ffffff",
-                    cursor: (!postType || postType === "Please Select" || !postSize || postSize === "Please Select") ? "not-allowed" : "default"
-                  }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
                   <option value="">Auto select by height</option>
                   {POST_STOCK_OPTIONS.map(item => {
                     const key = postOptionKey(item);
-                    return (
-                      <option key={key} value={key}>
-                        {formatPostOptionLabel(item)}
-                      </option>
-                    );
+                    return <option key={key} value={key}>{formatPostOptionLabel(item)}</option>;
                   })}
                 </select>
               </div>
-            </div>
 
-            {/* ROW 3: Qty, Gal Post Supports & + Add post button */}
-            <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-              <div style={{ flex: "0.8 1 80px" }}>
+              <div style={{ flex: "0.35 1 64px", minWidth: "64px" }}>
                 <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Qty</span>
                 <input
                   type="number"
+                  min="1"
                   value={postQty}
-                  onChange={(e) => setPostQty(e.target.value)}
+                  onChange={(e) => /^\d*$/.test(e.target.value) && setPostQty(e.target.value)}
+                  onBlur={() => setPostQty(String(Math.max(1, parseInt(postQty, 10) || 1)))}
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                />
-              </div>
-
-              <div style={{ flex: "1.2 1 120px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Gal Post Supports</span>
-                <input
-                  type="number"
-                  value={galSupports}
-                  onChange={(e) => setGalSupports(e.target.value)}
-                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
                 />
               </div>
 
               <button
                 type="button"
+                disabled={!matchedPost || !normalizeMm(postHeight) || Math.max(1, parseInt(postQty, 10) || 0) <= 0}
                 onClick={handleAddPost}
-                style={{
-                  padding: "7px 16px",
-                  background: "#0f2744",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "5px",
-                  fontSize: "12px",
-                  fontWeight: "700",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap"
-                }}
+                style={{ padding: "7px 16px", background: "#0f2744", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "12px", fontWeight: 700, cursor: matchedPost && normalizeMm(postHeight) ? "pointer" : "not-allowed", opacity: matchedPost && normalizeMm(postHeight) ? 1 : 0.5, whiteSpace: "nowrap" }}
               >
                 + Add post
               </button>
             </div>
 
-            {/* ROW 4: Helper Box */}
-            <div style={{
-              padding: "8px 12px",
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "6px",
-              fontSize: "11px",
-              color: "#64748b",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px"
-            }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ width: "min(320px, 100%)" }}>
+                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Extra Gal Post Supports</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={extraSupportQty}
+                  onChange={(e) => {
+                    if (!/^\d*$/.test(e.target.value)) return;
+                    setExtraSupportQty(e.target.value);
+                    onChange?.("timber_posts", "extra_support_qty", e.target.value);
+                  }}
+                  onBlur={() => {
+                    const value = String(Math.max(0, parseInt(extraSupportQty, 10) || 0));
+                    setExtraSupportQty(value);
+                    onChange?.("timber_posts", "extra_support_qty", value);
+                  }}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                />
+                <small style={{ display: "block", marginTop: "3px", color: "#64748b", fontSize: "9.5px" }}>Base supports follow posts over slab; this field adds extra supports.</small>
+              </div>
+            </div>
+
+            <div style={{ padding: "8px 12px", background: matchedPost ? "#f0fdf4" : "#f8fafc", border: `1px solid ${matchedPost ? "#86efac" : "#e2e8f0"}`, borderRadius: "6px", fontSize: "11px", color: "#64748b", display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontWeight: 700, color: "#475569" }}>Selected post:</span>
               <span>{getSelectedStockDescription()}</span>
+              {normalizeMm(postHeight) > 0 && <span style={{ marginLeft: "auto", whiteSpace: "nowrap" }}>Required stock ≥ {normalizeMm(postHeight) + 300} mm</span>}
             </div>
 
           </div>
@@ -895,20 +868,21 @@ export default function TimberPostsTask({
               <thead>
                 <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
                   <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
-                  <th style={{ padding: "6px 8px", minWidth: "90px" }}>Post Type</th>
-                  <th style={{ padding: "6px 8px", width: "80px" }}>Post Height</th>
-                  <th style={{ padding: "6px 8px", width: "75px" }}>Post Size</th>
-                  <th style={{ padding: "6px 8px", minWidth: "160px" }}>Post</th>
+                  <th style={{ padding: "6px 8px", minWidth: "100px" }}>Post Type</th>
+                  <th style={{ padding: "6px 8px", width: "78px" }}>Post Size</th>
+                  <th style={{ padding: "6px 8px", width: "82px" }}>Post Height</th>
+                  <th style={{ padding: "6px 8px", width: "72px" }}>Post Over</th>
+                  <th style={{ padding: "6px 8px", width: "76px" }}>Code</th>
+                  <th style={{ padding: "6px 8px", minWidth: "180px" }}>Description</th>
                   <th style={{ padding: "6px 8px", width: "45px", textAlign: "center" }}>Qty</th>
-                  <th style={{ padding: "6px 8px", width: "95px", textAlign: "center" }}>Gal Post Supports</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", width: "34px" }}></th>
                 </tr>
               </thead>
               <tbody>
                 {groupedPostsByLevel.map(({ level, items }) => {
                   return (
                     <React.Fragment key={level}>
-                      <FloorLevelGroupRow level={level} colSpan={8} count={items.length} unitLabel="post" unitLabelPlural="posts" />
+                      <FloorLevelGroupRow level={level} colSpan={9} count={items.length} unitLabel="post" unitLabelPlural="posts" />
                       {items.map((item) => {
                         const globalIdx = (entries || []).findIndex(e => e.id === item.id);
                         const idx = globalIdx >= 0 ? globalIdx : 0;
@@ -919,11 +893,13 @@ export default function TimberPostsTask({
                         const pSize = item.postSize || item.size || "90x90";
                         const pPost = item.post || item.stock || `${pType} ${pSize} @ ${pHeight}`;
                         const pQty = item.qty !== undefined ? item.qty : 1;
-                        const pGal = item.galPostSupports !== undefined ? item.galPostSupports : (item.gal_post_supports || "0");
+                        const pOver = item.postOver || item.post_over || "timber";
+                        const pCode = item.code || "";
 
                         return (
                           <tr
                             key={item.id || idx}
+                            className={`ui-editable-row ${isRowEditing ? "ui-editing-row" : ""}`}
                             data-editing-row-id={isRowEditing ? item.id : undefined}
                             onDoubleClick={(e) => {
                               if (isRowEditing) return;
@@ -942,12 +918,11 @@ export default function TimberPostsTask({
                                 const nextSelected = isSelected ? null : item.id;
                                 setSelectedEntryId(nextSelected);
                                 if (!isSelected) {
-                                  setFloorLevel(item.floorLevel || item.floor_level || "GF");
                                   setPostType(pType);
                                   setPostHeight(String(pHeight).replace("mm", "").trim());
                                   setPostSize(pSize);
+                                  setPostOver(pOver === "slab" ? "slab" : "timber");
                                   setPostQty(String(pQty));
-                                  setGalSupports(String(pGal));
                                 }
                               }
                             }}
@@ -985,6 +960,19 @@ export default function TimberPostsTask({
                               )}
                             </td>
 
+                            {/* Post Size */}
+                            <td style={{ padding: "4px 8px" }}>
+                              {isRowEditing ? (
+                                <select
+                                  value={editRowData.postSize || pSize}
+                                  onChange={(e) => setEditRowData({ ...editRowData, postSize: e.target.value })}
+                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6", boxSizing: "border-box" }}
+                                >
+                                  {getSizesForPostType(editRowData.postType || pType).filter(s => s !== "Please Select").map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                              ) : <span>{pSize}</span>}
+                            </td>
+
                             {/* Post Height */}
                             <td style={{ padding: "4px 8px" }}>
                               {isRowEditing ? (
@@ -992,42 +980,40 @@ export default function TimberPostsTask({
                                   type="text"
                                   value={editRowData.postHeight || pHeight}
                                   onChange={(e) => setEditRowData({ ...editRowData, postHeight: e.target.value })}
-                                  style={{ width: "65px", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6", boxSizing: "border-box" }}
                                 />
-                              ) : (
-                                <span>{pHeight}</span>
-                              )}
+                              ) : <span>{pHeight}</span>}
                             </td>
 
-                            {/* Post Size */}
+                            {/* Post Over */}
                             <td style={{ padding: "4px 8px" }}>
                               {isRowEditing ? (
                                 <select
-                                  value={editRowData.postSize || pSize}
-                                  onChange={(e) => setEditRowData({ ...editRowData, postSize: e.target.value })}
-                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                                  value={editRowData.postOver === "slab" ? "slab" : "timber"}
+                                  onChange={(e) => setEditRowData({ ...editRowData, postOver: e.target.value === "slab" ? "slab" : "timber" })}
+                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6", boxSizing: "border-box" }}
                                 >
-                                  {getSizesForPostType(editRowData.postType || pType).filter(s => s !== "Please Select").map(opt => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
+                                  <option value="slab">Slab</option>
+                                  <option value="timber">Timber</option>
                                 </select>
-                              ) : (
-                                <span>{pSize}</span>
-                              )}
+                              ) : <span>{pOver === "slab" ? "Slab" : "Timber"}</span>}
                             </td>
 
-                            {/* Post */}
-                            <td style={{ padding: "4px 8px", minWidth: "160px" }}>
+                            {/* Code */}
+                            <td style={{ padding: "4px 8px" }}>
+                              <span>{pCode || "-"}</span>
+                            </td>
+
+                            {/* Description / Product */}
+                            <td style={{ padding: "4px 8px", minWidth: "180px" }}>
                               {isRowEditing ? (
                                 <input
                                   type="text"
                                   value={editRowData.post || pPost}
                                   onChange={(e) => setEditRowData({ ...editRowData, post: e.target.value })}
-                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", borderRadius: "3px", border: "1px solid #3b82f6", boxSizing: "border-box" }}
                                 />
-                              ) : (
-                                <span style={{ fontSize: "10.5px", color: "#1e293b" }}>{pPost}</span>
-                              )}
+                              ) : <span style={{ fontSize: "10.5px", color: "#1e293b" }}>{pPost}</span>}
                             </td>
 
                             {/* Qty */}
@@ -1035,27 +1021,12 @@ export default function TimberPostsTask({
                               {isRowEditing ? (
                                 <input
                                   type="number"
+                                  min="1"
                                   value={editRowData.qty !== undefined ? editRowData.qty : pQty}
                                   onChange={(e) => setEditRowData({ ...editRowData, qty: e.target.value })}
-                                  style={{ width: "40px", padding: "2px 4px", fontSize: "10px", textAlign: "center", borderRadius: "3px", border: "1px solid #3b82f6" }}
+                                  style={{ width: "100%", padding: "2px 4px", fontSize: "10px", textAlign: "center", borderRadius: "3px", border: "1px solid #3b82f6", boxSizing: "border-box" }}
                                 />
-                              ) : (
-                                <span style={{ fontWeight: 700, color: "var(--blue)" }}>{pQty}</span>
-                              )}
-                            </td>
-
-                            {/* Gal Post Supports */}
-                            <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                              {isRowEditing ? (
-                                <input
-                                  type="number"
-                                  value={editRowData.galPostSupports !== undefined ? editRowData.galPostSupports : pGal}
-                                  onChange={(e) => setEditRowData({ ...editRowData, galPostSupports: e.target.value })}
-                                  style={{ width: "45px", padding: "2px 4px", fontSize: "10px", textAlign: "center", borderRadius: "3px", border: "1px solid #3b82f6" }}
-                                />
-                              ) : (
-                                <span>{pGal}</span>
-                              )}
+                              ) : <span style={{ fontWeight: 700, color: "var(--blue)" }}>{pQty}</span>}
                             </td>
 
                             {/* Actions: Edit / Delete */}
@@ -1080,27 +1051,14 @@ export default function TimberPostsTask({
                                   </button>
                                 </div>
                               ) : (
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleStartEdit(item);
-                                    }}
-                                    style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", fontSize: "11px", padding: "0 2px" }}
-                                    title="Edit"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
-                                    style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
-                                    title="Delete"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleRemoveEntry(item.id); }}
+                                  style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontWeight: 800, fontSize: "12px", padding: "0 2px" }}
+                                  title="Delete"
+                                >
+                                  ✕
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -1111,13 +1069,18 @@ export default function TimberPostsTask({
                 })}
                 {(!entries || entries.length === 0) && (
                   <tr>
-                    <td colSpan={8} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
+                    <td colSpan={9} style={{ padding: "16px", textAlign: "center", color: "#94a3b8", fontStyle: "italic" }}>
                       No timber posts entered. Enter post specifications above and click <b>+ Add post</b>.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            <div style={{ padding: "7px 8px 0", fontSize: "10.5px", color: "#475569", display: "flex", gap: "14px", flexWrap: "wrap", fontWeight: 600 }}>
+              <span>Slab posts: <b>{(entries || []).reduce((sum, entry) => sum + ((entry.postOver || entry.post_over || "timber") === "slab" ? Math.max(0, parseInt(entry.qty, 10) || 0) : 0), 0)}</b></span>
+              <span>Extra supports: <b>{Math.max(0, parseInt(extraSupportQty, 10) || 0)}</b></span>
+              <span>Total Gal Post Supports: <b>{(entries || []).reduce((sum, entry) => sum + ((entry.postOver || entry.post_over || "timber") === "slab" ? Math.max(0, parseInt(entry.qty, 10) || 0) : 0), 0) + Math.max(0, parseInt(extraSupportQty, 10) || 0)}</b></span>
+            </div>
           </div>
         )}
 

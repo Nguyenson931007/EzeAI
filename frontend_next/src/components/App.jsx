@@ -1286,10 +1286,11 @@ export default function App() {
     setTimeout(fitToScreen, 50);
   }
 
-  const zoomToBbox = (pageIndex, bbox) => {
-    if (!pages[pageIndex]) return;
+  const zoomToBbox = (pageIndex, bbox, focusOptions = {}) => {
+    if (!pages[pageIndex] || !Array.isArray(bbox) || bbox.length < 4) return;
 
-    if (currentPage !== pageIndex) {
+    const changingPage = currentPage !== pageIndex;
+    if (changingPage) {
       if (interactionMode === "snap-align-pdf" || interactionMode === "align-pdf") {
         if (setSnapAlignPoints) setSnapAlignPoints([]);
         if (setInteractionMode) setInteractionMode("select");
@@ -1305,22 +1306,82 @@ export default function App() {
 
       const cw = container.clientWidth;
       const ch = container.clientHeight;
-      const [x1, y1, x2, y2] = bbox;
+      if (!cw || !ch) return;
+
+      const [rawX1, rawY1, rawX2, rawY2] = bbox.map(Number);
+      if (![rawX1, rawY1, rawX2, rawY2].every(Number.isFinite)) return;
+
+      const x1 = Math.min(rawX1, rawX2);
+      const x2 = Math.max(rawX1, rawX2);
+      const y1 = Math.min(rawY1, rawY2);
+      const y2 = Math.max(rawY1, rawY2);
+      const bboxW = Math.max(1, x2 - x1);
+      const bboxH = Math.max(1, y2 - y1);
       const cx = (x1 + x2) / 2;
       const cy = (y1 + y2) / 2;
-      const bboxW = x2 - x1;
-      const bboxH = y2 - y1;
 
-      const scaleX = cw / (bboxW || 1);
-      const scaleY = ch / (bboxH || 1);
-      const newScale = Math.min(3.0, Math.max(1.0, Math.min(scaleX, scaleY) * 0.45));
+      // Non-task callers (search results, OCR hits, etc.) keep the historical
+      // zoom behaviour. Semantic task focus is opt-in via focusOptions below.
+      if (!focusOptions || Object.keys(focusOptions).length === 0) {
+        const scaleX = cw / bboxW;
+        const scaleY = ch / bboxH;
+        const legacyScale = Math.min(3.0, Math.max(1.0, Math.min(scaleX, scaleY) * 0.45));
+        setScale(legacyScale);
+        setOffset({
+          x: cw / 2 - cx * legacyScale,
+          y: ch / 2 - cy * legacyScale
+        });
+        return;
+      }
+
+      const page = pages[pageIndex] || {};
+      const pageW = Math.max(1, Number(page.w) || imgSize.w || bboxW);
+      const pageH = Math.max(1, Number(page.h) || imgSize.h || bboxH);
+      const pageFitScale = Math.max(0.001, Math.min(cw / pageW, ch / pageH));
+      const pageCoverage = Math.max(bboxW / pageW, bboxH / pageH);
+      const objectCount = Math.max(1, Number(focusOptions.objectCount) || 1);
+
+      let profile = focusOptions.profile || "auto";
+      if (profile === "auto") {
+        if (objectCount >= 8 || pageCoverage >= 0.58) profile = "overview";
+        else if (objectCount > 1) profile = "group";
+        else profile = "detail";
+      }
+
+      // Each selected component gets a different visual weight. A tiny door/window
+      // should be close enough to inspect, a wall should remain fully visible, while
+      // an aggregate task row (e.g. all external insulation walls) should read as an
+      // overview instead of shrinking the plan to an arbitrary fixed scale.
+      const presets = {
+        opening:    { fill: 0.56, minFit: 1.25, maxFit: 12.0, hardMax: 5.5 },
+        wall:       { fill: 0.90, minFit: 1.08, maxFit: 8.0,  hardMax: 4.0 },
+        room:       { fill: 0.78, minFit: 1.04, maxFit: 4.5,  hardMax: 3.0 },
+        detail:     { fill: 0.80, minFit: 1.05, maxFit: 6.0,  hardMax: 4.0 },
+        "wall-group": { fill: 0.90, minFit: 1.00, maxFit: 2.8, hardMax: 2.2 },
+        "area-group": { fill: 0.84, minFit: 0.98, maxFit: 2.4, hardMax: 2.0 },
+        group:      { fill: 0.86, minFit: 1.00, maxFit: 2.6,  hardMax: 2.2 },
+        overview:   { fill: 0.94, minFit: 0.96, maxFit: 1.65, hardMax: 1.6 },
+      };
+      const preset = presets[profile] || presets.detail;
+
+      const fitScale = Math.min((cw * preset.fill) / bboxW, (ch * preset.fill) / bboxH);
+      const minScale = pageFitScale * preset.minFit;
+      const maxScale = Math.min(preset.hardMax, pageFitScale * preset.maxFit);
+      let newScale = Math.max(minScale, Math.min(fitScale, Math.max(minScale, maxScale)));
+
+      // Very broad selections should never zoom farther out than a sensible
+      // whole-plan view. This is especially important for Insulation/Frame rows
+      // containing many exterior/interior walls.
+      if (profile === "overview" || pageCoverage >= 0.75) {
+        newScale = Math.max(pageFitScale * 0.96, Math.min(newScale, pageFitScale * 1.5));
+      }
 
       setScale(newScale);
       setOffset({
         x: cw / 2 - cx * newScale,
         y: ch / 2 - cy * newScale
       });
-    }, currentPage !== pageIndex ? 150 : 20);
+    }, changingPage ? 140 : 16);
   };
 
   const clearSearch = () => {

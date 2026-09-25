@@ -683,6 +683,31 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
 
+  // Keep undo/redo state in refs as well as React state. Keyboard repeat can fire
+  // faster than React re-renders; refs make Ctrl+Z / Ctrl+Y consume exactly one
+  // transaction per key event instead of occasionally reusing a stale stack.
+  const historyRef = useRef([]);
+  const futureRef = useRef([]);
+  const cadStateRef = useRef({
+    roomsByPage,
+    doorsByPage,
+    wallsByPage,
+    lintelsByPage,
+    pdfOffsetsByPage,
+  });
+
+  useEffect(() => { historyRef.current = history; }, [history]);
+  useEffect(() => { futureRef.current = future; }, [future]);
+  useEffect(() => {
+    cadStateRef.current = {
+      roomsByPage,
+      doorsByPage,
+      wallsByPage,
+      lintelsByPage,
+      pdfOffsetsByPage,
+    };
+  }, [roomsByPage, doorsByPage, wallsByPage, lintelsByPage, pdfOffsetsByPage]);
+
   const [isMeasuring, setIsMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
 
@@ -1120,8 +1145,6 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (setInteractionMode) setInteractionMode("select");
         } else if (interactionMode === "move-vertex" && movingVertex) {
           e.preventDefault();
-          const pageWalls = wallsByPage[currentPage] || [];
-          pushHistory(rooms, pageWalls, doorsByPage[currentPage] || []);
           setMovingVertex(null);
           if (setInteractionMode) setInteractionMode("select");
         } else if (drawing) {
@@ -1244,15 +1267,77 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     return () => el.removeEventListener("wheel", handleWheel);
   }, [svgRef, activeTab]);
 
-  function pushHistory(newRooms, arg2, arg3, arg4) {
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage })]);
+  function captureCadHistorySnapshot(pageIndex = currentPage) {
+    const state = cadStateRef.current || {};
+    return {
+      version: 2,
+      pageIndex,
+      rooms: state.roomsByPage?.[pageIndex] || [],
+      doors: state.doorsByPage?.[pageIndex] || [],
+      walls: state.wallsByPage?.[pageIndex] || [],
+      lintels: state.lintelsByPage?.[pageIndex] || [],
+      pdfOffset: state.pdfOffsetsByPage?.[pageIndex] || { x: 0, y: 0 },
+    };
+  }
+
+  function appendCadHistorySnapshot(snapshot) {
+    const encoded = typeof snapshot === "string" ? snapshot : JSON.stringify(snapshot);
+    const past = historyRef.current || [];
+    const last = past[past.length - 1];
+    const nextPast = last === encoded ? past : [...past, encoded].slice(-120);
+    historyRef.current = nextPast;
+    setHistory(nextPast);
+    futureRef.current = [];
     setFuture([]);
-    if (newRooms) {
-      setRoomsByPage(prev => ({
-        ...prev,
-        [currentPage]: newRooms
-      }));
+  }
+
+  function applyCadHistorySnapshot(snapshot) {
+    if (!snapshot) return;
+
+    // Backward compatibility with the old full-map history format.
+    if (snapshot.roomsByPage || snapshot.doorsByPage || snapshot.wallsByPage || snapshot.lintelsByPage) {
+      if (snapshot.roomsByPage) setRoomsByPage(snapshot.roomsByPage);
+      if (snapshot.doorsByPage) setDoorsByPage(snapshot.doorsByPage);
+      if (setWallsByPage && snapshot.wallsByPage) setWallsByPage(snapshot.wallsByPage);
+      if (setLintelsByPage && snapshot.lintelsByPage) setLintelsByPage(snapshot.lintelsByPage);
+      cadStateRef.current = {
+        ...cadStateRef.current,
+        ...(snapshot.roomsByPage ? { roomsByPage: snapshot.roomsByPage } : {}),
+        ...(snapshot.doorsByPage ? { doorsByPage: snapshot.doorsByPage } : {}),
+        ...(snapshot.wallsByPage ? { wallsByPage: snapshot.wallsByPage } : {}),
+        ...(snapshot.lintelsByPage ? { lintelsByPage: snapshot.lintelsByPage } : {}),
+      };
+      return;
     }
+
+    const pageIndex = Number.isFinite(Number(snapshot.pageIndex)) ? Number(snapshot.pageIndex) : currentPage;
+    const updatePageMap = (key, setter, value) => {
+      if (typeof setter !== "function") return;
+      setter(prev => {
+        const next = { ...(prev || {}), [pageIndex]: value || [] };
+        cadStateRef.current = { ...cadStateRef.current, [key]: next };
+        return next;
+      });
+    };
+
+    updatePageMap("roomsByPage", setRoomsByPage, snapshot.rooms);
+    updatePageMap("doorsByPage", setDoorsByPage, snapshot.doors);
+    updatePageMap("wallsByPage", setWallsByPage, snapshot.walls);
+    updatePageMap("lintelsByPage", setLintelsByPage, snapshot.lintels);
+
+    if (typeof setPdfOffsetsByPage === "function" && snapshot.pdfOffset) {
+      setPdfOffsetsByPage(prev => {
+        const next = { ...(prev || {}), [pageIndex]: snapshot.pdfOffset };
+        cadStateRef.current = { ...cadStateRef.current, pdfOffsetsByPage: next };
+        return next;
+      });
+    }
+  }
+
+  function pushHistory(newRooms, arg2, arg3, arg4) {
+    // History is page-scoped: much smaller snapshots, faster Ctrl+Z, and no
+    // unnecessary JSON parse/stringify of every floor on each small edit.
+    appendCadHistorySnapshot(captureCadHistorySnapshot(currentPage));
 
     let newWalls = null;
     let newDoors = null;
@@ -1286,100 +1371,93 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       }
     }
 
+    if (newRooms) {
+      setRoomsByPage(prev => ({ ...prev, [currentPage]: newRooms }));
+    }
     if (newWalls) {
-      setWallsByPage(prev => ({
-        ...prev,
-        [currentPage]: newWalls
-      }));
+      setWallsByPage(prev => ({ ...prev, [currentPage]: newWalls }));
     }
     if (newDoors) {
-      setDoorsByPage(prev => ({
-        ...prev,
-        [currentPage]: newDoors
-      }));
+      setDoorsByPage(prev => ({ ...prev, [currentPage]: newDoors }));
     }
     if (newLintels) {
-      setLintelsByPage(prev => ({
-        ...prev,
-        [currentPage]: newLintels
-      }));
+      setLintelsByPage(prev => ({ ...prev, [currentPage]: newLintels }));
     }
   }
 
   function undo() {
-    // 1. PDF Tools Tab or Annotation history
-    if (activeTab === "PDF Tools" || (annotationsHistory && annotationsHistory.length > 0)) {
-      if (annotationsHistory && annotationsHistory.length > 0) {
-        if (typeof undoAnnotation === "function") {
-          undoAnnotation();
-          return;
-        }
-      }
+    // Respect the active editing context. Previously any old annotation/roof
+    // history could steal Ctrl+Z from a newer wall/door edit.
+    if (activeTab === "PDF Tools" && annotationsHistory?.length > 0) {
+      if (typeof undoAnnotation === "function") undoAnnotation();
+      return;
     }
-    // 2. Roof history
-    if (roofHistory && roofHistory.length > 0) {
+    if (selectedType === "roof" && roofHistory?.length > 0) {
       undoRoof();
       return;
     }
-    // 3. Fallback: if CAD history is empty, check if annotations history exists
-    if (!history.length) {
-      if (annotationsHistory && annotationsHistory.length > 0) {
-        if (typeof undoAnnotation === "function") {
-          undoAnnotation();
-          return;
-        }
-      }
+
+    const past = historyRef.current || [];
+    if (past.length > 0) {
+      const encoded = past[past.length - 1];
+      const prev = JSON.parse(encoded);
+      const pageIndex = Number.isFinite(Number(prev?.pageIndex)) ? Number(prev.pageIndex) : currentPage;
+      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex));
+
+      const nextPast = past.slice(0, -1);
+      const nextFuture = [currentEncoded, ...(futureRef.current || [])].slice(0, 120);
+      historyRef.current = nextPast;
+      futureRef.current = nextFuture;
+      setHistory(nextPast);
+      setFuture(nextFuture);
+      applyCadHistorySnapshot(prev);
       return;
     }
-    const prev = JSON.parse(history[history.length - 1]);
-    setFuture(f => [JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage }), ...f]);
-    setRoomsByPage(prev.roomsByPage || {});
-    setDoorsByPage(prev.doorsByPage || {});
-    if (setWallsByPage) {
-      setWallsByPage(prev.wallsByPage || {});
+
+    // Fallbacks only when there is no CAD transaction to undo.
+    if (roofHistory?.length > 0) {
+      undoRoof();
+      return;
     }
-    if (setLintelsByPage) {
-      setLintelsByPage(prev.lintelsByPage || {});
+    if (annotationsHistory?.length > 0 && typeof undoAnnotation === "function") {
+      undoAnnotation();
     }
-    setHistory(h => h.slice(0, -1));
   }
 
   function redo() {
-    // 1. PDF Tools Tab or Annotation future
-    if (activeTab === "PDF Tools" || (annotationsFuture && annotationsFuture.length > 0)) {
-      if (annotationsFuture && annotationsFuture.length > 0) {
-        if (typeof redoAnnotation === "function") {
-          redoAnnotation();
-          return;
-        }
-      }
+    if (activeTab === "PDF Tools" && annotationsFuture?.length > 0) {
+      if (typeof redoAnnotation === "function") redoAnnotation();
+      return;
     }
-    // 2. Roof future
-    if (roofFuture && roofFuture.length > 0) {
+    if (selectedType === "roof" && roofFuture?.length > 0) {
       redoRoof();
       return;
     }
-    // 3. Fallback: if CAD future is empty, check if annotations future exists
-    if (!future.length) {
-      if (annotationsFuture && annotationsFuture.length > 0) {
-        if (typeof redoAnnotation === "function") {
-          redoAnnotation();
-          return;
-        }
-      }
+
+    const ahead = futureRef.current || [];
+    if (ahead.length > 0) {
+      const encoded = ahead[0];
+      const next = JSON.parse(encoded);
+      const pageIndex = Number.isFinite(Number(next?.pageIndex)) ? Number(next.pageIndex) : currentPage;
+      const currentEncoded = JSON.stringify(captureCadHistorySnapshot(pageIndex));
+
+      const nextPast = [...(historyRef.current || []), currentEncoded].slice(-120);
+      const nextFuture = ahead.slice(1);
+      historyRef.current = nextPast;
+      futureRef.current = nextFuture;
+      setHistory(nextPast);
+      setFuture(nextFuture);
+      applyCadHistorySnapshot(next);
       return;
     }
-    const next = JSON.parse(future[0]);
-    setHistory(h => [...h, JSON.stringify({ roomsByPage, doorsByPage, wallsByPage, lintelsByPage })]);
-    setRoomsByPage(next.roomsByPage || {});
-    setDoorsByPage(next.doorsByPage || {});
-    if (setWallsByPage) {
-      setWallsByPage(next.wallsByPage || {});
+
+    if (roofFuture?.length > 0) {
+      redoRoof();
+      return;
     }
-    if (setLintelsByPage) {
-      setLintelsByPage(next.lintelsByPage || {});
+    if (annotationsFuture?.length > 0 && typeof redoAnnotation === "function") {
+      redoAnnotation();
     }
-    setFuture(f => f.slice(1));
   }
 
   function mmToPx(thicknessMm, rScale) {
@@ -4699,6 +4777,14 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const dx = pRaw.x - movingVertex.originalPt[0];
       const dy = pRaw.y - movingVertex.originalPt[1];
 
+      const moveDist = Math.hypot(dx, dy);
+      if (moveDist > 1 && !movingVertex.historyPushed) {
+        // Record exactly one pre-edit snapshot, and only after the vertex truly moves.
+        // This avoids a no-op Ctrl+Z entry when the move tool is opened then cancelled.
+        pushHistory();
+        setMovingVertex(prev => prev ? { ...prev, historyPushed: true } : prev);
+      }
+
       let snappedX, snappedY;
       // Snap strictly to 90 degrees relative to original point
       if (Math.abs(dx) > Math.abs(dy)) {
@@ -5337,7 +5423,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
             }
 
-            pushHistory(null, pageWalls, updatedDoors, updatedLintels);
+            // The pre-drag snapshot was already recorded once when the drag crossed
+            // the movement threshold. Do not add a second no-op history entry here.
           }
         }
       } else if (dragging.type === 'wall-move' || dragging.type === 'wall-vertex') {
@@ -5407,8 +5494,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
           }
 
-          // Update history with the merged and cut walls
-          pushHistory(null, junctionCleanedWalls, updatedDoors, updatedLintels);
+          // The pre-drag snapshot was recorded at drag start. One gesture = one undo.
         }
       } else if ((dragging.type === 'room' || (!dragging.type && selectedType === 'room')) && dragging.currentPos) {
         // Commit room vertex drag on mouse up (once per drag) and record history
@@ -5426,7 +5512,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               : room
           );
           setRoomsByPage(prev => ({ ...prev, [currentPage]: updatedRooms }));
-          pushHistory(updatedRooms);
+          // The pre-drag snapshot was recorded when the drag crossed the threshold.
         }
       }
       setDragging(null);
@@ -5931,13 +6017,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
    * Triggered on double right-click.
    */
   function startVertexMove(wallId, index, pt) {
-    pushHistory(); // Save undo snapshot before modifying centerline
     setMovingVertex({
       wallId,
       index,
       startX: pt[0],
       startY: pt[1],
-      originalPt: [pt[0], pt[1]]
+      originalPt: [pt[0], pt[1]],
+      historyPushed: false
     });
     if (setInteractionMode) {
       setInteractionMode("move-vertex");

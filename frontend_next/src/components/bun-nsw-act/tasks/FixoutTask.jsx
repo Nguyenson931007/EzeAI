@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
 import { createPortal } from "react-dom";
@@ -6,6 +7,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { isWindowOpening } from "@/utils/procurementAutoFill";
 import {
   FIXOUT_HEIGHTS,
   FIXOUT_WIDTHS,
@@ -1064,7 +1066,7 @@ export default function FixoutTask({
   const { user, currentJobId, currentProjectName } = useAppModel();
   const activeCustomerShortName = getActiveClientShortName();
 
-  const [floorLevel, setFloorLevel] = useState("GF");
+  const floorLevel = useCurrentTaskFloorLevel(formData);
   const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1239,7 +1241,7 @@ export default function FixoutTask({
       const res = await ApiService.fetchFixoutJobs(target);
       if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
         const loaded = res.data
-          .filter((r) => r.door_label || r.door_type || r.height || r.width)
+          .filter((r) => !isWindowOpening(r) && (r.door_label || r.door_type || r.height || r.width))
           .map((r, idx) => ({
             id: `fix-${r.fixout_id || Date.now()}-${idx}`,
             floorLevel: r.floor_level || r.floorLevel || "GF",
@@ -1264,7 +1266,6 @@ export default function FixoutTask({
           onSetEntries(loaded);
           const first = loaded[0];
           if (first && first.floorLevel) {
-            setFloorLevel(first.floorLevel);
           }
           if (force) {
             setReloadMsg({ type: "success", text: `Loaded ${loaded.length} ${loaded.length === 1 ? "door" : "doors"} from SQL` });
@@ -1322,7 +1323,7 @@ export default function FixoutTask({
     setSaveSuccess(false);
 
     try {
-      const items = (entries || []).map((item) => ({
+      const items = (entries || []).filter((item) => !isWindowOpening(item)).map((item) => ({
         floor_level: item.floorLevel || item.floor_level || "GF",
         category: item.category || null,
         door_label: item.door_label || null,
@@ -1386,27 +1387,6 @@ export default function FixoutTask({
                 {reloadMsg.text}
               </span>
             )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleReloadFromDb(true);
-              }}
-              disabled={isLoadingDb}
-              style={{
-                background: "#ffffff",
-                border: "1px solid #cbd5e1",
-                color: "#1e293b",
-                fontSize: "11px",
-                fontWeight: 700,
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: isLoadingDb ? "not-allowed" : "pointer"
-              }}
-              title="Reload Fixout doors from MSSQL"
-            >
-              {isLoadingDb ? "⏳ Loading..." : "↻ Reload SQL"}
-            </button>
             <TaskActionButtons
               onAutoFill={() => onAddDataAI?.("fixout")}
               onClear={onClearData}
@@ -1420,17 +1400,6 @@ export default function FixoutTask({
 
         {isDoorInformationOpen && (
           <div style={{ padding: "8px" }}>
-            <div style={{ maxWidth: "240px", marginBottom: "8px" }}>
-              <Field
-                label="Floor level"
-                value={floorLevel}
-                options={FLOOR_LEVEL_OPTIONS.map((opt) => ({ value: opt, label: `${opt} (${getFloorLevelDisplayName(opt)})` }))}
-                onChange={(value) => {
-                  setFloorLevel(value);
-                  onChange?.("fixout", "floor_level", value);
-                }}
-              />
-            </div>
 
             <CategorySection
               mode="cavity"
@@ -1460,95 +1429,201 @@ export default function FixoutTask({
               doorOptions={looseJambDoors}
             />
 
-            <TaskInlineEnteredSection
-              title="Entered doors"
-              footer={(
-                <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
-                  {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
-                </TaskSummaryFooter>
-              )}
-            >
-              <TaskSummaryTable className="fixout-summary-main">
-                <thead>
-                  <tr>
-                    <th style={{ width: "34px", textAlign: "center" }}>#</th>
-                    <th>Category</th>
-                    <th>Label / Door</th>
-                    <th>Size</th>
-                    <th>Wall</th>
-                    <th>Frame</th>
-                    <th>Door details</th>
-                    <th style={{ width: "45px", textAlign: "center" }}>Qty</th>
-                    <th style={{ width: "38px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {totalCount === 0 ? (
-                    <TaskEmptyRow colSpan={9}>No Fixout doors entered. Fill the inputs above and add doors.</TaskEmptyRow>
-                  ) : groupedDoorsByLevel.map(({ level, items }) => (
-                    <React.Fragment key={level}>
-                      <FloorLevelGroupRow level={level} colSpan={9} count={items.length} unitLabel="door" unitLabelPlural="doors" />
-                      {items.map((item) => {
-                        const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
-                        const idx = globalIdx >= 0 ? globalIdx : 0;
-                        const isSelected = selectedEntryId === item.id;
-                        const isCavity = item.category === "cavity";
-                        const isPrehung = item.category === "prehung";
-                        const sizeStr = `${item.height || 2040}×${item.width || 820}×${item.thicks || 35}`;
-                        const wallStr = item.wall_width ? `${item.wall_width}` : "—";
 
-                        let ezyJambDisplay = "—";
-                        if (isCavity) {
-                          const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
-                          ezyJambDisplay = isEzy ? "Eze Jamb" : "—";
-                        } else if (item.door_frame && !["Timber Jamb", "None", "-"].includes(item.door_frame)) {
-                          ezyJambDisplay = item.door_frame;
-                        }
-
-                        const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
-                        const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
-                        const holeStr = isPrehung && item.hole && item.hole !== "None" ? item.hole : "—";
-                        const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
-                        const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
-                        const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
-
-                        return (
-                          <tr
-                            key={item.id || idx}
-                            onClick={() => {
-                              const nextSelected = isSelected ? null : item.id;
-                              setSelectedEntryId(nextSelected);
-                              onSelectEntry?.(isSelected ? null : item);
-                            }}
-                            style={{
-                              background: isSelected ? "#dbeafe" : undefined,
-                              cursor: "pointer",
-                              outline: isSelected ? "2px solid #3b82f6" : "none",
-                              outlineOffset: "-1px"
-                            }}
-                          >
-                            <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
-                            <td style={{ fontWeight: 600 }}>{modeLabel(item.category)}</td>
-                            <td><strong style={{ color: "#0f172a", marginRight: "6px" }}>{item.door_label || "—"}</strong><span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase" }}>{item.door_type || ""}</span></td>
-                            <td>{sizeStr}</td><td>{wallStr}</td>
-                            <td style={{ color: ezyJambDisplay === "Eze Jamb" ? "#0284c7" : "#64748b", fontWeight: ezyJambDisplay === "Eze Jamb" ? 700 : 500 }}>{ezyJambDisplay}</td>
-                            <td><div className="task-ui-summary-meta"><span><b>Lift:</b> {liftOffStr}</span><span><b>Hand:</b> {handingStr}</span><span><b>Hole:</b> {holeStr}</span><span><b>Finish:</b> {finishStr}</span><span><b>Furniture:</b> {furnitureStr}</span><span><b>Stop:</b> {doorStopStr}</span></div></td>
-                            <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>{item.qty || 1}</td>
-                            <td style={{ textAlign: "center" }}><button type="button" onClick={(event) => { event.stopPropagation(); handleRemoveEntry(item.id); }} style={S.deleteBtn} title="Remove door from entered data">✕</button></td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </TaskSummaryTable>
-            </TaskInlineEnteredSection>
           </div>
         )}
       </div>
 
       <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} />
 
+
+      <TaskInlineEnteredSection
+        title="4. Entered doors"
+        footer={(
+          <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
+            {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
+          </TaskSummaryFooter>
+        )}
+      >
+        <TaskSummaryTable className="fixout-summary-main" minWidth="2050px">
+          <thead>
+            <tr>
+              <th style={{ width: "38px", textAlign: "center" }}>#</th>
+              <th style={{ width: "92px" }}>Label</th>
+              <th style={{ width: "112px" }}>Category</th>
+              <th style={{ width: "125px" }}>Door Type</th>
+              <th style={{ width: "72px", textAlign: "center" }}>Height</th>
+              <th style={{ width: "72px", textAlign: "center" }}>Width</th>
+              <th style={{ width: "66px", textAlign: "center" }}>Thicks</th>
+              <th style={{ width: "78px", textAlign: "center" }}>Wall</th>
+              <th style={{ width: "108px" }}>Frame</th>
+              <th style={{ width: "88px" }}>Lift / Pivot</th>
+              <th style={{ width: "82px" }}>Handing</th>
+              <th style={{ width: "70px" }}>Hole</th>
+              <th style={{ width: "82px" }}>Finish</th>
+              <th style={{ width: "150px" }}>Furniture</th>
+              <th style={{ width: "118px" }}>Door Stop</th>
+              <th style={{ width: "55px", textAlign: "center" }}>Qty</th>
+              <th style={{ width: "42px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {totalCount === 0 ? (
+              <TaskEmptyRow colSpan={17}>No Fixout doors entered. Fill the inputs above and add doors.</TaskEmptyRow>
+            ) : groupedDoorsByLevel.map(({ level, items }) => (
+              <React.Fragment key={level}>
+                <FloorLevelGroupRow level={level} colSpan={17} count={items.length} unitLabel="door" unitLabelPlural="doors" />
+                {items.map((item) => {
+                  const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
+                  const idx = globalIdx >= 0 ? globalIdx : 0;
+                  const isSelected = selectedEntryId === item.id;
+                  const isCavity = item.category === "cavity";
+                  const isPrehung = item.category === "prehung";
+
+                  const frameDisplay = (() => {
+                    if (isCavity) {
+                      const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
+                      return isEzy ? "Eze Jamb" : "Timber Jamb";
+                    }
+                    return item.door_frame && item.door_frame !== "None" ? item.door_frame : "—";
+                  })();
+                  const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
+                  const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
+                  const holeStr = isPrehung && item.hole && item.hole !== "None" ? item.hole : "—";
+                  const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
+                  const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
+                  const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
+
+                  const isRowEditing = editingRowId === item.id;
+                  const editCategory = isRowEditing ? (editRowData.category || item.category || "cavity") : item.category;
+                  const editIsCavity = editCategory === "cavity";
+                  const editIsLoose = editCategory === "loose-jamb" || editCategory === "loose";
+                  const editHeightOptions = editIsCavity ? OPT.cavityHeight : OPT.height;
+                  const editWidthOptions = editIsCavity ? OPT.cavityWidth : OPT.width;
+                  const editDoorOptions = editIsLoose ? looseJambDoors : prehungDoors;
+                  const editFurnitureOptions = FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || [];
+                  const controlStyle = {
+                    width: "100%",
+                    minWidth: 0,
+                    height: "25px",
+                    border: "1px solid #93c5fd",
+                    borderRadius: "3px",
+                    background: "#fff",
+                    color: "#0f172a",
+                    fontSize: "10px",
+                    padding: "1px 3px",
+                    boxSizing: "border-box",
+                  };
+                  const setEditField = (field, value) => setEditRowData((prev) => ({ ...prev, [field]: value }));
+
+                  return (
+                    <tr
+                      key={item.id || idx}
+                      className={isSelected ? "task-row-selected" : undefined}
+                      data-editing-row-id={isRowEditing ? item.id : undefined}
+                      onClick={(event) => {
+                        if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                        setSelectedEntryId(item.id);
+                        onSelectEntry?.(item);
+                      }}
+                      onDoubleClick={(event) => {
+                        if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (editingRowId && editingRowId !== item.id) handleSaveInlineEdit(editingRowId);
+                        setSelectedEntryId(item.id);
+                        onSelectEntry?.(item);
+                        handleStartEdit(item);
+                      }}
+                      onKeyDown={(event) => {
+                        if (!isRowEditing) return;
+                        if (event.key === "Enter") { event.preventDefault(); handleSaveInlineEdit(item.id); }
+                        else if (event.key === "Escape") { event.preventDefault(); setEditingRowId(null); }
+                      }}
+                      style={{ cursor: "pointer" }}
+                      title="Click to select · Double-click to edit the whole row"
+                    >
+                      <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                      <td>
+                        {isRowEditing ? <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} /> : <strong>{item.door_label || "—"}</strong>}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>
+                        {isRowEditing ? (
+                          <select value={editCategory} onChange={(event) => setEditField("category", event.target.value)} style={controlStyle}>
+                            <option value="cavity">Cavity sliding</option>
+                            <option value="prehung">Prehung</option>
+                            <option value="loose-jamb">Loose Jamb</option>
+                          </select>
+                        ) : modeLabel(item.category)}
+                      </td>
+                      <td>
+                        {isRowEditing ? (
+                          <select value={editRowData.door_type || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
+                            <option value="">—</option>
+                            {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                          </select>
+                        ) : (item.door_type || "—")}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        {isRowEditing ? <select value={String(editRowData.height || item.height || 2040)} onChange={(event) => setEditField("height", event.target.value)} style={controlStyle}>{editHeightOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.height || 2040)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        {isRowEditing ? <select value={String(editRowData.width || item.width || 820)} onChange={(event) => setEditField("width", event.target.value)} style={controlStyle}>{editWidthOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.width || 820)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        {isRowEditing ? <select value={String(editRowData.thicks || item.thicks || 35)} onChange={(event) => setEditField("thicks", event.target.value)} style={controlStyle}>{OPT.thicks.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.thicks || 35)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        {isRowEditing ? (
+                          <select value={String(editRowData.wall_width || item.wall_width || "")} onChange={(event) => setEditField("wall_width", event.target.value)} style={controlStyle}>
+                            <option value="">—</option>
+                            {OPT.wallWidth.map((value) => <option key={value} value={value}>{value}</option>)}
+                          </select>
+                        ) : (item.wall_width || "—")}
+                      </td>
+                      <td>
+                        {isRowEditing ? (
+                          editIsCavity ? (
+                            <select value={editRowData.ezyJamb || "No"} onChange={(event) => setEditField("ezyJamb", event.target.value)} style={controlStyle}>
+                              <option value="No">Timber Jamb</option>
+                              <option value="Yes">Eze Jamb</option>
+                            </select>
+                          ) : (
+                            <select value={editRowData.door_frame || "Timber Jamb"} onChange={(event) => setEditField("door_frame", event.target.value)} style={controlStyle}>
+                              {OPT.frame.map((value) => <option key={value} value={value}>{value}</option>)}
+                            </select>
+                          )
+                        ) : frameDisplay}
+                      </td>
+                      <td>{isRowEditing ? <select value={editRowData.lift_off_pivot || "None"} onChange={(event) => setEditField("lift_off_pivot", event.target.value)} style={controlStyle}>{OPT.liftOff.map((value) => <option key={value} value={value}>{value}</option>)}</select> : liftOffStr}</td>
+                      <td>{isRowEditing ? <select value={editRowData.handing || "None"} onChange={(event) => setEditField("handing", event.target.value)} style={controlStyle}>{OPT.handing.map((value) => <option key={value} value={value}>{value}</option>)}</select> : handingStr}</td>
+                      <td>{isRowEditing ? <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{OPT.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select> : holeStr}</td>
+                      <td>{isRowEditing ? <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{OPT.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select> : finishStr}</td>
+                      <td>{isRowEditing ? <select value={editRowData.door_furniture || "None"} onChange={(event) => setEditField("door_furniture", event.target.value)} style={controlStyle}>{editFurnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : furnitureStr}</td>
+                      <td>
+                        {isRowEditing ? (
+                          editIsCavity ? <span>—</span> : <select value={editRowData.door_stop || "None"} onChange={(event) => setEditField("door_stop", event.target.value)} style={controlStyle}>{OPT.stop.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                        ) : doorStopStr}
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                        {isRowEditing ? <input inputMode="numeric" value={editRowData.qty ?? 1} onChange={(event) => setEditField("qty", event.target.value)} style={{ ...controlStyle, textAlign: "center" }} /> : (item.qty || 1)}
+                      </td>
+                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                        {isRowEditing ? (
+                          <>
+                            <button type="button" onClick={(event) => { event.stopPropagation(); handleSaveInlineEdit(item.id); }} style={{ ...S.deleteBtn, color: "#16a34a" }} title="Save row">✓</button>
+                            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingRowId(null); }} style={{ ...S.deleteBtn, color: "#64748b" }} title="Cancel edit">✕</button>
+                          </>
+                        ) : <button type="button" onClick={(event) => { event.stopPropagation(); handleRemoveEntry(item.id); }} style={S.deleteBtn} title="Remove door from entered data">✕</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </TaskSummaryTable>
+      </TaskInlineEnteredSection>
 
     </div>
   );

@@ -1012,6 +1012,22 @@ export default function HebelFlooringTask({
                   <tr
                     key={item.id || idx}
                     data-entry-id={item.id || item.typeArea}
+                    data-editing-row-id={isRowEditing ? item.id : undefined}
+                    onDoubleClick={(e) => {
+                      if (isRowEditing) return;
+                      if (e.target.closest && e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const rawNum = parseFloat(String(item.totalM2).replace(/m²/gi, "").trim());
+                      setSelectedEntryId(item.id || item.typeArea);
+                      if (onSelectEntry) onSelectEntry(item);
+                      setEditingRowId(item.id);
+                      setEditRowData({
+                        floorLevel: lvl,
+                        product: item.product,
+                        totalM2: isNaN(rawNum) ? "" : rawNum.toFixed(4)
+                      });
+                    }}
                     onClick={() => {
                       if (!isRowEditing) {
                         setSelectedEntryId(item.id || item.typeArea);
@@ -1074,6 +1090,7 @@ export default function HebelFlooringTask({
                         if (onSelectEntry) onSelectEntry(item);
                       }
                     }}
+                    title={isRowEditing ? undefined : "Double-click to edit row"}
                     style={{
                       borderBottom: "1px solid #e2e8f0",
                       background: isRowEditing ? "#fef3c7" : (isSelected ? "#dbeafe" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")),
@@ -1085,40 +1102,18 @@ export default function HebelFlooringTask({
                   >
                     <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
 
-                    {/* Floor Level Column */}
+                    {/* Floor Level is derived from the drawing page and is display-only. */}
                     <td style={{ padding: "4px 8px" }}>
-                      {isRowEditing ? (
-                        <select
-                          value={editRowData.floorLevel || lvl}
-                          onChange={(e) => setEditRowData({ ...editRowData, floorLevel: e.target.value })}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            padding: "2px 4px",
-                            fontSize: "10px",
-                            fontWeight: 700,
-                            borderRadius: "4px",
-                            border: "1px solid #3b82f6",
-                            background: "#ffffff",
-                            color: "#0f172a"
-                          }}
-                        >
-                          <option value="GF">GF</option>
-                          <option value="FF">FF</option>
-                          <option value="SF">SF</option>
-                          <option value="TF">TF</option>
-                        </select>
-                      ) : (
-                        <span style={{
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                          fontSize: "10px",
-                          fontWeight: 800,
-                          background: lvl === "FF" ? "rgba(245, 158, 11, 0.12)" : (lvl === "SF" ? "rgba(139, 92, 246, 0.12)" : "rgba(37, 99, 235, 0.1)"),
-                          color: lvl === "FF" ? "#d97706" : (lvl === "SF" ? "#7c3aed" : "#2563eb")
-                        }}>
-                          {lvl}
-                        </span>
-                      )}
+                      <span style={{
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        background: lvl === "FF" ? "rgba(245, 158, 11, 0.12)" : (lvl === "SF" ? "rgba(139, 92, 246, 0.12)" : "rgba(37, 99, 235, 0.1)"),
+                        color: lvl === "FF" ? "#d97706" : (lvl === "SF" ? "#7c3aed" : "#2563eb")
+                      }}>
+                        {lvl}
+                      </span>
                     </td>
 
                     <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
@@ -1183,7 +1178,7 @@ export default function HebelFlooringTask({
                               const rawM2 = parseFloat(String(editRowData.totalM2 || "0").replace(/m²/gi, "").trim()) || 0;
                               const valStr = rawM2 > 0 ? rawM2.toFixed(4) : "0";
                               const chosenProduct = editRowData.product || item.product;
-                              const chosenLevel = editRowData.floorLevel || lvl;
+                              const chosenLevel = lvl;
 
                               if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
                                 setDryArea(valStr);
