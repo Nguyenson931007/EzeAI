@@ -224,7 +224,9 @@ export default function TaskGroupsHwPanel({
 
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         {filteredTasks.slice(0, taskDisplayLimit).map((task, idx) => {
-          const isDone = Boolean(task.has_local_job);
+          const isDone = Boolean(task.workflow_done || task.assign_is_comp || task.is_done);
+          const taskCount = Number.isFinite(Number(task.task_count)) ? Number(task.task_count) : null;
+          const taskDoneCount = Number.isFinite(Number(task.task_done_count)) ? Number(task.task_done_count) : null;
           const isCurrentLoading = loadingJobId === (task.id || task.job_number);
 
           return (
@@ -267,11 +269,25 @@ export default function TaskGroupsHwPanel({
                     </span>
                   )}
                 </div>
-                {task.ma_nv && (
-                  <span style={{ fontSize: "10px", color: "var(--blue)", fontWeight: 600, background: "rgba(37,99,235,0.08)", padding: "1px 6px", borderRadius: "4px" }}>
-                    {task.ma_nv}
-                  </span>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  {taskCount !== null && taskCount > 0 && (
+                    <span
+                      title="TaskList selected HW tasks (worker done / selected)"
+                      style={{
+                        fontSize: "9px", color: "#475569", fontWeight: 700,
+                        background: "#f1f5f9", border: "1px solid #cbd5e1",
+                        padding: "1px 5px", borderRadius: "4px"
+                      }}
+                    >
+                      Tasks {taskDoneCount ?? 0}/{taskCount}
+                    </span>
+                  )}
+                  {task.ma_nv && (
+                    <span style={{ fontSize: "10px", color: "var(--blue)", fontWeight: 600, background: "rgba(37,99,235,0.08)", padding: "1px 6px", borderRadius: "4px" }}>
+                      {task.ma_nv}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-dim)" }}>

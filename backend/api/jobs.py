@@ -56,6 +56,24 @@ KATHERINE_STEP_TO_MODULE = {
     13: "hardies_fire_walls",
 }
 
+# Canonical Procurement task keys.  TaskList owns which HW steps exist/are
+# selected; Procurement owns the catalog/calculation contract for each step.
+KATHERINE_STEP_TO_PROCUREMENT_TASK = {
+    1: "cladding",
+    2: "eaves-soffits",
+    3: "flooring",
+    4: "frame-hardware",
+    5: "insulation",
+    6: "lock-up",
+    7: "fixout",
+    8: "final-fit",
+    9: "shelving",
+    10: "beams-posts",
+    11: "fow-plumbing",
+    12: "power-truss-braces",
+    13: "hardies-fire-walls",
+}
+
 TASKLIST_STEP_MODULE_IDS = KATHERINE_STEP_TO_MODULE
 
 def _is_cairns_customer(customer: str) -> bool:
@@ -143,6 +161,115 @@ def _load_tasklist_module_selections(hw_ids):
             entry["selected_modules"] = []
 
     return selections
+
+
+def _load_tasklist_step_summaries(hw_manager_pairs):
+    """Bulk-read TaskList HW step status for the job cards.
+
+    ``task_group_hw_steps`` is the workflow source of truth.  The read is bulked
+    into one query for the current EMS candidate page, so showing true task
+    counts/status does not re-introduce the old N+1 loading problem.
+    """
+    pairs = {}
+    for hw_id, manager_code in hw_manager_pairs or []:
+        key = str(hw_id or "").strip()
+        if key:
+            pairs[key] = str(manager_code or "").strip().upper()
+    if not pairs:
+        return {}
+
+    from app.mssql_db import get_mssql_connection
+
+    rows_by_hw = {key: [] for key in pairs}
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        ids = list(pairs)
+        for start in range(0, len(ids), 500):
+            batch = ids[start:start + 500]
+            placeholders = ", ".join(["%s"] * len(batch))
+            cursor.execute(
+                f"""
+                SELECT
+                    CAST(task_group_hw_id AS nvarchar(100)) AS hw_id,
+                    step_number, manager_code, is_visible, is_done, status,
+                    is_checked, checker_status
+                FROM [emsflow].[dbo].[task_group_hw_steps] WITH (NOLOCK)
+                WHERE task_group_hw_id IN ({placeholders})
+                ORDER BY task_group_hw_id, step_number
+                """,
+                tuple(batch),
+            )
+            for row in cursor.fetchall() or []:
+                hw_id = str(row.get("hw_id") or "").strip()
+                if hw_id in rows_by_hw:
+                    rows_by_hw[hw_id].append(row)
+    except Exception as exc:
+        logger.warning("[task-summary] Không thể đọc task_group_hw_steps: %s", exc)
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+    result = {}
+    for hw_id, raw_rows in rows_by_hw.items():
+        manager = pairs.get(hw_id, "")
+        manager_rows = [
+            r for r in raw_rows
+            if str(r.get("manager_code") or "").strip().upper() == manager
+        ] if manager else []
+        scoped_rows = manager_rows or raw_rows
+
+        # One logical task per step number.  Legacy rows can contain another
+        # manager partition; prefer the current AssignJob manager when present.
+        by_step = {}
+        for row in scoped_rows:
+            try:
+                step_no = int(row.get("step_number") or 0)
+            except Exception:
+                step_no = 0
+            if step_no > 0 and step_no not in by_step:
+                by_step[step_no] = row
+
+        ordered = [by_step[n] for n in sorted(by_step)]
+        configured = any(r.get("is_visible") is not None for r in ordered)
+        selected = [r for r in ordered if r.get("is_visible") in (True, 1, "1")] if configured else ordered
+
+        task_routes = []
+        done_count = 0
+        checker_done_count = 0
+        for row in selected:
+            step_no = int(row.get("step_number") or 0)
+            estimator_done = bool(row.get("is_done")) or str(row.get("status") or "").lower() == "done"
+            checker_done = bool(row.get("is_checked")) or str(row.get("checker_status") or "").lower() == "done"
+            if estimator_done:
+                done_count += 1
+            if checker_done:
+                checker_done_count += 1
+            task_routes.append({
+                "step_number": step_no,
+                "task_name": KATHERINE_STANDARD_STEPS.get(step_no),
+                "module_id": KATHERINE_STEP_TO_MODULE.get(step_no),
+                "task_key": KATHERINE_STEP_TO_PROCUREMENT_TASK.get(step_no),
+                "status": str(row.get("status") or "pending"),
+                "is_done": estimator_done,
+                "checker_done": checker_done,
+            })
+
+        modules = [r["module_id"] for r in task_routes if r.get("module_id")]
+        total = len(selected)
+        result[hw_id] = {
+            "configured": configured,
+            "task_count": total,
+            "task_done_count": done_count,
+            "task_pending_count": max(0, total - done_count),
+            "task_checker_done_count": checker_done_count,
+            "task_routes": task_routes,
+            "selected_modules": modules,
+            "all_selected_tasks_done": bool(total and done_count == total),
+        }
+    return result
 
 # ── Pydantic Schemas (Mô hình dữ liệu đầu vào và đầu ra) ──
 
@@ -465,7 +592,9 @@ async def get_tasklist_jobs(
             lj.Suburb AS suburb,
             lj.TrangThai AS status,
             lj.NgayCapNhat AS updated_at,
-            aj.MaNV AS ma_nv
+            aj.MaNV AS ma_nv,
+            aj.TrangThaiCongViec AS assign_status,
+            ISNULL(aj.IsComp, 0) AS assign_is_comp
         FROM candidate_jobs AS lj
         OUTER APPLY (
             SELECT TOP 1
@@ -543,6 +672,15 @@ async def get_tasklist_jobs(
             except Exception:
                 pass
 
+    # TaskList is the source of truth for task selection/count/status.
+    # One bulk read keeps the panel fast while exposing the same selected steps
+    # that the TaskList HW workflow actually uses.
+    step_summaries = _load_tasklist_step_summaries([
+        (row.get("hw_id"), row.get("ma_nv"))
+        for row in ems_rows
+        if row.get("hw_id") is not None
+    ])
+
     results = []
     for row in ems_rows:
         job_number = str(row.get("job_number") or "").strip()
@@ -566,6 +704,8 @@ async def get_tasklist_jobs(
             "suburb": row.get("suburb"),
             "status": row.get("status"),
             "ma_nv": row.get("ma_nv"),
+            "assign_status": row.get("assign_status"),
+            "assign_is_comp": bool(row.get("assign_is_comp")),
             "has_local_job": has_local,
             "local_job": {
                 "id": local_job.get("id"),
@@ -573,18 +713,25 @@ async def get_tasklist_jobs(
                 "room_count": local_job.get("room_count"),
                 "total_area": local_job.get("total_area"),
             } if has_local else None,
-            # Task module selection is intentionally lazy-loaded by open-by-ems
-            # when the user clicks a job.  It is not needed to render this list.
-            "task_modules_configured": False,
-            "selected_modules": None,
-            "task_modules": None,
-            "selected_task_count": None,
+            # Lightweight TaskList workflow summary, bulk-loaded above.
+            # Procurement routing is carried as canonical task_key metadata; no
+            # Procurement product catalog is loaded until the user opens a task.
+            "task_modules_configured": bool(step_summaries.get(str(row.get("hw_id") or ""), {}).get("configured")),
+            "selected_modules": step_summaries.get(str(row.get("hw_id") or ""), {}).get("selected_modules"),
+            "task_modules": step_summaries.get(str(row.get("hw_id") or ""), {}).get("selected_modules"),
+            "selected_task_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_count"),
+            "task_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_count"),
+            "task_done_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_done_count"),
+            "task_pending_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_pending_count"),
+            "task_checker_done_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_checker_done_count"),
+            "task_routes": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_routes") or [],
+            "workflow_done": bool(row.get("assign_is_comp")) or bool(row.get("is_done")),
         })
 
     return {
         "status": "success",
         "total": len(results),
-        "completed_count": sum(1 for item in results if item["has_local_job"]),
+        "completed_count": sum(1 for item in results if item["workflow_done"]),
         "data": results,
         "source": "ems_listjobs_direct_fast",
     }
@@ -600,19 +747,19 @@ def get_task_steps(hw_id: Optional[str] = Query(None), job_number: Optional[str]
     Nếu không có cấu hình cụ thể, trả về danh sách standard steps.
     """
     all_steps = [
-        {"step_number": 4, "id": "frame_hardware", "label": "Frame", "name": "Frame Hardware"},
-        {"step_number": 3, "id": "flooring_decking", "label": "Floor", "name": "Flooring & Decking"},
-        {"step_number": 5, "id": "insulation", "label": "Insu", "name": "Insulation"},
-        {"step_number": 2, "id": "eaves_soffit", "label": "Eaves", "name": "Eaves Soffit"},
-        {"step_number": 1, "id": "cladding", "label": "Cladding", "name": "Cladding"},
-        {"step_number": 6, "id": "lock_up", "label": "Lockup", "name": "Lockup"},
-        {"step_number": 9, "id": "shelving", "label": "Shelving", "name": "Shelving"},
-        {"step_number": 10, "id": "timber_posts", "label": "Beams", "name": "Beams & Posts"},
-        {"step_number": 12, "id": "power_truss_braces", "label": "Truss", "name": "Power Truss Braces"},
-        {"step_number": 11, "id": "fow_plumbing", "label": "Plumbing", "name": "FOW Plumbing"},
-        {"step_number": 7, "id": "fixout", "label": "Fixout", "name": "Fixout"},
-        {"step_number": 8, "id": "final_fit", "label": "Final", "name": "Final Fit"},
-        {"step_number": 13, "id": "hardies_fire_walls", "label": "Fire Wall", "name": "Hardies Fire Walls"},
+        {"step_number": 4, "id": "frame_hardware", "task_key": "frame-hardware", "label": "Frame", "name": "Frame Hardware"},
+        {"step_number": 3, "id": "flooring_decking", "task_key": "flooring", "label": "Floor", "name": "Flooring & Decking"},
+        {"step_number": 5, "id": "insulation", "task_key": "insulation", "label": "Insu", "name": "Insulation"},
+        {"step_number": 2, "id": "eaves_soffit", "task_key": "eaves-soffits", "label": "Eaves", "name": "Eaves Soffit"},
+        {"step_number": 1, "id": "cladding", "task_key": "cladding", "label": "Cladding", "name": "Cladding"},
+        {"step_number": 6, "id": "lock_up", "task_key": "lock-up", "label": "Lockup", "name": "Lockup"},
+        {"step_number": 9, "id": "shelving", "task_key": "shelving", "label": "Shelving", "name": "Shelving"},
+        {"step_number": 10, "id": "timber_posts", "task_key": "beams-posts", "label": "Beams", "name": "Beams & Posts"},
+        {"step_number": 12, "id": "power_truss_braces", "task_key": "power-truss-braces", "label": "Truss", "name": "Power Truss Braces"},
+        {"step_number": 11, "id": "fow_plumbing", "task_key": "fow-plumbing", "label": "Plumbing", "name": "FOW Plumbing"},
+        {"step_number": 7, "id": "fixout", "task_key": "fixout", "label": "Fixout", "name": "Fixout"},
+        {"step_number": 8, "id": "final_fit", "task_key": "final-fit", "label": "Final", "name": "Final Fit"},
+        {"step_number": 13, "id": "hardies_fire_walls", "task_key": "hardies-fire-walls", "label": "Fire Wall", "name": "Hardies Fire Walls"},
     ]
 
     target_hw_id = str(hw_id).strip() if hw_id else None
@@ -1165,15 +1312,19 @@ async def get_job_by_ems_id(ems_id: str):
         result["manager_code"] = manager_code
         result["customer"] = customer
 
-        # Load TaskList module selections for this job
-        module_selections = _load_tasklist_module_selections([result.get("hw_id")])
-        selection = module_selections.get(str(result.get("hw_id") or ""))
-        configured = bool(selection and selection.get("configured"))
-        selected_modules = list(selection.get("selected_modules") or []) if configured else None
-        result["task_modules_configured"] = configured
-        result["selected_modules"] = selected_modules
-        result["task_modules"] = selected_modules
-        result["selected_task_count"] = len(selected_modules) if configured else None
+        # Return exact TaskList step status + canonical Procurement task route for
+        # the clicked job. This single read is authoritative for both module
+        # visibility and task counts, avoiding a second duplicate step query.
+        step_summary = _load_tasklist_step_summaries([(result.get("hw_id"), manager_code)]).get(str(result.get("hw_id") or ""), {})
+        result["task_modules_configured"] = bool(step_summary.get("configured"))
+        result["selected_modules"] = step_summary.get("selected_modules") if step_summary else None
+        result["task_modules"] = step_summary.get("selected_modules") if step_summary else None
+        result["selected_task_count"] = step_summary.get("task_count") if step_summary else None
+        result["task_count"] = step_summary.get("task_count") if step_summary else None
+        result["task_done_count"] = step_summary.get("task_done_count") if step_summary else None
+        result["task_pending_count"] = step_summary.get("task_pending_count") if step_summary else None
+        result["task_checker_done_count"] = step_summary.get("task_checker_done_count") if step_summary else None
+        result["task_routes"] = step_summary.get("task_routes") or [] if step_summary else []
 
         # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
         local_job = None

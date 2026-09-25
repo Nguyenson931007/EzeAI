@@ -4551,10 +4551,13 @@ export default function RightPropertyPaneView({
     if (staffScope === "my" && myStaffCode) {
       list = list.filter(t => t.ma_nv && t.ma_nv.toUpperCase() === myStaffCode.toUpperCase());
     }
+    // Done/Pending comes from TaskList/EMS workflow state, not from whether an
+    // EzeFloor drawing happens to exist locally. A drawing can exist while the
+    // HW job is still pending, and a completed HW job may have no local drawing.
     if (taskFilter === "completed") {
-      list = list.filter(t => t.has_local_job);
+      list = list.filter(t => Boolean(t.workflow_done || t.assign_is_comp || t.is_done));
     } else if (taskFilter === "pending") {
-      list = list.filter(t => !t.has_local_job);
+      list = list.filter(t => !Boolean(t.workflow_done || t.assign_is_comp || t.is_done));
     }
     if (taskSearch.trim()) {
       const q = taskSearch.trim().toLowerCase();
