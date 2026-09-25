@@ -75,6 +75,46 @@ export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
 }
 
 /**
+ * Polygon used to draw/hit-test a wall.  centerline + thickness_px is the source of
+ * truth: a stored polygon is reused only while it still agrees with the centerline
+ * (junction-mitered polygons are fine); a stale one is rebuilt as a plain rectangle.
+ */
+export function getWallRenderPolygon(w) {
+  const poly = Array.isArray(w?.polygon) && w.polygon.length >= 3 ? w.polygon : null;
+  const c = w?.centerline;
+  if (!Array.isArray(c) || c.length !== 2) return poly || [];
+  const x1 = Number(c[0][0]), y1 = Number(c[0][1]);
+  const x2 = Number(c[1][0]), y2 = Number(c[1][1]);
+  const L = Math.hypot(x2 - x1, y2 - y1);
+  if (!Number.isFinite(L) || L < 1e-6) return poly || [];
+  const ux = (x2 - x1) / L, uy = (y2 - y1) / L;
+  const nx = -uy, ny = ux;
+  const th = Number(w.thickness_px) > 0 ? Number(w.thickness_px) : 20;
+
+  if (poly) {
+    let tMin = Infinity, tMax = -Infinity, nMax = 0;
+    for (const p of poly) {
+      const px = Array.isArray(p) ? Number(p[0]) : Number(p?.x);
+      const py = Array.isArray(p) ? Number(p[1]) : Number(p?.y);
+      const t = (px - x1) * ux + (py - y1) * uy;
+      const q = Math.abs((px - x1) * nx + (py - y1) * ny);
+      if (t < tMin) tMin = t;
+      if (t > tMax) tMax = t;
+      if (q > nMax) nMax = q;
+    }
+    const tol = 1.25 * th;
+    if (Math.abs(tMin) <= tol && Math.abs(tMax - L) <= tol && nMax <= 2 * th) return poly;
+  }
+  const d = th / 2;
+  return [
+    [x1 + d * nx, y1 + d * ny],
+    [x2 + d * nx, y2 + d * ny],
+    [x2 - d * nx, y2 - d * ny],
+    [x1 - d * nx, y1 - d * ny],
+  ];
+}
+
+/**
  * Remove duplicate AI centerlines without collapsing legitimate nearby walls.
  * A pair is considered duplicate only when it is almost exactly parallel,
  * lies on the same axis, and overlaps most of the shorter segment.
@@ -114,23 +154,37 @@ export function dedupeDetectedWallCenterlines(walls) {
       if (!em) continue;
 
       const dot = Math.abs(cm.ux * em.ux + cm.uy * em.uy);
-      if (dot < 0.998) continue;
+      if (dot < 0.985) continue;
 
       const d1 = Math.abs((cm.p[0] - em.p[0]) * em.uy - (cm.p[1] - em.p[1]) * em.ux);
       const d2 = Math.abs((cm.q[0] - em.p[0]) * em.uy - (cm.q[1] - em.p[1]) * em.ux);
-      const axisTolerance = Math.max(2.5, Math.min(6, Math.min(
-        Number(candidate?.thickness_px || 20),
-        Number(existing?.thickness_px || 20)
-      ) * 0.3));
-      if (Math.max(d1, d2) > axisTolerance) continue;
+      const sepDist = Math.max(d1, d2);
 
       const t1 = (cm.p[0] - em.p[0]) * em.ux + (cm.p[1] - em.p[1]) * em.uy;
       const t2 = (cm.q[0] - em.p[0]) * em.ux + (cm.q[1] - em.p[1]) * em.uy;
       const overlap = Math.max(0, Math.min(em.len, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)));
-      if (overlap / Math.min(cm.len, em.len) < 0.82) continue;
+      const overlapRatio = overlap / Math.min(cm.len, em.len);
+
+      // Support collapsing double-line CAD wall edges (separated by 4px - 22px with strong overlap)
+      const isDoubleWallPair = sepDist <= 22.0 && overlapRatio >= 0.72;
+      const axisTolerance = isDoubleWallPair ? 22.0 : Math.max(2.5, Math.min(6, Math.min(
+        Number(candidate?.thickness_px || 20),
+        Number(existing?.thickness_px || 20)
+      ) * 0.3));
+      if (sepDist > axisTolerance) continue;
+      if (!isDoubleWallPair && overlapRatio < 0.82) continue;
 
       duplicateIndex = i;
-      if (quality(candidate, cm) > quality(existing, em)) result[i] = candidate;
+      if (isDoubleWallPair && sepDist >= 3.5) {
+        // Position centerline at the true center of the double-line wall band
+        const midP = [(em.p[0] + cm.p[0]) / 2, (em.p[1] + cm.p[1]) / 2];
+        const midQ = [(em.q[0] + cm.q[0]) / 2, (em.q[1] + cm.q[1]) / 2];
+        existing.centerline = [midP, midQ];
+        existing.confidence = Math.max(Number(existing.confidence || 0), Number(candidate.confidence || 0));
+        existing.same_band_collapsed = true;
+      } else if (quality(candidate, cm) > quality(existing, em)) {
+        result[i] = candidate;
+      }
       break;
     }
     if (duplicateIndex < 0) result.push(candidate);

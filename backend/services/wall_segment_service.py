@@ -521,6 +521,44 @@ def _snap_perpendicular_corners(walls: List[dict], max_dist_to_corner: float = 1
     return walls
 
 
+def _compute_adaptive_scale_tolerances(
+    real_scale: float = 1.0,
+    wall_thicknesses: Optional[Dict[str, int]] = None,
+    img_w: int = 1280,
+    img_h: int = 960
+) -> Dict[str, float]:
+    """Computes geometric snap and cleanup tolerances dynamically from physical scale (mm/px).
+
+    Eliminates DPI/resolution discrepancies between high-res PDF renders (700 DPI)
+    and low-res canvas renders by expressing construction tolerances in real-world millimeters.
+    """
+    wt = wall_thicknesses or {}
+    nom_thickness_mm = float(wt.get("int", 70) or 70.0)
+    
+    if real_scale and real_scale > 0.01 and real_scale != 1.0:
+        base_wall_px = nom_thickness_mm / float(real_scale)
+    else:
+        dim_ref = max(float(img_w), float(img_h), 1280.0)
+        base_wall_px = max(10.0, dim_ref * 0.0075)
+
+    # T-junction snap tolerance: allows wall stem to bridge gap to target centerline (typically 1.0 - 1.25x wall thickness)
+    t_snap_dist = max(6.0, min(32.0, 1.20 * base_wall_px))
+    # Corner snap tolerance: typically half wall thickness
+    corner_snap_dist = max(4.0, min(18.0, 0.60 * base_wall_px))
+    # Noding touch tolerance for splitting
+    touch_tol = max(2.5, min(14.0, 0.50 * base_wall_px))
+    # Minimum piece length: filter out stubs shorter than 120mm or 1.2x wall thickness
+    min_piece_px = max(10.0, min(35.0, 1.25 * base_wall_px))
+
+    return {
+        "base_wall_px": float(base_wall_px),
+        "t_snap_dist": float(t_snap_dist),
+        "corner_snap_dist": float(corner_snap_dist),
+        "touch_tol": float(touch_tol),
+        "min_piece_px": float(min_piece_px)
+    }
+
+
 def _snap_t_junctions(walls: List[dict], max_dist_to_segment: float = 60.0) -> List[dict]:
     """
     Finds endpoints of walls that end near the centerline of another perpendicular wall
@@ -2112,6 +2150,308 @@ def _dedupe_near_parallel_centerlines(walls: List[dict]) -> List[dict]:
     return kept
 
 
+def _wall_thickness_hint(wall: dict) -> float:
+    try:
+        t = float(wall.get("raw_thickness_px") or wall.get("thickness_px") or 12.0)
+    except Exception:
+        t = 12.0
+    return max(6.0, min(30.0, t))
+
+
+def _walls_near_parallel(a: dict, b: dict, min_cos: float = 0.98) -> bool:
+    """True when the two walls run in (nearly) the same direction.
+
+    Unknown geometry returns True so callers keep their previous behaviour.
+    """
+    am, bm = _line_metrics(a), _line_metrics(b)
+    if am is None or bm is None:
+        return True
+    return abs(am[4] * bm[4] + am[5] * bm[5]) >= min_cos
+
+
+def _parallel_pair_geometry(a: dict, b: dict, min_cos: float = 0.985):
+    """Express wall b in wall a's (along, normal) frame. None if not parallel."""
+    am, bm = _line_metrics(a), _line_metrics(b)
+    if am is None or bm is None:
+        return None
+    ax1, ay1, _, _, aux, auy, alen = am
+    if abs(aux * bm[4] + auy * bm[5]) < min_cos:
+        return None
+    nx, ny = -auy, aux
+    d1 = (bm[0] - ax1) * nx + (bm[1] - ay1) * ny
+    d2 = (bm[2] - ax1) * nx + (bm[3] - ay1) * ny
+    t1 = (bm[0] - ax1) * aux + (bm[1] - ay1) * auy
+    t2 = (bm[2] - ax1) * aux + (bm[3] - ay1) * auy
+    lo, hi = sorted((t1, t2))
+    overlap = max(0.0, min(alen, hi) - max(0.0, lo))
+    return {
+        "origin": (ax1, ay1), "u": (aux, auy), "n": (nx, ny),
+        "sep": 0.5 * (d1 + d2), "skew": abs(d1 - d2),
+        "t_lo": max(0.0, lo), "t_hi": min(alen, hi),
+        "t_min": min(0.0, lo), "t_max": max(alen, hi),
+        "overlap": overlap,
+        "ratio": overlap / max(1.0, min(alen, bm[6])),
+    }
+
+
+def _same_band_probe(img_np, a: dict, b: dict, min_ratio: float = 0.70):
+    """Decide whether two near-parallel axes are the SAME raster wall band.
+
+    Handles BOTH:
+      1. Solid infill walls (dark ink throughout the band, including centre).
+      2. Hollow double-line CAD walls (dark lines along both boundary edges, white/hatch interior).
+    Returns {"shift": signed centre of the real band relative to a's axis, ...} or None.
+    """
+    g = _parallel_pair_geometry(a, b)
+    if g is None or g["skew"] > 4.0 or g["ratio"] < min_ratio or g["overlap"] < 20.0:
+        return None
+    sep = g["sep"]
+    asep = abs(sep)
+    t_est = max(_wall_thickness_hint(a), _wall_thickness_hint(b))
+    
+    # Check max separation for a single wall: walls are typically 40mm - 120mm thick.
+    # Depending on resolution/scale, asep can be up to 24px - 26px.
+    max_allowed_sep = min(max(24.0, 1.8 * t_est), 30.0)
+    if asep < 2.0 or asep > max_allowed_sep:
+        return None
+
+    if img_np is None:
+        # Pure geometry fallback: high overlap near-parallel lines with narrow separation
+        if g["ratio"] >= 0.80 and g["overlap"] >= 30.0:
+            out = dict(g)
+            out["shift"] = 0.5 * sep
+            out["ok_ratio"] = 1.0
+            return out
+        return None
+
+    h, w = img_np.shape[:2]
+
+    def dark(x, y):
+        ix, iy = int(round(x)), int(round(y))
+        if ix < 0 or ix >= w or iy < 0 or iy >= h:
+            return False
+        px = img_np[iy, ix]
+        v = float(px) if np.ndim(px) == 0 else 0.299 * float(px[0]) + 0.587 * float(px[1]) + 0.114 * float(px[2])
+        return v <= 145.0
+
+    ox, oy = g["origin"]
+    ux, uy = g["u"]
+    nx, ny = g["n"]
+    max_band = 1.35 * t_est + 4.0
+    reach = int(max_band + asep + 4)
+    n = max(5, min(15, int(g["overlap"] / 20.0)))
+    
+    solid_ok = 0
+    hollow_ok = 0
+    centers = []
+
+    for i in range(n):
+        t = g["t_lo"] + g["overlap"] * (0.12 + 0.76 * i / max(1, n - 1))
+        # Center point
+        px = ox + t * ux + 0.5 * sep * nx
+        py = oy + t * uy + 0.5 * sep * ny
+        
+        # Edge 1 (axis a) and Edge 2 (axis b)
+        p1x, p1y = ox + t * ux, oy + t * uy
+        p2x, p2y = ox + t * ux + sep * nx, oy + t * uy + sep * ny
+
+        # Test Case 1: Solid wall infill (dark center with contiguous span)
+        if dark(px, py):
+            hi_q = 0
+            while hi_q < reach and dark(px + (hi_q + 1) * nx, py + (hi_q + 1) * ny):
+                hi_q += 1
+            lo_q = 0
+            while lo_q > -reach and dark(px + (lo_q - 1) * nx, py + (lo_q - 1) * ny):
+                lo_q -= 1
+            width = hi_q - lo_q + 1
+            half = asep / 2.0
+            if width <= max_band and lo_q - 1.5 <= -half and hi_q + 1.5 >= half:
+                solid_ok += 1
+                centers.append(0.5 * sep + 0.5 * (lo_q + hi_q))
+                continue
+
+        # Test Case 2: Hollow CAD double-line wall (dark lines at both boundary edges)
+        # Search a small window (+-2px) around each edge line
+        has_edge1 = any(dark(p1x + k * nx, p1y + k * ny) for k in (-2, -1, 0, 1, 2))
+        has_edge2 = any(dark(p2x + k * nx, p2y + k * ny) for k in (-2, -1, 0, 1, 2))
+        if has_edge1 and has_edge2:
+            hollow_ok += 1
+            centers.append(0.5 * sep)
+
+    total_ok = solid_ok + hollow_ok
+    if total_ok < 3 or total_ok < 0.60 * n:
+        # Overwhelming geometric evidence for double-line walls:
+        # Two axes running strictly parallel, overlapping >= 82%, separated by 5px - 22px
+        if g["ratio"] >= 0.82 and 5.0 <= asep <= 22.0:
+            out = dict(g)
+            out["shift"] = 0.5 * sep
+            out["ok_ratio"] = 0.85
+            return out
+        return None
+
+    centers.sort()
+    shift = centers[len(centers) // 2]
+    shift = max(-max(asep, 6.0), min(max(asep, 6.0), shift))
+    out = dict(g)
+    out["shift"] = shift
+    out["ok_ratio"] = total_ok / float(n)
+    return out
+
+
+def _filter_repetitive_stair_and_screen_arrays(walls: List[dict]) -> List[dict]:
+    """Filter out repetitive parallel step/louver arrays (stairs, sun screens, deck slats).
+    
+    A group of 3 or more short, near-parallel wall segments spaced closely and evenly
+    (35px - 170px apart, ~180mm - 850mm) are stairs or screen louvers, not architectural walls.
+    """
+    if len(walls) < 3:
+        return walls
+
+    verticals = []
+    horizontals = []
+
+    for idx, w in enumerate(walls):
+        m = _line_metrics(w)
+        if m is None:
+            continue
+        x1, y1, x2, y2, ux, uy, length = m
+        # Stair steps and screen louvers are short (< 380px)
+        if length > 380.0:
+            continue
+        
+        is_vert = abs(uy) >= abs(ux) and abs(ux) <= 0.17  # within ~10 degrees of vertical
+        is_horz = abs(ux) > abs(uy) and abs(uy) <= 0.17  # within ~10 degrees of horizontal
+        
+        mid_x = (x1 + x2) / 2.0
+        mid_y = (y1 + y2) / 2.0
+        
+        item = {
+            "idx": idx,
+            "id": w.get("id"),
+            "wall": w,
+            "len": length,
+            "p1": [x1, y1],
+            "p2": [x2, y2],
+            "mid_x": mid_x,
+            "mid_y": mid_y
+        }
+        if is_vert:
+            verticals.append(item)
+        elif is_horz:
+            horizontals.append(item)
+
+    remove_indices = set()
+
+    # Process Vertical repetitive arrays (varying along X axis)
+    verticals.sort(key=lambda item: item["mid_x"])
+    v_clusters = []
+    for v in verticals:
+        placed = False
+        for cl in v_clusters:
+            last = cl[-1]
+            dx = v["mid_x"] - last["mid_x"]
+            y_min1, y_max1 = sorted([v["p1"][1], v["p2"][1]])
+            y_min2, y_max2 = sorted([last["p1"][1], last["p2"][1]])
+            y_overlap = max(0.0, min(y_max1, y_max2) - max(y_min1, y_min2))
+            
+            # Consecutive step/slat spacing between 35px and 170px, with overlapping Y span
+            if 35.0 <= dx <= 170.0 and y_overlap > 0.40 * min(v["len"], last["len"]):
+                cl.append(v)
+                placed = True
+                break
+        if not placed:
+            v_clusters.append([v])
+
+    for cl in v_clusters:
+        if len(cl) >= 3:
+            for item in cl:
+                remove_indices.add(item["idx"])
+            logger.info(f"[wall_segment_service] Filtered {len(cl)} repetitive vertical stair/screen elements")
+
+    # Process Horizontal repetitive arrays (varying along Y axis)
+    horizontals.sort(key=lambda item: item["mid_y"])
+    h_clusters = []
+    for h in horizontals:
+        placed = False
+        for cl in h_clusters:
+            last = cl[-1]
+            dy = h["mid_y"] - last["mid_y"]
+            x_min1, x_max1 = sorted([h["p1"][0], h["p2"][0]])
+            x_min2, x_max2 = sorted([last["p1"][0], last["p2"][0]])
+            x_overlap = max(0.0, min(x_max1, x_max2) - max(x_min1, x_min2))
+            
+            if 35.0 <= dy <= 170.0 and x_overlap > 0.40 * min(h["len"], last["len"]):
+                cl.append(h)
+                placed = True
+                break
+        if not placed:
+            h_clusters.append([h])
+
+    for cl in h_clusters:
+        if len(cl) >= 3:
+            for item in cl:
+                remove_indices.add(item["idx"])
+            logger.info(f"[wall_segment_service] Filtered {len(cl)} repetitive horizontal stair/screen elements")
+
+    if not remove_indices:
+        return walls
+
+    return [w for idx, w in enumerate(walls) if idx not in remove_indices]
+
+
+def _collapse_same_band_parallel_walls(img_np, walls: List[dict]) -> List[dict]:
+    """Merge two centerlines that trace the two edges of ONE wall band.
+
+    Conservative by construction: needs continuous dark ink spanning both axes,
+    a single-wall band width, near-parallel direction and >=70% overlap.  The merged
+    axis is moved to the measured band centre (also fixes off-centre axes).
+    """
+    if img_np is None or len(walls) < 2:
+        return walls
+    order = sorted(
+        range(len(walls)),
+        key=lambda i: (_line_metrics(walls[i]) or (0, 0, 0, 0, 0, 0, 0))[-1],
+        reverse=True,
+    )
+    kept: List[dict] = []
+    merged = 0
+    for i in order:
+        wall = dict(walls[i])
+        if _line_metrics(wall) is None:
+            kept.append(wall)
+            continue
+        hit = None
+        for k, acc in enumerate(kept):
+            probe = _same_band_probe(img_np, acc, wall)
+            if probe is not None:
+                hit = (k, probe)
+                break
+        if hit is None:
+            kept.append(wall)
+            continue
+        k, probe = hit
+        acc = kept[k]
+        ox, oy = probe["origin"]
+        ux, uy = probe["u"]
+        nx, ny = probe["n"]
+        s = probe["shift"]
+        ta, tb = probe["t_min"], probe["t_max"]
+        acc["centerline"] = [
+            [ox + ta * ux + s * nx, oy + ta * uy + s * ny],
+            [ox + tb * ux + s * nx, oy + tb * uy + s * ny],
+        ]
+        acc["confidence"] = max(float(acc.get("confidence", 0) or 0), float(wall.get("confidence", 0) or 0))
+        acc["duplicate_sources"] = sorted(set(
+            list(acc.get("duplicate_sources") or []) + list(wall.get("duplicate_sources") or [])
+            + [str(acc.get("source_model") or "unknown"), str(wall.get("source_model") or "unknown")]
+        ))
+        acc["same_band_collapsed"] = True
+        merged += 1
+    if merged:
+        logger.info("[wall_segment_service] Same-band parallel collapse: merged %d duplicate axis(es)", merged)
+    return kept
+
+
 def _filter_orphan_fragments(img_np, walls: List[dict]) -> List[dict]:
     """Remove only tiny isolated fragments with decisive negative raster evidence."""
     kept, removed = [], 0
@@ -2138,6 +2478,25 @@ def _filter_orphan_fragments(img_np, walls: List[dict]) -> List[dict]:
             if any(_point_to_segment_distance_helper(pt, wall["centerline"][0], wall["centerline"][1]) <= max(5.0, 0.55 * thickness) for pt in oc):
                 connections += 1
                 break
+        if connections and 12.0 <= length <= max(30.0, 2.2 * thickness):
+            # One-ended whisker (symbol/door/fixture/dimension stub): one end touches a
+            # wall, the other end is free, and there is no wall-band ink under it.
+            tol = max(5.0, 0.55 * thickness)
+            touching = [
+                any(
+                    _point_to_segment_distance_helper(pt, o["centerline"][0], o["centerline"][1]) <= tol
+                    for j2, o in enumerate(walls)
+                    if j2 != idx and o.get("centerline") and len(o["centerline"]) == 2
+                )
+                for pt in wall["centerline"]
+            ]
+            if sum(touching) == 1:
+                w_score, w_cont, _ = _wall_band_evidence_score(img_np, wall, 0.0)
+                w_conf = float(wall.get("confidence", 0) or 0)
+                w_recovery = str(wall.get("source_model") or "").startswith("visual")
+                if w_cont < 0.30 and w_score < 0.22 and (w_recovery or w_conf < 0.30):
+                    removed += 1
+                    continue
         if connections:
             kept.append(wall)
             continue
@@ -2157,6 +2516,115 @@ def _filter_orphan_fragments(img_np, walls: List[dict]) -> List[dict]:
         kept.append(wall)
     if removed:
         logger.info("[wall_segment_service] Conservative orphan cleanup: removed %d fragment(s)", removed)
+    return kept
+
+
+def _filter_outdoor_whiskers(walls: List[dict], img_w: int, img_h: int) -> List[dict]:
+    """Filter out dangling walls that stick out completely into the unbounded exterior.
+
+    Walls like external patio grid marks, boundary lines, or whisker stubs that have
+    both sides facing the outside region and have at least one completely free endpoint
+    are outdoor noise artifacts, not structural building walls.
+    """
+    if len(walls) < 4 or img_w <= 0 or img_h <= 0:
+        return walls
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return walls
+
+    max_dim = 1600
+    scale = min(1.0, float(max_dim) / float(max(img_w, img_h)))
+    rw = max(64, int(round(img_w * scale)))
+    rh = max(64, int(round(img_h * scale)))
+
+    barrier = np.zeros((rh, rw), dtype=np.uint8)
+    line_th = max(3, int(round(8 * max(scale, 0.25))))
+
+    for w in walls:
+        c = w.get("centerline")
+        if not c or len(c) != 2:
+            continue
+        p1, p2 = c
+        a = (int(round(p1[0] * scale)), int(round(p1[1] * scale)))
+        b = (int(round(p2[0] * scale)), int(round(p2[1] * scale)))
+        cv2.line(barrier, a, b, 255, line_th, cv2.LINE_8)
+
+    k_long = max(15, int(round(45 * max(scale, 0.35))))
+    if k_long % 2 == 0:
+        k_long += 1
+    kh = cv2.getStructuringElement(cv2.MORPH_RECT, (k_long, 3))
+    kv = cv2.getStructuringElement(cv2.MORPH_RECT, (3, k_long))
+    bh = cv2.morphologyEx(barrier, cv2.MORPH_CLOSE, kh)
+    bv = cv2.morphologyEx(barrier, cv2.MORPH_CLOSE, kv)
+    envelope_barrier = cv2.bitwise_or(barrier, cv2.bitwise_or(bh, bv))
+
+    free = np.where(envelope_barrier == 0, 255, 0).astype(np.uint8)
+    flood = free.copy()
+    mask = np.zeros((rh + 2, rw + 2), dtype=np.uint8)
+    for seed in ((0, 0), (rw - 1, 0), (0, rh - 1), (rw - 1, rh - 1)):
+        if flood[seed[1], seed[0]] == 255:
+            cv2.floodFill(flood, mask, seed, 128)
+    outside = flood == 128
+
+    def _is_outside(x, y):
+        ix = int(round(x * scale)); iy = int(round(y * scale))
+        if ix < 0 or iy < 0 or ix >= rw or iy >= rh:
+            return True
+        return bool(outside[iy, ix])
+
+    offset = max(26.0, 18.0 / max(scale, 1e-6))
+    kept = []
+    removed = 0
+
+    for idx, w in enumerate(walls):
+        c = w.get("centerline")
+        if not c or len(c) != 2:
+            kept.append(w)
+            continue
+        p1, p2 = c
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            continue
+        ux, uy = dx / length, dy / length
+        nx, ny = -uy, ux
+
+        # Sample outside status on both sides
+        side_a = 0
+        side_b = 0
+        samples = 5
+        for si in range(samples):
+            t = 0.15 + (0.70 * si / max(1, samples - 1))
+            mx, my = p1[0] + t * dx, p1[1] + t * dy
+            side_a += 1 if _is_outside(mx + nx * offset, my + ny * offset) else 0
+            side_b += 1 if _is_outside(mx - nx * offset, my - ny * offset) else 0
+
+        ra, rb = side_a / samples, side_b / samples
+
+        # Check endpoint connectivity to other walls
+        free_ends = 0
+        for ep in (p1, p2):
+            connected = any(
+                j != idx and o.get("centerline") and len(o["centerline"]) == 2
+                and _point_to_segment_distance_helper(ep, o["centerline"][0], o["centerline"][1]) <= 14.0
+                for j, o in enumerate(walls)
+            )
+            if not connected:
+                free_ends += 1
+
+        # A wall whose BOTH sides are completely outdoor (ra > 0.8 and rb > 0.8)
+        # and has at least one dead-end/free endpoint is a dangling outdoor whisker.
+        is_outdoor_whisker = (ra >= 0.80 and rb >= 0.80 and free_ends >= 1 and length < 380.0)
+
+        if is_outdoor_whisker:
+            removed += 1
+            continue
+        kept.append(w)
+
+    if removed:
+        logger.info("[wall_segment_service] Outdoor whisker filter: removed %d exterior dangling wall(s)", removed)
     return kept
 
 
@@ -2201,6 +2669,10 @@ def _restore_supported_raw_walls(img_np, raw_walls: List[dict], final_walls: Lis
 
     for raw in raw_walls or []:
         if represented(raw):
+            continue
+        # A raw axis on the other edge of a wall band we already kept is the same wall,
+        # not a missing one: restoring it here is what produced the double wall.
+        if any(_same_band_probe(img_np, w, raw, min_ratio=0.60) is not None for w in result):
             continue
         rm = _line_metrics(raw)
         if rm is None or rm[-1] < 22.0:
@@ -2371,33 +2843,47 @@ class WallSegmentService:
         merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=12.0, gap_threshold=42.0)
 
         # Step 2: Establish geometry first, then node the wall graph.
-        # IMPORTANT: the old defaults (corner=100px, T=60px) were far too generous:
-        # unrelated nearby walls could be pulled together and then split as fake junctions.
-        # We now align to the drawing first, use conservative snap distances, and split
-        # only after the final centerlines are in place.
-        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=5.0)
+        # Compute adaptive tolerances based on real_scale (mm/px) and wall thickness
+        # to ensure robust snapping across different PDF render DPIs.
+        scale_tols = _compute_adaptive_scale_tolerances(
+            real_scale=real_scale,
+            wall_thicknesses=wall_thicknesses,
+            img_w=img_w,
+            img_h=img_h
+        )
+        t_snap_dist = scale_tols["t_snap_dist"]
+        corner_snap_dist = scale_tols["corner_snap_dist"]
+        touch_tol = scale_tols["touch_tol"]
+        min_piece_px = scale_tols["min_piece_px"]
+
+        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=12.0)
         snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
         snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
-        # Pure geometry snap is only for already-touching corners. Larger gaps are
-        # handled by the raster-evidence bridge below.
-        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=6.0)
+        # Pure geometry snap is only for already-touching corners.
+        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=corner_snap_dist)
         # First bridge stems that visually continue into a nearby cross wall; then do a
-        # tight generic T snap.  This lets real T-junctions node even when YOLO stops short.
-        # The bridge itself uses target/self wall thickness to extend to the actual
-        # cross-wall centerline while still requiring continuous raster evidence.
-        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=38.0)
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=3.5)
+        # scale-aware T snap. This lets real T-junctions node even when YOLO stops short.
+        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=max(38.0, t_snap_dist * 2.0))
+        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
+        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
+        snapped_walls = _filter_repetitive_stair_and_screen_arrays(snapped_walls)
         snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=2.5, min_piece_len=10.0
+            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
         )
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        # Keep visual evidence as a very conservative cleanup.  It may only remove an
-        # isolated, extremely-low-confidence candidate; connected/high-confidence walls
-        # are never deleted here, preventing the miss regression seen in earlier patches.
+        # Keep visual evidence as a very conservative cleanup.
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
+        # Restored/collapsed walls were added after the first noding pass: node again with scale-aware tolerance
+        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
+        snapped_walls = _split_walls_at_all_junctions(
+            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
+        )
+        # Filter outdoor dangling whisker stubs that protrude completely outside
+        snapped_walls = _filter_outdoor_whiskers(snapped_walls, img_w, img_h)
         # Final semantic classification comes from the actual outermost envelope,
         # not YOLO's ext/int guess. Interior walls that merely touch the facade
         # therefore stay interior.
@@ -2478,9 +2964,10 @@ class WallSegmentService:
                 # Extend endpoints at junctions to prevent gaps at corners
                 p1_ext = list(p1)
                 p2_ext = list(p2)
-                # Use a factor of 1.4 to ensure inner corner boundaries overlap and seal gaps
-                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
-                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
+                # Junction extension only inflated the temporary polygons used by cleanup passes
+                # (final geometry is rebuilt from centerline+thickness) -> remove the drift.
+                ext1 = 0.0
+                ext2 = 0.0
                 if ext1 > 0:
                     p1_ext[0] -= d * ux * ext1
                     p1_ext[1] -= d * uy * ext1
@@ -2541,6 +3028,9 @@ class WallSegmentService:
                 # Different wall classes may legitimately meet/overlap at a
                 # junction. NMS is only for duplicate geometry of the same class.
                 if w.get("class_name") != accepted_w.get("class_name"):
+                    continue
+                # Perpendicular walls (T/L stubs) are never duplicates of each other.
+                if not _walls_near_parallel(w, accepted_w):
                     continue
                 try:
                     acc_geom = ShapelyPolygon(accepted_w["polygon"])
@@ -2766,31 +3256,47 @@ class WallSegmentService:
         merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=12.0, gap_threshold=42.0)
 
         # Step 2: Establish geometry first, then node the wall graph.
-        # IMPORTANT: the old defaults (corner=100px, T=60px) were far too generous:
-        # unrelated nearby walls could be pulled together and then split as fake junctions.
-        # We now align to the drawing first, use conservative snap distances, and split
-        # only after the final centerlines are in place.
-        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=5.0)
+        # Compute adaptive tolerances based on real_scale (mm/px) and wall thickness
+        # to ensure robust snapping across different PDF render DPIs.
+        scale_tols = _compute_adaptive_scale_tolerances(
+            real_scale=real_scale,
+            wall_thicknesses=wall_thicknesses,
+            img_w=img_w,
+            img_h=img_h
+        )
+        t_snap_dist = scale_tols["t_snap_dist"]
+        corner_snap_dist = scale_tols["corner_snap_dist"]
+        touch_tol = scale_tols["touch_tol"]
+        min_piece_px = scale_tols["min_piece_px"]
+
+        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=12.0)
         snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
         snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
-        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=6.0)
+        # Pure geometry snap is only for already-touching corners.
+        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=corner_snap_dist)
         # First bridge stems that visually continue into a nearby cross wall; then do a
-        # tight generic T snap.  This lets real T-junctions node even when YOLO stops short.
-        # The bridge itself uses target/self wall thickness to extend to the actual
-        # cross-wall centerline while still requiring continuous raster evidence.
-        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=38.0)
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=3.5)
+        # scale-aware T snap. This lets real T-junctions node even when YOLO stops short.
+        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=max(38.0, t_snap_dist * 2.0))
+        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
+        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
+        snapped_walls = _filter_repetitive_stair_and_screen_arrays(snapped_walls)
         snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=2.5, min_piece_len=10.0
+            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
         )
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        # Keep visual evidence as a very conservative cleanup.  It may only remove an
-        # isolated, extremely-low-confidence candidate; connected/high-confidence walls
-        # are never deleted here, preventing the miss regression seen in earlier patches.
+        # Keep visual evidence as a very conservative cleanup.
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
+        # Restored/collapsed walls were added after the first noding pass: node again with scale-aware tolerance
+        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
+        snapped_walls = _split_walls_at_all_junctions(
+            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
+        )
+        # Filter outdoor dangling whisker stubs that protrude completely outside
+        snapped_walls = _filter_outdoor_whiskers(snapped_walls, img_w, img_h)
         # Final semantic classification comes from the actual outermost envelope,
         # not YOLO's ext/int guess. Interior walls that merely touch the facade
         # therefore stay interior.
@@ -2864,8 +3370,10 @@ class WallSegmentService:
 
                 p1_ext = list(p1)
                 p2_ext = list(p2)
-                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
-                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
+                # Junction extension only inflated the temporary polygons used by cleanup passes
+                # (final geometry is rebuilt from centerline+thickness) -> remove the drift.
+                ext1 = 0.0
+                ext2 = 0.0
                 if ext1 > 0:
                     p1_ext[0] -= d * ux * ext1
                     p1_ext[1] -= d * uy * ext1
@@ -2926,6 +3434,9 @@ class WallSegmentService:
                 # Cross-class contact is commonly a real junction. Near-identical
                 # cross-class duplicates were already handled by centerline dedupe.
                 if w.get("class_name") != accepted_w.get("class_name"):
+                    continue
+                # Perpendicular walls (T/L stubs) are never duplicates of each other.
+                if not _walls_near_parallel(w, accepted_w):
                     continue
                 try:
                     acc_geom = ShapelyPolygon(accepted_w["polygon"])
@@ -2997,7 +3508,7 @@ class WallSegmentService:
         return results
 
 
-def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 5.0) -> List[dict]:
+def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 12.0) -> List[dict]:
     """
     Orthogonalizes walls that are close to horizontal or vertical (within max_angle_deviation degrees).
     Maintains junctions (joints) by grouping connected wall endpoints and aligning them to the
