@@ -41,6 +41,7 @@ import {
   getWallType,
   getWallSideOffsets,
   classifyWallsTouchingExtEndpoints,
+  getWallRenderPolygon,
   ADD_POINT_SNAP_DISTANCE,
   findBestRoomInsertionPoint,
   mirrorPolygonAcrossLine,
@@ -1145,7 +1146,7 @@ const WallLayer = React.memo(({
       {/* Block Wall 2D Color Fill Overlay */}
       {(walls || []).map((w, idx) => {
         if (getWallClass(w) !== "block_wall") return null;
-        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        const pointsStr = (getWallRenderPolygon(w) || []).map(p => `${p[0]},${p[1]}`).join(" ");
         if (!pointsStr) return null;
 
         return (
@@ -1164,7 +1165,7 @@ const WallLayer = React.memo(({
       {(walls || []).map((w, idx) => {
         const h = w.height || w.height_mm || 0;
         if (!h || h === 2700) return null; // Skip default height walls
-        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        const pointsStr = (getWallRenderPolygon(w) || []).map(p => `${p[0]},${p[1]}`).join(" ");
         if (!pointsStr) return null;
 
         let heightColor = "rgba(59, 130, 246, 0.25)"; // blue < 2500
@@ -1361,7 +1362,7 @@ const WallLayer = React.memo(({
           selectedId === w.id || (getBaseWallId && getBaseWallId(selectedId) === getBaseWallId(w.id));
         const isHovered = w.id === hoverId || (getBaseWallId && getBaseWallId(w.id) === getBaseWallId(hoverId));
         const isDraggingThis = dragging && (dragging.id === w.id || (getBaseWallId && getBaseWallId(dragging.id) === getBaseWallId(w.id)));
-        const pointsStr = (w.polygon || []).map(p => `${p[0]},${p[1]}`).join(" ");
+        const pointsStr = (getWallRenderPolygon(w) || []).map(p => `${p[0]},${p[1]}`).join(" ");
 
         let fillColor = "rgba(0, 0, 0, 0)"; // fully transparent for hit test
         let strokeColor = "none";

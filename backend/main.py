@@ -6,6 +6,8 @@ và thiết lập các sự kiện vòng đời ứng dụng (lifespan).
 
 Cách chạy thủ công:
   uvicorn main:app --host 0.0.0.0 --port 8090 --reload
+  uvicorn main:app --host 127.0.0.1 --port 8090 --reload
+  uvicorn main:app --host 127.0.0.5 --port 8010 --reload
 
 Các định tuyến phân chia theo router:
   - api.routes    : Các API suy luận AI (Nhận diện phòng, tường, cửa, văn bản), nạp nhãn và huấn luyện.
