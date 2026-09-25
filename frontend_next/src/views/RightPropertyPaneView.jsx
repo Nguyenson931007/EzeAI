@@ -103,6 +103,7 @@ import {
 } from "@/utils/procurementAutoFill";
 import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
 import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
+import { flooringTaskId, makeFlooringTaskTabs, normalizeTaskFloorCodes, parseFlooringTaskId } from "@/utils/taskFloorLevels";
 
 function getPlanObjectBounds(objects = []) {
   const points = [];
@@ -596,6 +597,62 @@ export default function RightPropertyPaneView({
   );
   const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
   const addModulePopupRef = React.useRef(null);
+  const [flooringTaskFloors, setFlooringTaskFloors] = React.useState(() => {
+    if (typeof window === "undefined") return ["GF"];
+    try {
+      const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = raw ? JSON.parse(raw) : null;
+      return normalizeTaskFloorCodes(pending?.floor_levels);
+    } catch (_) {
+      return ["GF"];
+    }
+  });
+
+  const flooringBaseTab = React.useMemo(
+    () => EXTRA_MODULE_TABS.find((mod) => mod.id === "flooring_decking"),
+    []
+  );
+  const taskModuleTabs = React.useMemo(() => {
+    const tabs = [];
+    EXTRA_MODULE_TABS.forEach((mod) => {
+      if (mod.id === "flooring_decking") {
+        tabs.push(...makeFlooringTaskTabs(mod, flooringTaskFloors));
+      } else {
+        tabs.push(mod);
+      }
+    });
+    return tabs;
+  }, [flooringTaskFloors]);
+
+  React.useEffect(() => {
+    if (activePaneTab === "flooring_decking") {
+      setActivePaneTab(flooringTaskId(flooringTaskFloors[0] || "GF"));
+    } else {
+      const flooring = parseFlooringTaskId(activePaneTab);
+      if (flooring && !flooringTaskFloors.includes(flooring.floorLevel)) {
+        setActivePaneTab(flooringTaskId(flooringTaskFloors[0] || "GF"));
+      }
+    }
+  }, [activePaneTab, flooringTaskFloors]);
+
+  const persistFlooringTaskFloors = React.useCallback(async (nextFloors) => {
+    const normalized = normalizeTaskFloorCodes(nextFloors);
+    setFlooringTaskFloors(normalized);
+    let emsId = null;
+    try {
+      const pendingRaw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : {};
+      pending.floor_levels = normalized;
+      emsId = pending.id_job_ems || pending.ems_id || pending.id || null;
+      sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+      localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+      window.dispatchEvent(new CustomEvent("task-floor-levels-updated", { detail: { floor_levels: normalized } }));
+    } catch (_) {}
+    if (emsId) {
+      try { await ApiService.updateTaskFloorLevels(emsId, normalized); } catch (err) { console.warn("[floor-task] Không thể đồng bộ floor levels về TaskList:", err); }
+    }
+    return normalized;
+  }, []);
 
   const activeCustomerTasks = React.useMemo(() => {
     const pack = CUSTOMER_TASK_PACKS[selectedCustomerClient]?.tasks || BunNswActTasks;
@@ -652,6 +709,11 @@ export default function RightPropertyPaneView({
         const pendingJobStr = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
         if (pendingJobStr) pendingJob = JSON.parse(pendingJobStr);
       } catch (_) { }
+
+      if (pendingJob) {
+        const nextFloors = normalizeTaskFloorCodes(pendingJob.floor_levels);
+        setFlooringTaskFloors((prev) => JSON.stringify(prev) === JSON.stringify(nextFloors) ? prev : nextFloors);
+      }
 
       // Kiá»ƒm tra xem pendingJob cÃ³ trÃ¹ng khá»›p vá»›i project Ä‘ang má»Ÿ hay khÃ´ng
       const isMatchingEmsJob = pendingJob && currentProjectName && (
@@ -733,8 +795,8 @@ export default function RightPropertyPaneView({
       activePaneTab !== "summary" &&
       activePaneTab !== "job_task" &&
       activePaneTab !== "collapsed" &&
-      !customerModuleIds.includes(activePaneTab) &&
-      !isLocalOnlyModuleId(activePaneTab)
+      !customerModuleIds.includes(parseFlooringTaskId(activePaneTab)?.baseId || activePaneTab) &&
+      !isLocalOnlyModuleId(parseFlooringTaskId(activePaneTab)?.baseId || activePaneTab)
     ) {
       setActivePaneTab("explorer");
     }
@@ -755,7 +817,8 @@ export default function RightPropertyPaneView({
   // If current active tab is a module that became disabled, fallback to explorer
   React.useEffect(() => {
     if (activePaneTab !== "explorer" && activePaneTab !== "summary" && activePaneTab !== "job_task" && activePaneTab !== "collapsed") {
-      if (!enabledModuleIds.includes(activePaneTab) && !isLocalOnlyModuleId(activePaneTab)) {
+      const baseActiveId = parseFlooringTaskId(activePaneTab)?.baseId || activePaneTab;
+      if (!enabledModuleIds.includes(baseActiveId) && !isLocalOnlyModuleId(baseActiveId)) {
         setActivePaneTab("explorer");
       }
     }
@@ -780,11 +843,15 @@ export default function RightPropertyPaneView({
   const [manuallyClearedTasks, setManuallyClearedTasks] = React.useState({});
   const manuallyClearedTasksRef = React.useRef({});
 
-  const normalizeTaskStateKey = (moduleId) => ({
-    eaves: "eaves_soffit",
-    power_truss: "power_truss_braces",
-    lockup: "lock_up",
-  }[moduleId] || moduleId);
+  const normalizeTaskStateKey = (moduleId) => {
+    const flooring = parseFlooringTaskId(moduleId);
+    if (flooring) return flooring.baseId;
+    return ({
+      eaves: "eaves_soffit",
+      power_truss: "power_truss_braces",
+      lockup: "lock_up",
+    }[moduleId] || moduleId);
+  };
 
   const handleModuleFormChange = (moduleId, field, value) => {
     const key = normalizeTaskStateKey(moduleId);
@@ -811,7 +878,14 @@ export default function RightPropertyPaneView({
     // Clear every entered / auto-filled row for the active task.
     // This is intentionally an explicit UI action only; it does not write/delete DB records.
     if (key === "frame_hardware") setFrameWallEntries([]);
-    if (key === "flooring_decking") setFlooringEntries([]);
+    if (key === "flooring_decking") {
+      const flooringTask = parseFlooringTaskId(moduleId);
+      if (flooringTask?.floorLevel) {
+        setFlooringEntries((prev) => (prev || []).filter((row) => String(row.floorLevel || row.floor_level || "GF").toUpperCase() !== flooringTask.floorLevel));
+      } else {
+        setFlooringEntries([]);
+      }
+    }
     if (key === "hebel_flooring") setHebelFlooringEntries([]);
     if (key === "insulation") {
       setInsulationWallEntries([]);
@@ -1183,7 +1257,10 @@ export default function RightPropertyPaneView({
   };
 
   const handleAddDataAI = (moduleId) => {
-    const normalizedModuleId = moduleId === "lockup" ? "lock_up" : moduleId;
+    const flooringTask = parseFlooringTaskId(moduleId);
+    const requestedFloorLevel = flooringTask?.floorLevel || null;
+    const rawModuleId = flooringTask?.baseId || moduleId;
+    const normalizedModuleId = rawModuleId === "lockup" ? "lock_up" : rawModuleId;
 
     let aiValues = {};
 
@@ -1286,8 +1363,10 @@ export default function RightPropertyPaneView({
       const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? roomsByPageProp : { [currentPage]: currentRooms };
       Object.entries(roomPages).forEach(([pageKey, pageRooms]) => {
         const pIdx = Number(pageKey);
+        const floorLevel = floorLevelForPage(pIdx);
+        if (requestedFloorLevel && floorLevel !== requestedFloorLevel) return;
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
-        perPage.push(...buildFlooringRows(pageRooms || [], pageScale, floorLevelForPage(pIdx)));
+        perPage.push(...buildFlooringRows(pageRooms || [], pageScale, floorLevel));
       });
 
       const dry = perPage.filter((r) => r.typeArea === "Dry").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
@@ -1296,7 +1375,14 @@ export default function RightPropertyPaneView({
       const decking = perPage.filter((r) => r.typeArea === "Decking Input").reduce((s, r) => s + Number(r.areaM2 || 0), 0);
 
       if (normalizedModuleId === "flooring_decking") {
-        setFlooringEntries(perPage);
+        if (requestedFloorLevel) {
+          setFlooringEntries((prev) => [
+            ...(prev || []).filter((row) => String(row.floorLevel || row.floor_level || "GF").toUpperCase() !== requestedFloorLevel),
+            ...perPage,
+          ]);
+        } else {
+          setFlooringEntries(perPage);
+        }
         formPatch = {
           dryArea: dry ? dry.toFixed(2) : "",
           wetArea: wet ? wet.toFixed(2) : "",
@@ -1848,6 +1934,8 @@ export default function RightPropertyPaneView({
     }
 
     const taskClientKey = resolveCustomerPackKey(taskListClient || currentTask.client || currentTask.task_client);
+    const taskFloors = normalizeTaskFloorCodes(currentTask.floor_levels || task.floor_levels);
+    setFlooringTaskFloors(taskFloors);
 
     // Persist the clicked job + its exact card Client BEFORE changing the
     // active project name. The project-name effect reads these values; doing
@@ -2136,14 +2224,14 @@ export default function RightPropertyPaneView({
 
   // Auto-switch to explorer if task tabs are not allowed for this user
   React.useEffect(() => {
-    if (!isHwOrAllUser && (activePaneTab === "job_task" || EXTRA_MODULE_TABS.some(t => t.id === activePaneTab))) {
+    if (!isHwOrAllUser && (activePaneTab === "job_task" || taskModuleTabs.some(t => t.id === activePaneTab))) {
       setActivePaneTab("explorer");
     }
-  }, [isHwOrAllUser, activePaneTab]);
+  }, [isHwOrAllUser, activePaneTab, taskModuleTabs]);
 
   // â”€â”€ DYNAMIC TASK EXPANSION & DRAG RESIZING STATE â”€â”€
-  const isTaskModuleActive = isHwOrAllUser && EXTRA_MODULE_TABS.some(t => t.id === activePaneTab);
-  const activeModuleTab = EXTRA_MODULE_TABS.find(t => t.id === activePaneTab);
+  const isTaskModuleActive = isHwOrAllUser && taskModuleTabs.some(t => t.id === activePaneTab);
+  const activeModuleTab = taskModuleTabs.find(t => t.id === activePaneTab);
   const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
   const [taskPanelWidth, setTaskPanelWidth] = React.useState(420);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -4551,13 +4639,10 @@ export default function RightPropertyPaneView({
     if (staffScope === "my" && myStaffCode) {
       list = list.filter(t => t.ma_nv && t.ma_nv.toUpperCase() === myStaffCode.toUpperCase());
     }
-    // Done/Pending comes from TaskList/EMS workflow state, not from whether an
-    // EzeFloor drawing happens to exist locally. A drawing can exist while the
-    // HW job is still pending, and a completed HW job may have no local drawing.
     if (taskFilter === "completed") {
-      list = list.filter(t => Boolean(t.workflow_done || t.assign_is_comp || t.is_done));
+      list = list.filter(t => t.has_local_job);
     } else if (taskFilter === "pending") {
-      list = list.filter(t => !Boolean(t.workflow_done || t.assign_is_comp || t.is_done));
+      list = list.filter(t => !t.has_local_job);
     }
     if (taskSearch.trim()) {
       const q = taskSearch.trim().toLowerCase();
@@ -5278,6 +5363,7 @@ export default function RightPropertyPaneView({
           updateDoorsProperty={updateDoorsProperty}
           onMoveDoorTask={handleMoveDoorTask}
           pushTaskHistory={pushTaskHistory}
+          taskFloorLevel={activeModuleTab?.floorLevel || "GF"}
         />
       )}
 
@@ -5288,6 +5374,7 @@ export default function RightPropertyPaneView({
         isHwOrAllUser={isHwOrAllUser}
         taskListJobs={taskListJobs}
         EXTRA_MODULE_TABS={EXTRA_MODULE_TABS}
+        taskModuleTabs={taskModuleTabs}
         enabledModuleIds={enabledModuleIds}
         showAddModulePopup={showAddModulePopup}
         setShowAddModulePopup={setShowAddModulePopup}
@@ -5296,6 +5383,8 @@ export default function RightPropertyPaneView({
         selectedCustomerClient={selectedCustomerClient}
         customerModuleTabs={customerModuleTabs}
         customerModuleIds={customerModuleIds}
+        flooringTaskFloors={flooringTaskFloors}
+        onFlooringTaskFloorsChange={persistFlooringTaskFloors}
       />
 
       {/* â”€â”€ TAKEOFF EXPORT PROPERTIES MODAL â”€â”€ */}

@@ -1,5 +1,13 @@
 import React from "react";
 import { sanitizeModuleIds } from "./UIComponents";
+import {
+  TASK_FLOOR_OPTIONS,
+  floorCodeFromNumber,
+  floorNumberFromCode,
+  flooringTaskId,
+  normalizeTaskFloorCodes,
+  parseFlooringTaskId
+} from "@/utils/taskFloorLevels";
 
 export default function ManageModulesPopup({
   showAddModulePopup,
@@ -10,9 +18,26 @@ export default function ManageModulesPopup({
   selectedCustomerClient = "bun-nsw-act",
   customerModuleTabs = [],
   customerModuleIds = [],
+  flooringTaskFloors = ["GF"],
+  onFlooringTaskFloorsChange,
   activePaneTab,
   setActivePaneTab
 }) {
+  const normalizedFlooringFloors = normalizeTaskFloorCodes(flooringTaskFloors);
+  const highestFloorNumber = Math.max(0, ...normalizedFlooringFloors.map((floor) => floorNumberFromCode(floor) ?? 0));
+  const highestFloorCode = floorCodeFromNumber(highestFloorNumber) || "GF";
+
+  const changeHighestFloor = (value) => {
+    const floorNumber = floorNumberFromCode(value) ?? 0;
+    const next = Array.from({ length: floorNumber + 1 }, (_, index) => floorCodeFromNumber(index)).filter(Boolean);
+    void onFlooringTaskFloorsChange?.(next);
+
+    const activeFlooringTask = parseFlooringTaskId(activePaneTab);
+    if (activeFlooringTask && !next.includes(activeFlooringTask.floorLevel) && setActivePaneTab) {
+      setActivePaneTab(flooringTaskId(next[next.length - 1]));
+    }
+  };
+
   if (!showAddModulePopup) return null;
 
   return (
@@ -73,16 +98,19 @@ export default function ManageModulesPopup({
         {customerModuleTabs.map((mod) => {
           const isEnabled = enabledModuleIds.includes(mod.id);
           return (
+            <React.Fragment key={mod.id}>
             <div
-              key={mod.id}
               onClick={() => {
                 let next;
                 if (isEnabled) {
                   next = enabledModuleIds.filter((id) => id !== mod.id);
-                  if (activePaneTab === mod.id && setActivePaneTab) setActivePaneTab("explorer");
+                  if ((activePaneTab === mod.id || (mod.id === "flooring_decking" && String(activePaneTab || "").startsWith("flooring_decking::"))) && setActivePaneTab) setActivePaneTab("explorer");
                 } else {
                   next = [...enabledModuleIds, mod.id];
-                  if (setActivePaneTab) setActivePaneTab(mod.id);
+                  if (mod.id === "flooring_decking") {
+                    if (onFlooringTaskFloorsChange) void onFlooringTaskFloorsChange(normalizedFlooringFloors.length ? normalizedFlooringFloors : ["GF"]);
+                    if (setActivePaneTab) setActivePaneTab(flooringTaskId(normalizedFlooringFloors[0] || "GF"));
+                  } else if (setActivePaneTab) setActivePaneTab(mod.id);
                 }
                 if (setEnabledModuleIds) setEnabledModuleIds(next);
                 try {
@@ -134,6 +162,40 @@ export default function ManageModulesPopup({
                 {isEnabled ? "✓ Enabled" : "+ Add"}
               </span>
             </div>
+            {mod.id === "flooring_decking" && isEnabled ? (
+              <div style={{ margin: "0 4px 4px", padding: "8px", border: "1px solid #dbeafe", borderRadius: "7px", background: "#f8fbff" }}>
+                <label style={{ display: "grid", gridTemplateColumns: "82px minmax(0, 1fr)", alignItems: "center", gap: "8px" }}>
+                  <span style={{ minWidth: 0 }}>
+                    <strong style={{ display: "block", fontSize: "10.5px", color: "#334155" }}>Floor levels</strong>
+                    <small style={{ display: "block", marginTop: "1px", color: "#64748b", fontSize: "9px", lineHeight: 1.25 }}>One task per floor</small>
+                  </span>
+                  <select
+                    value={highestFloorCode}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => changeHighestFloor(event.target.value)}
+                    aria-label="Highest flooring floor"
+                    style={{
+                      width: "100%",
+                      height: "30px",
+                      padding: "3px 7px",
+                      border: "1px solid #93c5fd",
+                      borderRadius: "6px",
+                      background: "#ffffff",
+                      color: "#1e3a8a",
+                      fontSize: "10.5px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      outline: "none"
+                    }}
+                  >
+                    {TASK_FLOOR_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            </React.Fragment>
           );
         })}
       </div>

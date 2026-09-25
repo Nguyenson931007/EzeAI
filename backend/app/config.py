@@ -58,6 +58,12 @@ CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.stri
 TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "")
 _tasklist_urls_env = os.getenv("TASKLIST_AUTH_URLS", TASKLIST_AUTH_URL)
 TASKLIST_AUTH_URLS = [url.strip() for url in _tasklist_urls_env.split(",") if url.strip()]
+_tasklist_origin = TASKLIST_AUTH_URL.split("/api/", 1)[0].rstrip("/") if "/api/" in TASKLIST_AUTH_URL else ""
+TASKLIST_WORKFLOW_API_URL = os.getenv(
+    "TASKLIST_WORKFLOW_API_URL",
+    f"{_tasklist_origin}/api/workflow" if _tasklist_origin else "",
+).rstrip("/")
+TASKLIST_WORKFLOW_API_TOKEN = os.getenv("TASKLIST_WORKFLOW_API_TOKEN", "").strip()
 
 # Upload limits
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(50 * 1024 * 1024)))

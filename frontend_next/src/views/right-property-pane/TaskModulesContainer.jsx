@@ -82,9 +82,11 @@ export default function TaskModulesContainer({
   updateDoor,
   updateDoorsProperty,
   onMoveDoorTask,
-  pushTaskHistory
+  pushTaskHistory,
+  taskFloorLevel = "GF"
 }) {
   if (!activeModuleTab) return null;
+  const activeModuleId = activeModuleTab.baseId || activeModuleTab.id;
 
   return (
     <div
@@ -181,7 +183,7 @@ export default function TaskModulesContainer({
           </button>
         </div>
 
-        {aiGeneratedSuccess === activeModuleTab.id && (
+        {aiGeneratedSuccess === activeModuleId && (
           <div
             style={{
               marginTop: "7px",
@@ -200,11 +202,11 @@ export default function TaskModulesContainer({
       </div>
 
       <TaskTableEnhancer
-        taskId={activeModuleTab.id}
+        taskId={activeModuleId}
         onBeforeInlineCommit={pushTaskHistory}
       >
       {/* 1. Frame Hardware */}
-      {activeModuleTab.id === "frame_hardware" && FrameHardwareTask && (
+      {activeModuleId === "frame_hardware" && FrameHardwareTask && (
         <FrameHardwareTask
           formData={moduleFormData.frame_hardware || {}}
           onChange={handleModuleFormChange}
@@ -227,12 +229,12 @@ export default function TaskModulesContainer({
           goPage={goPage}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 2. Eaves Soffit */}
-      {activeModuleTab.id === "eaves_soffit" && EavesSoffitTask && (
+      {activeModuleId === "eaves_soffit" && EavesSoffitTask && (
         <EavesSoffitTask
           formData={moduleFormData.eaves_soffit || {}}
           onChange={handleModuleFormChange}
@@ -242,12 +244,12 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 3. Cladding */}
-      {activeModuleTab.id === "cladding" && CladdingTask && (
+      {activeModuleId === "cladding" && CladdingTask && (
         <CladdingTask
           formData={moduleFormData.cladding || {}}
           onChange={handleModuleFormChange}
@@ -260,12 +262,12 @@ export default function TaskModulesContainer({
           wallsByPage={wallsByPage}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 4. Insulation */}
-      {activeModuleTab.id === "insulation" && InsulationTask && (
+      {activeModuleId === "insulation" && InsulationTask && (
         <InsulationTask
           formData={moduleFormData.insulation || {}}
           onChange={handleModuleFormChange}
@@ -282,13 +284,14 @@ export default function TaskModulesContainer({
           selectedType={selectedType}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 5. Flooring & Decking - GF */}
-      {activeModuleTab.id === "flooring_decking" && FlooringDeckingTask && (
+      {activeModuleId === "flooring_decking" && FlooringDeckingTask && (
         <FlooringDeckingTask
+          taskFloorLevel={taskFloorLevel}
           formData={moduleFormData.flooring_decking || {}}
           onChange={handleModuleFormChange}
           cadMetrics={{ totalFloorArea: cadMetrics.totalFloorArea }}
@@ -308,7 +311,7 @@ export default function TaskModulesContainer({
       )}
 
       {/* 6. Hebel Flooring */}
-      {activeModuleTab.id === "hebel_flooring" && (HebelFlooringTask || FlooringDeckingTask) && (
+      {activeModuleId === "hebel_flooring" && (HebelFlooringTask || FlooringDeckingTask) && (
         (HebelFlooringTask ? (
           <HebelFlooringTask
             formData={moduleFormData.hebel_flooring || {}}
@@ -325,13 +328,13 @@ export default function TaskModulesContainer({
             selectedType={selectedType}
           
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
         ) : null)
       )}
 
       {/* 7. Timber Posts */}
-      {activeModuleTab.id === "timber_posts" && TimberPostsTask && (
+      {activeModuleId === "timber_posts" && TimberPostsTask && (
         <TimberPostsTask
           formData={moduleFormData.timber_posts || {}}
           onChange={handleModuleFormChange}
@@ -341,12 +344,12 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 8. Fixout */}
-      {activeModuleTab.id === "fixout" && FixoutTask && (
+      {activeModuleId === "fixout" && FixoutTask && (
         <FixoutTask
           formData={moduleFormData.fixout || {}}
           onChange={handleModuleFormChange}
@@ -357,13 +360,13 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
           onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("fixout", row, targetTask)}
         />
       )}
 
       {/* 9. Lockup */}
-      {(activeModuleTab.id === "lockup" || activeModuleTab.id === "lock_up") && LockupTask && (
+      {(activeModuleId === "lockup" || activeModuleId === "lock_up") && LockupTask && (
         <LockupTask
           formData={moduleFormData.lockup || moduleFormData.lock_up || {}}
           onChange={handleModuleFormChange}
@@ -380,13 +383,13 @@ export default function TaskModulesContainer({
           updateDoorsProperty={updateDoorsProperty}
           suppressAutoInit={Boolean(manuallyClearedTasks?.lock_up)}
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
           onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("lock_up", row, targetTask)}
         />
       )}
 
       {/* Local-only Window register: intentionally no Procurement API / DB save. */}
-      {activeModuleTab.id === "windows" && WindowTask && (
+      {activeModuleId === "windows" && WindowTask && (
         <WindowTask
           entries={windowEntries}
           onSelectEntry={handleSelectEntry}
@@ -397,7 +400,7 @@ export default function TaskModulesContainer({
       )}
 
       {/* 10. Shelving */}
-      {activeModuleTab.id === "shelving" && ShelvingTask && (
+      {activeModuleId === "shelving" && ShelvingTask && (
         <ShelvingTask
           formData={moduleFormData.shelving || {}}
           onChange={handleModuleFormChange}
@@ -407,12 +410,12 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 11. Doors & Furniture */}
-      {activeModuleTab.id === "doors_furniture" && DoorsFurnitureTask && (
+      {activeModuleId === "doors_furniture" && DoorsFurnitureTask && (
         <DoorsFurnitureTask
           formData={moduleFormData.doors_furniture || {}}
           onChange={handleModuleFormChange}
@@ -422,7 +425,7 @@ export default function TaskModulesContainer({
       )}
 
       {/* 12. FOW Plumbing */}
-      {activeModuleTab.id === "fow_plumbing" && FowPlumbingTask && (
+      {activeModuleId === "fow_plumbing" && FowPlumbingTask && (
         <FowPlumbingTask
           formData={moduleFormData.fow_plumbing || {}}
           onChange={handleModuleFormChange}
@@ -432,12 +435,12 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 13. Power Truss Braces */}
-      {activeModuleTab.id === "power_truss_braces" && PowerTrussBracesTask && (
+      {activeModuleId === "power_truss_braces" && PowerTrussBracesTask && (
         <PowerTrussBracesTask
           formData={moduleFormData.power_truss_braces || {}}
           onChange={handleModuleFormChange}
@@ -447,34 +450,34 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
         
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 14. Final Fit */}
-      {activeModuleTab.id === "final_fit" && FinalFitTask && (
+      {activeModuleId === "final_fit" && FinalFitTask && (
         <FinalFitTask
           formData={moduleFormData.final_fit || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 15. Sheet Schedule */}
-      {activeModuleTab.id === "sheet_schedule" && SheetScheduleTask && (
+      {activeModuleId === "sheet_schedule" && SheetScheduleTask && (
         <SheetScheduleTask
           formData={moduleFormData.sheet_schedule || {}}
           onChange={handleModuleFormChange}
           cadMetrics={cadMetrics}
           onAddDataAI={handleAddDataAI}
-          onClearData={() => handleResetModuleData(activeModuleTab.id)}
+          onClearData={() => handleResetModuleData(activeModuleId)}
         />
       )}
 
       {/* 16. Hardies Fire Walls */}
-      {activeModuleTab.id === "hardies_fire_walls" && HardiesFireWallsTask && (
+      {activeModuleId === "hardies_fire_walls" && HardiesFireWallsTask && (
         <HardiesFireWallsTask
           formData={moduleFormData.hardies_fire_walls || {}}
           onChange={handleModuleFormChange}

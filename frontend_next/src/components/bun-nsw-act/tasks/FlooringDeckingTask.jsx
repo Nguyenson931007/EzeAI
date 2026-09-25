@@ -23,7 +23,8 @@ export default function FlooringDeckingTask({
   selectedRoomIds = [],
   selectedId,
   selectedType,
-  onClearData
+  onClearData,
+  taskFloorLevel = "GF"
 }) {
   const {
     user,
@@ -38,6 +39,8 @@ export default function FlooringDeckingTask({
     currentJobId,
     currentProjectName
   } = useAppModel();
+
+  const selectedTaskFloor = normalizeFloorLevelCode(taskFloorLevel || "GF");
 
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
   const [isSaving, setIsSaving] = useState(false);
@@ -101,7 +104,7 @@ export default function FlooringDeckingTask({
     const rawM2 = parseFloat(String(currentData.totalM2 || "0").replace(/m²/gi, "").trim()) || 0;
     const valStr = rawM2 > 0 ? rawM2.toFixed(4) : "0";
     const chosenProduct = currentData.product || item.product;
-    const chosenLevel = currentData.floorLevel || item.floorLevel || "GF";
+    const chosenLevel = selectedTaskFloor;
 
     if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
       setDryArea(valStr);
@@ -186,7 +189,7 @@ export default function FlooringDeckingTask({
       alert("Please enter a valid Total m² for Dry area.");
       return;
     }
-    const currentLevel = getLevelCode(currentPage) || "GF";
+    const currentLevel = selectedTaskFloor;
     const prod = dryProduct !== "Select..." ? dryProduct : (DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP");
     const newEntry = {
       id: `flr-dry-${Date.now()}`,
@@ -207,7 +210,7 @@ export default function FlooringDeckingTask({
       alert("Please enter a valid Total m² for Wet area.");
       return;
     }
-    const currentLevel = getLevelCode(currentPage) || "GF";
+    const currentLevel = selectedTaskFloor;
     const prod = wetProduct !== "Select..." ? wetProduct : (WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592");
     const newEntry = {
       id: `flr-wet-${Date.now()}`,
@@ -228,7 +231,7 @@ export default function FlooringDeckingTask({
       alert("Please enter a valid Total m² for Balcony Tiles.");
       return;
     }
-    const currentLevel = getLevelCode(currentPage) || "GF";
+    const currentLevel = selectedTaskFloor;
     const prod = balconyProduct !== "Select..." ? balconyProduct : (BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592");
     const newEntry = {
       id: `flr-balc-${Date.now()}`,
@@ -249,7 +252,7 @@ export default function FlooringDeckingTask({
       alert("Please enter a valid Total m² for Other area types.");
       return;
     }
-    const currentLevel = getLevelCode(currentPage) || "GF";
+    const currentLevel = selectedTaskFloor;
     const prod = otherProduct !== "Select..." ? otherProduct : (getOtherProductOptions(otherTypeArea)[1] || otherTypeArea);
     const newEntry = {
       id: `flr-other-${Date.now()}`,
@@ -266,7 +269,7 @@ export default function FlooringDeckingTask({
 
   // Handler to auto fill multi-level rooms across all pages directly from canvas/model
   const handleAutoFillAI = () => {
-    if (onAddDataAI) onAddDataAI("flooring_decking");
+    if (onAddDataAI) onAddDataAI(`flooring_decking::${selectedTaskFloor}`);
 
     const newRows = [];
     const pageKeys = (roomsByPage && Object.keys(roomsByPage).length > 0)
@@ -278,6 +281,7 @@ export default function FlooringDeckingTask({
       if (!pRooms || pRooms.length === 0) return;
 
       const levelCode = getLevelCode(pIdx);
+      if (normalizeFloorLevelCode(levelCode) !== selectedTaskFloor) return;
       const effectiveScale = (scalesByPage && scalesByPage[pIdx]) || realScale || scaleValue || 1.0;
 
       pRooms.forEach((r, rIdx) => {
@@ -335,7 +339,10 @@ export default function FlooringDeckingTask({
     });
 
     if (newRows.length > 0 && onSetEntries) {
-      onSetEntries(newRows);
+      onSetEntries((prev) => [
+        ...(prev || []).filter((row) => normalizeFloorLevelCode(row.floorLevel || row.floor_level || "GF") !== selectedTaskFloor),
+        ...newRows,
+      ]);
     }
   };
 
@@ -374,7 +381,7 @@ export default function FlooringDeckingTask({
       // Auto-generate Card 2 Entered rows across all levels
       if (onSetEntries) {
         if (gRooms && gRooms.length > 0) {
-          const autoRows = gRooms.map((r, rIdx) => {
+          const autoRows = gRooms.filter((r) => normalizeFloorLevelCode(r.floor_level || "GF") === selectedTaskFloor).map((r, rIdx) => {
             const lvl = r.floor_level || "GF";
             const aType = r.floor_area_type === "Tile Deck" ? "Balcony Tiles" : r.floor_area_type;
             const prod = r.product || getProductOptionsForType(aType)[0] || DRY_OPTIONS[1];
@@ -389,14 +396,17 @@ export default function FlooringDeckingTask({
               totalM2: formatM2_4Digits(netNum)
             };
           });
-          onSetEntries(autoRows);
+          onSetEntries((prev) => [
+            ...(prev || []).filter((row) => normalizeFloorLevelCode(row.floorLevel || row.floor_level || "GF") !== selectedTaskFloor),
+            ...autoRows,
+          ]);
         } else {
           const autoRows = [];
           if (d && parseFloat(d) > 0) {
             const numA = parseFloat(d);
             autoRows.push({
               id: "flr-auto-dry-" + Date.now(),
-              floorLevel: "GF",
+              floorLevel: selectedTaskFloor,
               typeArea: "Dry",
               location: "Dry Area (Habitable Rooms)",
               product: DRY_OPTIONS[1],
@@ -408,7 +418,7 @@ export default function FlooringDeckingTask({
             const numA = parseFloat(w);
             autoRows.push({
               id: "flr-auto-wet-" + Date.now(),
-              floorLevel: "GF",
+              floorLevel: selectedTaskFloor,
               typeArea: "Wet",
               location: "Wet Area (Bath, Ensuite, Laundry)",
               product: WET_OPTIONS[1],
@@ -420,7 +430,7 @@ export default function FlooringDeckingTask({
             const numA = parseFloat(b);
             autoRows.push({
               id: "flr-auto-balc-" + Date.now(),
-              floorLevel: "GF",
+              floorLevel: selectedTaskFloor,
               typeArea: "Balcony Tiles",
               location: "Balcony / Porch Area",
               product: BALCONY_OPTIONS[1],
@@ -432,7 +442,7 @@ export default function FlooringDeckingTask({
             const numA = parseFloat(o);
             autoRows.push({
               id: "flr-auto-oth-" + Date.now(),
-              floorLevel: "GF",
+              floorLevel: selectedTaskFloor,
               typeArea: ot || "Decking Input",
               location: ot || "Decking Input",
               product: "HARDWOOD DECKING 90X19MM MERBAU",
@@ -441,7 +451,10 @@ export default function FlooringDeckingTask({
             });
           }
           if (autoRows.length > 0) {
-            onSetEntries(autoRows);
+            onSetEntries((prev) => [
+              ...(prev || []).filter((row) => normalizeFloorLevelCode(row.floorLevel || row.floor_level || "GF") !== selectedTaskFloor),
+              ...autoRows,
+            ]);
           }
         }
       }
@@ -449,7 +462,7 @@ export default function FlooringDeckingTask({
 
     window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
     return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-  }, [onChange, onSetEntries]);
+  }, [onChange, onSetEntries, selectedTaskFloor]);
 
   // ── Tự động tải dữ liệu đã lưu từ ProcurementApp.dbo.AreaSummary của Job này ──
   useEffect(() => {
@@ -506,7 +519,14 @@ export default function FlooringDeckingTask({
 
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
-    if (!enteredRows || enteredRows.length === 0) return;
+    const allRowsToSave = (entries || []).map((item, idx) => ({
+      ...item,
+      id: item.id || `flr-save-${idx}`,
+      floorLevel: item.floorLevel || item.floor_level || item.level || "GF",
+      typeArea: item.typeArea || item.floor_area_type || item.location || "Dry",
+      totalM2: item.totalM2 !== undefined ? item.totalM2 : item.areaM2,
+    }));
+    if (allRowsToSave.length === 0) return;
 
     setIsSaving(true);
     setSaveSuccess(false);
@@ -518,7 +538,7 @@ export default function FlooringDeckingTask({
       }
       const shortName = activeCustomerShortName;
 
-      const areasList = enteredRows.map(r => {
+      const areasList = allRowsToSave.map(r => {
         const netNum = parseFloat(String(r.totalM2 !== undefined ? r.totalM2 : (r.areaM2 || 0)).replace(/m²/gi, "").trim()) || 0;
         return {
           floor_level: r.floorLevel || "GF",
@@ -748,7 +768,9 @@ export default function FlooringDeckingTask({
   // Entered rows based on entries prop (only populated when Auto Fill or added)
   const enteredRows = React.useMemo(() => {
     if (entries && entries.length > 0) {
-      return entries.map((item, idx) => ({
+      return entries
+        .filter((item) => normalizeFloorLevelCode(item.floorLevel || item.floor_level || item.level || "GF") === selectedTaskFloor)
+        .map((item, idx) => ({
         ...item,
         id: item.id || `flr-row-${idx}`,
         floorLevel: item.floorLevel || item.level || "GF",
@@ -758,7 +780,7 @@ export default function FlooringDeckingTask({
       }));
     }
     return [];
-  }, [entries]);
+  }, [entries, selectedTaskFloor]);
 
   const groupedFlooringByLevel = React.useMemo(() => {
     const groups = {};

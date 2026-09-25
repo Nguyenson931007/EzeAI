@@ -499,7 +499,7 @@ export const EXTRA_MODULE_TABS = [
   {
     id: "flooring_decking",
     label: "Floor",
-    title: "Flooring & Decking - GF",
+    title: "Flooring & Decking",
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
         <rect x="3" y="3" width="18" height="18" rx="2" />

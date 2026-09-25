@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
 from api.auth import validate_session
+from app.config import TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_API_URL
 import json
 
 logger = logging.getLogger("ezefloor.jobs")
@@ -56,25 +57,59 @@ KATHERINE_STEP_TO_MODULE = {
     13: "hardies_fire_walls",
 }
 
-# Canonical Procurement task keys.  TaskList owns which HW steps exist/are
-# selected; Procurement owns the catalog/calculation contract for each step.
-KATHERINE_STEP_TO_PROCUREMENT_TASK = {
-    1: "cladding",
-    2: "eaves-soffits",
-    3: "flooring",
-    4: "frame-hardware",
-    5: "insulation",
-    6: "lock-up",
-    7: "fixout",
-    8: "final-fit",
-    9: "shelving",
-    10: "beams-posts",
-    11: "fow-plumbing",
-    12: "power-truss-braces",
-    13: "hardies-fire-walls",
-}
-
 TASKLIST_STEP_MODULE_IDS = KATHERINE_STEP_TO_MODULE
+
+TASK_FLOOR_CODES = ["GF", "FF", "SF"] + [f"{n}F" for n in range(3, 16)]
+
+def _normalize_floor_code(value):
+    raw = str(value or "").strip().upper().replace(" ", "")
+    aliases = {
+        "0": "GF", "GF": "GF", "GROUND": "GF", "GROUNDFLOOR": "GF", "LEVEL0": "GF", "FLOOR0": "GF",
+        "1": "FF", "FF": "FF", "FIRST": "FF", "FIRSTFLOOR": "FF", "LEVEL1": "FF", "FLOOR1": "FF",
+        "2": "SF", "SF": "SF", "SECOND": "SF", "SECONDFLOOR": "SF", "LEVEL2": "SF", "FLOOR2": "SF",
+        "TF": "3F", "THIRD": "3F", "THIRDFLOOR": "3F",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    import re
+    m = re.match(r"^(?:LEVEL|FLOOR)?(\d{1,2})F?$", raw)
+    if not m:
+        return raw if raw in TASK_FLOOR_CODES else None
+    n = int(m.group(1))
+    if n == 0: return "GF"
+    if n == 1: return "FF"
+    if n == 2: return "SF"
+    return f"{n}F" if 3 <= n <= 15 else None
+
+def _parse_floor_levels(value, default_gf=True):
+    source = value
+    if isinstance(source, str):
+        raw = source.strip()
+        if raw:
+            try:
+                source = json.loads(raw)
+            except Exception:
+                source = [part for part in raw.replace(";", ",").split(",") if part.strip()]
+        else:
+            source = []
+    if not isinstance(source, list):
+        source = [] if source is None else [source]
+    result = []
+    for item in source:
+        code = _normalize_floor_code(item)
+        if code and code not in result:
+            result.append(code)
+    def sort_key(code):
+        if code == "GF": return 0
+        if code == "FF": return 1
+        if code == "SF": return 2
+        try: return int(code[:-1])
+        except Exception: return 99
+    result.sort(key=sort_key)
+    return result if result or not default_gf else ["GF"]
+
+class FloorLevelsUpdate(BaseModel):
+    floor_levels: List[str]
 
 def _is_cairns_customer(customer: str) -> bool:
     return "CAIRNS" in str(customer or "").strip().upper()
@@ -161,115 +196,6 @@ def _load_tasklist_module_selections(hw_ids):
             entry["selected_modules"] = []
 
     return selections
-
-
-def _load_tasklist_step_summaries(hw_manager_pairs):
-    """Bulk-read TaskList HW step status for the job cards.
-
-    ``task_group_hw_steps`` is the workflow source of truth.  The read is bulked
-    into one query for the current EMS candidate page, so showing true task
-    counts/status does not re-introduce the old N+1 loading problem.
-    """
-    pairs = {}
-    for hw_id, manager_code in hw_manager_pairs or []:
-        key = str(hw_id or "").strip()
-        if key:
-            pairs[key] = str(manager_code or "").strip().upper()
-    if not pairs:
-        return {}
-
-    from app.mssql_db import get_mssql_connection
-
-    rows_by_hw = {key: [] for key in pairs}
-    conn = None
-    try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor(as_dict=True)
-        ids = list(pairs)
-        for start in range(0, len(ids), 500):
-            batch = ids[start:start + 500]
-            placeholders = ", ".join(["%s"] * len(batch))
-            cursor.execute(
-                f"""
-                SELECT
-                    CAST(task_group_hw_id AS nvarchar(100)) AS hw_id,
-                    step_number, manager_code, is_visible, is_done, status,
-                    is_checked, checker_status
-                FROM [emsflow].[dbo].[task_group_hw_steps] WITH (NOLOCK)
-                WHERE task_group_hw_id IN ({placeholders})
-                ORDER BY task_group_hw_id, step_number
-                """,
-                tuple(batch),
-            )
-            for row in cursor.fetchall() or []:
-                hw_id = str(row.get("hw_id") or "").strip()
-                if hw_id in rows_by_hw:
-                    rows_by_hw[hw_id].append(row)
-    except Exception as exc:
-        logger.warning("[task-summary] Không thể đọc task_group_hw_steps: %s", exc)
-        return {}
-    finally:
-        if conn:
-            conn.close()
-
-    result = {}
-    for hw_id, raw_rows in rows_by_hw.items():
-        manager = pairs.get(hw_id, "")
-        manager_rows = [
-            r for r in raw_rows
-            if str(r.get("manager_code") or "").strip().upper() == manager
-        ] if manager else []
-        scoped_rows = manager_rows or raw_rows
-
-        # One logical task per step number.  Legacy rows can contain another
-        # manager partition; prefer the current AssignJob manager when present.
-        by_step = {}
-        for row in scoped_rows:
-            try:
-                step_no = int(row.get("step_number") or 0)
-            except Exception:
-                step_no = 0
-            if step_no > 0 and step_no not in by_step:
-                by_step[step_no] = row
-
-        ordered = [by_step[n] for n in sorted(by_step)]
-        configured = any(r.get("is_visible") is not None for r in ordered)
-        selected = [r for r in ordered if r.get("is_visible") in (True, 1, "1")] if configured else ordered
-
-        task_routes = []
-        done_count = 0
-        checker_done_count = 0
-        for row in selected:
-            step_no = int(row.get("step_number") or 0)
-            estimator_done = bool(row.get("is_done")) or str(row.get("status") or "").lower() == "done"
-            checker_done = bool(row.get("is_checked")) or str(row.get("checker_status") or "").lower() == "done"
-            if estimator_done:
-                done_count += 1
-            if checker_done:
-                checker_done_count += 1
-            task_routes.append({
-                "step_number": step_no,
-                "task_name": KATHERINE_STANDARD_STEPS.get(step_no),
-                "module_id": KATHERINE_STEP_TO_MODULE.get(step_no),
-                "task_key": KATHERINE_STEP_TO_PROCUREMENT_TASK.get(step_no),
-                "status": str(row.get("status") or "pending"),
-                "is_done": estimator_done,
-                "checker_done": checker_done,
-            })
-
-        modules = [r["module_id"] for r in task_routes if r.get("module_id")]
-        total = len(selected)
-        result[hw_id] = {
-            "configured": configured,
-            "task_count": total,
-            "task_done_count": done_count,
-            "task_pending_count": max(0, total - done_count),
-            "task_checker_done_count": checker_done_count,
-            "task_routes": task_routes,
-            "selected_modules": modules,
-            "all_selected_tasks_done": bool(total and done_count == total),
-        }
-    return result
 
 # ── Pydantic Schemas (Mô hình dữ liệu đầu vào và đầu ra) ──
 
@@ -583,6 +509,7 @@ async def get_tasklist_jobs(
             tghw.created_at,
             tghw.progress,
             tghw.is_done,
+            tghw.floor_levels,
             lj.JobNumber AS job_number,
             lj.resolved_client AS client,
             lj.resolved_client_name AS client_name,
@@ -592,9 +519,7 @@ async def get_tasklist_jobs(
             lj.Suburb AS suburb,
             lj.TrangThai AS status,
             lj.NgayCapNhat AS updated_at,
-            aj.MaNV AS ma_nv,
-            aj.TrangThaiCongViec AS assign_status,
-            ISNULL(aj.IsComp, 0) AS assign_is_comp
+            aj.MaNV AS ma_nv
         FROM candidate_jobs AS lj
         OUTER APPLY (
             SELECT TOP 1
@@ -602,7 +527,8 @@ async def get_tasklist_jobs(
                 t.id_assign_ems,
                 t.created_at,
                 t.progress,
-                t.is_done
+                t.is_done,
+                t.floor_levels
             FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
             WHERE t.id_job_ems = lj.IDJob
               AND ISNULL(t.is_delete, 0) = 0
@@ -672,15 +598,6 @@ async def get_tasklist_jobs(
             except Exception:
                 pass
 
-    # TaskList is the source of truth for task selection/count/status.
-    # One bulk read keeps the panel fast while exposing the same selected steps
-    # that the TaskList HW workflow actually uses.
-    step_summaries = _load_tasklist_step_summaries([
-        (row.get("hw_id"), row.get("ma_nv"))
-        for row in ems_rows
-        if row.get("hw_id") is not None
-    ])
-
     results = []
     for row in ems_rows:
         job_number = str(row.get("job_number") or "").strip()
@@ -695,6 +612,7 @@ async def get_tasklist_jobs(
             "updated_at": str(row.get("updated_at") or ""),
             "progress": float(row.get("progress") or 0),
             "is_done": bool(row.get("is_done")),
+            "floor_levels": _parse_floor_levels(row.get("floor_levels")),
             "job_number": job_number,
             "customer_reference_number": row.get("customer_reference_number"),
             "client": row.get("client"),
@@ -704,8 +622,6 @@ async def get_tasklist_jobs(
             "suburb": row.get("suburb"),
             "status": row.get("status"),
             "ma_nv": row.get("ma_nv"),
-            "assign_status": row.get("assign_status"),
-            "assign_is_comp": bool(row.get("assign_is_comp")),
             "has_local_job": has_local,
             "local_job": {
                 "id": local_job.get("id"),
@@ -713,25 +629,18 @@ async def get_tasklist_jobs(
                 "room_count": local_job.get("room_count"),
                 "total_area": local_job.get("total_area"),
             } if has_local else None,
-            # Lightweight TaskList workflow summary, bulk-loaded above.
-            # Procurement routing is carried as canonical task_key metadata; no
-            # Procurement product catalog is loaded until the user opens a task.
-            "task_modules_configured": bool(step_summaries.get(str(row.get("hw_id") or ""), {}).get("configured")),
-            "selected_modules": step_summaries.get(str(row.get("hw_id") or ""), {}).get("selected_modules"),
-            "task_modules": step_summaries.get(str(row.get("hw_id") or ""), {}).get("selected_modules"),
-            "selected_task_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_count"),
-            "task_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_count"),
-            "task_done_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_done_count"),
-            "task_pending_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_pending_count"),
-            "task_checker_done_count": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_checker_done_count"),
-            "task_routes": step_summaries.get(str(row.get("hw_id") or ""), {}).get("task_routes") or [],
-            "workflow_done": bool(row.get("assign_is_comp")) or bool(row.get("is_done")),
+            # Task module selection is intentionally lazy-loaded by open-by-ems
+            # when the user clicks a job.  It is not needed to render this list.
+            "task_modules_configured": False,
+            "selected_modules": None,
+            "task_modules": None,
+            "selected_task_count": None,
         })
 
     return {
         "status": "success",
         "total": len(results),
-        "completed_count": sum(1 for item in results if item["workflow_done"]),
+        "completed_count": sum(1 for item in results if item["has_local_job"]),
         "data": results,
         "source": "ems_listjobs_direct_fast",
     }
@@ -747,19 +656,19 @@ def get_task_steps(hw_id: Optional[str] = Query(None), job_number: Optional[str]
     Nếu không có cấu hình cụ thể, trả về danh sách standard steps.
     """
     all_steps = [
-        {"step_number": 4, "id": "frame_hardware", "task_key": "frame-hardware", "label": "Frame", "name": "Frame Hardware"},
-        {"step_number": 3, "id": "flooring_decking", "task_key": "flooring", "label": "Floor", "name": "Flooring & Decking"},
-        {"step_number": 5, "id": "insulation", "task_key": "insulation", "label": "Insu", "name": "Insulation"},
-        {"step_number": 2, "id": "eaves_soffit", "task_key": "eaves-soffits", "label": "Eaves", "name": "Eaves Soffit"},
-        {"step_number": 1, "id": "cladding", "task_key": "cladding", "label": "Cladding", "name": "Cladding"},
-        {"step_number": 6, "id": "lock_up", "task_key": "lock-up", "label": "Lockup", "name": "Lockup"},
-        {"step_number": 9, "id": "shelving", "task_key": "shelving", "label": "Shelving", "name": "Shelving"},
-        {"step_number": 10, "id": "timber_posts", "task_key": "beams-posts", "label": "Beams", "name": "Beams & Posts"},
-        {"step_number": 12, "id": "power_truss_braces", "task_key": "power-truss-braces", "label": "Truss", "name": "Power Truss Braces"},
-        {"step_number": 11, "id": "fow_plumbing", "task_key": "fow-plumbing", "label": "Plumbing", "name": "FOW Plumbing"},
-        {"step_number": 7, "id": "fixout", "task_key": "fixout", "label": "Fixout", "name": "Fixout"},
-        {"step_number": 8, "id": "final_fit", "task_key": "final-fit", "label": "Final", "name": "Final Fit"},
-        {"step_number": 13, "id": "hardies_fire_walls", "task_key": "hardies-fire-walls", "label": "Fire Wall", "name": "Hardies Fire Walls"},
+        {"step_number": 4, "id": "frame_hardware", "label": "Frame", "name": "Frame Hardware"},
+        {"step_number": 3, "id": "flooring_decking", "label": "Floor", "name": "Flooring & Decking"},
+        {"step_number": 5, "id": "insulation", "label": "Insu", "name": "Insulation"},
+        {"step_number": 2, "id": "eaves_soffit", "label": "Eaves", "name": "Eaves Soffit"},
+        {"step_number": 1, "id": "cladding", "label": "Cladding", "name": "Cladding"},
+        {"step_number": 6, "id": "lock_up", "label": "Lockup", "name": "Lockup"},
+        {"step_number": 9, "id": "shelving", "label": "Shelving", "name": "Shelving"},
+        {"step_number": 10, "id": "timber_posts", "label": "Beams", "name": "Beams & Posts"},
+        {"step_number": 12, "id": "power_truss_braces", "label": "Truss", "name": "Power Truss Braces"},
+        {"step_number": 11, "id": "fow_plumbing", "label": "Plumbing", "name": "FOW Plumbing"},
+        {"step_number": 7, "id": "fixout", "label": "Fixout", "name": "Fixout"},
+        {"step_number": 8, "id": "final_fit", "label": "Final", "name": "Final Fit"},
+        {"step_number": 13, "id": "hardies_fire_walls", "label": "Fire Wall", "name": "Hardies Fire Walls"},
     ]
 
     target_hw_id = str(hw_id).strip() if hw_id else None
@@ -1231,6 +1140,87 @@ def get_shared_job(token: str):
         conn.close()
 
 
+@router.put("/jobs/ems/{ems_id}/floor-levels")
+async def update_job_floor_levels(
+    ems_id: str,
+    req: FloorLevelsUpdate,
+    tasklist_token: Optional[str] = Header(None, alias="X-TaskList-Token"),
+    _: str = Depends(validate_session),
+):
+    """Persist floor levels through TaskList's API, with a shared-DB fallback."""
+    from app.mssql_db import get_mssql_connection
+    floors = _parse_floor_levels(req.floor_levels, default_gf=True)
+    invalid = [item for item in req.floor_levels if not _normalize_floor_code(item)]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Floor level không hợp lệ: {invalid}")
+
+    # TaskList owns the realtime workflow event. Going through its canonical
+    # endpoint updates the same shared row and immediately informs open TaskList
+    # screens. An API token is optional; SSO sessions forward their TaskList JWT.
+    workflow_headers = {"Content-Type": "application/json"}
+    if TASKLIST_WORKFLOW_API_TOKEN:
+        workflow_headers["X-API-Key"] = TASKLIST_WORKFLOW_API_TOKEN
+    elif tasklist_token:
+        workflow_headers["Authorization"] = f"Bearer {tasklist_token.strip()}"
+    if TASKLIST_WORKFLOW_API_URL and len(workflow_headers) > 1:
+        try:
+            import httpx
+            target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/floor-levels"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.put(target, json={"floor_levels": floors}, headers=workflow_headers)
+            if response.is_success:
+                payload = response.json().get("data") or {"id_job": ems_id, "floor_levels": floors}
+                return {
+                    "status": "success",
+                    "success": True,
+                    "data": payload,
+                    "floor_levels": payload.get("floor_levels", floors),
+                    "sync_source": "tasklist_api",
+                }
+            logger.warning("[floor-levels] TaskList API trả về HTTP %s; dùng shared DB fallback.", response.status_code)
+        except Exception as exc:
+            logger.warning("[floor-levels] Không gọi được TaskList API; dùng shared DB fallback: %s", exc)
+
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor()
+        payload = json.dumps(floors)
+        cursor.execute(
+            """
+            UPDATE [emsflow].[dbo].[task_group_hw]
+            SET floor_levels = %s
+            WHERE id_job_ems = %s
+              AND ISNULL(is_delete, 0) = 0
+            """,
+            (payload, ems_id),
+        )
+        affected = cursor.rowcount
+        conn.commit()
+        if not affected:
+            raise HTTPException(status_code=404, detail="Không tìm thấy task_group_hw của job để cập nhật floor levels.")
+        payload = {"id_job": ems_id, "floor_levels": floors}
+        return {
+            "status": "success",
+            "success": True,
+            "data": payload,
+            "floor_levels": floors,
+            "updated_rows": int(affected or 0),
+            "sync_source": "shared_db",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if conn:
+            try: conn.rollback()
+            except Exception: pass
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            try: conn.close()
+            except Exception: pass
+
+
 # ══════════════════════════════════════════════════════
 # LOOKUP JOB BY EMS ID (SSO deep-link từ TaskList Web3)
 # ══════════════════════════════════════════════════════
@@ -1254,6 +1244,7 @@ async def get_job_by_ems_id(ems_id: str):
                 tghw.hw_id,
                 CAST(lj.IDJob AS NVARCHAR(100)) AS id_job_ems,
                 tghw.id_assign_ems,
+                tghw.floor_levels,
                 lj.JobNumber AS job_number,
                 lj.Client AS client,
                 UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS customer_short_name,
@@ -1267,6 +1258,7 @@ async def get_job_by_ems_id(ems_id: str):
                 SELECT TOP 1
                     t.id AS hw_id,
                     t.id_assign_ems,
+                    t.floor_levels,
                     t.created_at
                 FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
                 WHERE t.id_job_ems = lj.IDJob
@@ -1305,6 +1297,7 @@ async def get_job_by_ems_id(ems_id: str):
                 result[key] = str(val)
 
         logger.info(f"[open-by-ems] Tìm thấy HW Job: hw_id={result.get('hw_id')}, job_number={result.get('job_number')}")
+        result["floor_levels"] = _parse_floor_levels(row.get("floor_levels"))
 
         # TaskList is authoritative for Katherine non-Cairns task visibility.
         manager_code = str(result.get("ma_nv") or "").strip().upper()
@@ -1312,19 +1305,15 @@ async def get_job_by_ems_id(ems_id: str):
         result["manager_code"] = manager_code
         result["customer"] = customer
 
-        # Return exact TaskList step status + canonical Procurement task route for
-        # the clicked job. This single read is authoritative for both module
-        # visibility and task counts, avoiding a second duplicate step query.
-        step_summary = _load_tasklist_step_summaries([(result.get("hw_id"), manager_code)]).get(str(result.get("hw_id") or ""), {})
-        result["task_modules_configured"] = bool(step_summary.get("configured"))
-        result["selected_modules"] = step_summary.get("selected_modules") if step_summary else None
-        result["task_modules"] = step_summary.get("selected_modules") if step_summary else None
-        result["selected_task_count"] = step_summary.get("task_count") if step_summary else None
-        result["task_count"] = step_summary.get("task_count") if step_summary else None
-        result["task_done_count"] = step_summary.get("task_done_count") if step_summary else None
-        result["task_pending_count"] = step_summary.get("task_pending_count") if step_summary else None
-        result["task_checker_done_count"] = step_summary.get("task_checker_done_count") if step_summary else None
-        result["task_routes"] = step_summary.get("task_routes") or [] if step_summary else []
+        # Load TaskList module selections for this job
+        module_selections = _load_tasklist_module_selections([result.get("hw_id")])
+        selection = module_selections.get(str(result.get("hw_id") or ""))
+        configured = bool(selection and selection.get("configured"))
+        selected_modules = list(selection.get("selected_modules") or []) if configured else None
+        result["task_modules_configured"] = configured
+        result["selected_modules"] = selected_modules
+        result["task_modules"] = selected_modules
+        result["selected_task_count"] = len(selected_modules) if configured else None
 
         # Tra cứu xem trong CSDL bản vẽ nội bộ (SQLite/MySQL) đã có project nào lưu theo job_number chưa
         local_job = None
@@ -1477,4 +1466,3 @@ async def export_procurement(payload: dict, x_username: Optional[str] = Header(N
             "message": "Client-side SSO active",
             "job_record": db_job_record
         }
-

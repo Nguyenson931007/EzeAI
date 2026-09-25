@@ -7,6 +7,7 @@ export default function RightPropertyTabBar({
   isHwOrAllUser = true,
   taskListJobs = [],
   EXTRA_MODULE_TABS = [],
+  taskModuleTabs = [],
   enabledModuleIds = [],
   showAddModulePopup,
   setShowAddModulePopup,
@@ -14,7 +15,9 @@ export default function RightPropertyTabBar({
   setEnabledModuleIds,
   selectedCustomerClient,
   customerModuleTabs = [],
-  customerModuleIds = []
+  customerModuleIds = [],
+  flooringTaskFloors = ["GF"],
+  onFlooringTaskFloorsChange
 }) {
   return (
     <div className="rp-side-tab-bar">
@@ -94,7 +97,7 @@ export default function RightPropertyTabBar({
           <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
           {/* Dynamic Module tabs */}
-          {EXTRA_MODULE_TABS.filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.id)).map((mod) => (
+          {(taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS).filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id)).map((mod) => (
             <button
               key={mod.id}
               title={mod.title}
@@ -142,6 +145,8 @@ export default function RightPropertyTabBar({
               selectedCustomerClient={selectedCustomerClient}
               customerModuleTabs={customerModuleTabs}
               customerModuleIds={customerModuleIds}
+              flooringTaskFloors={flooringTaskFloors}
+              onFlooringTaskFloorsChange={onFlooringTaskFloorsChange}
               activePaneTab={activePaneTab}
               setActivePaneTab={setActivePaneTab}
             />

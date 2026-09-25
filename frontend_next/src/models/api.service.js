@@ -153,6 +153,25 @@ export const ApiService = {
     }
   },
 
+  async updateTaskFloorLevels(emsId, floorLevels = ["GF"]) {
+    let taskListToken = "";
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      taskListToken = String(user.tasklist_token || localStorage.getItem("tasklist_token") || "").trim();
+    } catch (_) {}
+    const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/floor-levels`, {
+      method: "PUT",
+      headers: {
+        ...getHeaders(),
+        "Content-Type": "application/json",
+        ...(taskListToken ? { "X-TaskList-Token": taskListToken } : {})
+      },
+      credentials: "include",
+      body: JSON.stringify({ floor_levels: floorLevels }),
+    });
+    return handleResponse(res);
+  },
+
   async getTaskListJobs(maNv = null, search = null, limit = 500, forceRefresh = false) {
     const params = new URLSearchParams();
     if (maNv) params.append("ma_nv", maNv);
@@ -1221,5 +1240,4 @@ export const ApiService = {
     return handleResponse(res);
   }
 };
-
 
