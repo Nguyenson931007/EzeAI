@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -813,7 +814,7 @@ export default function EavesSoffitTask({
                             onDoubleClick={() => !isEditing && handleStartEdit(item)}
                             style={{ borderBottom: "1px solid #e2e8f0" }}
                           >
-                            <td style={{ padding: "7px 8px", textAlign: "center" }}>{index + 1}</td>
+                            <td style={{ padding: "7px 8px", textAlign: "center" }}><TaskRowNumber index={index} row={item} /></td>
                             <td style={{ padding: "7px 8px", fontWeight: 700, color: "#2563eb" }}>{level}</td>
                             <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.brand || ""} onChange={(event) => setEditRowData({ ...editRowData, brand: event.target.value })}>{SHEET_BRAND_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.brand || "—")}</td>
                             <td style={{ padding: "7px 8px" }}>{isEditing ? <select value={editRowData.thickness || ""} onChange={(event) => setEditRowData({ ...editRowData, thickness: event.target.value })}>{SHEET_THICKNESS_OPTIONS.map((value) => <option key={value}>{value}</option>)}</select> : (item.thickness || "—")}</td>

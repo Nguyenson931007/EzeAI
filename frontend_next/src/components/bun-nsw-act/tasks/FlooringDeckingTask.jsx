@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -1545,7 +1546,7 @@ export default function FlooringDeckingTask({
                               transition: "background 0.15s ease"
                             }}
                           >
-                            <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
 
                             <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
 

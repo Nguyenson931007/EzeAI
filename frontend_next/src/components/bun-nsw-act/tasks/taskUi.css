@@ -460,3 +460,37 @@ tr.task-floor-level-row td {
 .flooring-schedule-table td:last-child {
   white-space: nowrap !important;
 }
+
+
+/* Row origin marker: shown only for entries created by Auto Fill / AI. */
+.task-ui-row-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+.task-ui-row-number-value {
+  line-height: 1;
+}
+
+.task-ui-ai-row-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  box-sizing: border-box;
+  vertical-align: middle;
+}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -1017,7 +1018,7 @@ export default function FowPlumbingTask({
                                 data-editing-row-id={item.id}
                                 style={{ borderBottom: "1px solid #e2e8f0", background: "#fef9c3" }}
                               >
-                                <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 600, color: "#64748b" }}><TaskRowNumber index={idx} row={item} /></td>
                                 <td style={{ padding: "6px 8px", minWidth: "140px" }}>
                                   <ComboField
                                     value={current.itemName || ""}
@@ -1097,7 +1098,7 @@ export default function FowPlumbingTask({
                             >
                               {/* # */}
                               <td style={{ padding: "8px 12px", textAlign: "center", fontWeight: 600, color: "#64748b" }}>
-                                {idx + 1}
+                                <TaskRowNumber index={idx} row={item} />
                               </td>
 
                               {/* Item Name */}

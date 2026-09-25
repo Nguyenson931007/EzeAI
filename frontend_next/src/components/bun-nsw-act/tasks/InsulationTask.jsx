@@ -10,6 +10,7 @@ import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 
 export const DEFAULT_WALL_PRODUCTS = {
   "R2.0": [
@@ -1574,7 +1575,7 @@ export default function InsulationTask({
                                 background: isAreaRowEditing ? "#fef3c7" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc")
                               }}
                             >
-                              <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={a} /></td>
                               <td style={{ padding: "4px 8px" }}>
                                 <span style={{
                                   background: isCeiling ? "#f3e8ff" : "#ffedd5",
@@ -1862,7 +1863,7 @@ export default function InsulationTask({
                             transition: "background 0.15s ease"
                           }}
                         >
-                          <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                          <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={w} /></td>
 
                           {/* Wall Type */}
                           <td style={{ padding: "4px 8px" }}>

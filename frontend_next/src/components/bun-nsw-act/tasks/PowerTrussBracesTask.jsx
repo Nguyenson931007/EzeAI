@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
@@ -746,7 +747,7 @@ export default function PowerTrussBracesTask({
                                 transition: "background 0.15s ease"
                               }}
                             >
-                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
 
                               {/* Wall Height */}
                               <td style={{ padding: "4px 8px" }}>

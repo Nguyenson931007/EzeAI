@@ -7,6 +7,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import {
   LOCKUP_HEIGHTS,
   LOCKUP_WIDTHS,
@@ -1203,7 +1204,8 @@ export default function LockupTask({
           door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
           internal_type: isExt ? "-" : (r.internal_type !== undefined && r.internal_type !== null ? r.internal_type : "HF"),
           color: isExt ? "-" : (r.color !== undefined && r.color !== null ? r.color : "CHR"),
-          default_qty: r.default_qty || origDoor.default_qty || 1
+          default_qty: r.default_qty || origDoor.default_qty || 1,
+          autofill_source: "drawing"
         };
       });
 
@@ -2550,7 +2552,7 @@ export default function LockupTask({
                           minWidth: "32px",
                           maxWidth: "32px",
                           borderBottom: "1px solid #e2e8f0"
-                        }}>{idx + 1}</td>
+                        }}><TaskRowNumber index={idx} row={row} /></td>
 
                         <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
                           {isCellEditing("category") ? (

@@ -5,6 +5,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import EnteredTaskActions from "./EnteredTaskActions";
+import { TaskRowNumber } from "./TaskUi";
 
 export default function HardiesFireWallsTask({
   formData = {},
@@ -627,7 +628,7 @@ export default function HardiesFireWallsTask({
                         data-editing-row-id={w.id}
                         style={{ background: "#fef3c7", borderBottom: "1px solid #fcd34d" }}
                       >
-                        <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                        <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={w} /></td>
                         <td style={{ padding: "6px 8px", fontWeight: 700, color: "#2563eb" }}>{w.floorLevel || w.floor_level || "GF"}</td>
                         <td style={{ padding: "6px 8px" }}>
                           <input
@@ -707,7 +708,7 @@ export default function HardiesFireWallsTask({
                         background: idx % 2 === 0 ? "#ffffff" : "#f8fafc"
                       }}
                     >
-                      <td style={{ padding: "6px 8px", fontWeight: 700, color: "#64748b" }}>{idx + 1}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700, color: "#64748b" }}><TaskRowNumber index={idx} row={w} /></td>
                       <td style={{ padding: "6px 8px", fontWeight: 700, color: "#2563eb" }}>{w.floorLevel || w.floor_level || "GF"}</td>
                       <td style={{ padding: "6px 8px", fontWeight: 700, color: "#1e293b" }}>
                         {w.location}

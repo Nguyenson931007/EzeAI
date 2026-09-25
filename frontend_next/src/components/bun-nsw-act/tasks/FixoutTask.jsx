@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
+import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
 import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
@@ -963,7 +963,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
                     <TaskEmptyRow colSpan={8}>No robe doors entered.</TaskEmptyRow>
                   ) : robeRows.map((row, index) => (
                     <tr key={row.id || index}>
-                      <td style={{ textAlign: "center" }}>{index + 1}</td>
+                      <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
                       <td>{row.label || "—"}</td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
                       <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeRobe(index)} style={S.deleteBtn} title="Delete robe door">✕</button></td>
                     </tr>
@@ -999,7 +999,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
                       <TaskEmptyRow colSpan={6}>No window/door openings entered.</TaskEmptyRow>
                     ) : revealRows.map((row, index) => (
                       <tr key={row.id || index}>
-                        <td style={{ textAlign: "center" }}>{index + 1}</td><td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td><td>{row.height || "—"}</td><td>{row.width || "—"}</td><td>{row.blockWork || "—"}</td>
+                        <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td><td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td><td>{row.height || "—"}</td><td>{row.width || "—"}</td><td>{row.blockWork || "—"}</td>
                         <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeReveal(index)} style={S.deleteBtn} title="Delete opening">✕</button></td>
                       </tr>
                     ))}
@@ -1558,7 +1558,7 @@ export default function FixoutTask({
                       style={{ cursor: "pointer" }}
                       title="Click to select · Double-click to edit the whole row"
                     >
-                      <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                      <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}><TaskRowNumber index={idx} row={item} /></td>
                       <td>
                         {isRowEditing ? (
                           <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} />

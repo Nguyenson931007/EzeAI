@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -869,7 +870,7 @@ const claddingManualRows = (() => {
                                 transition: "background 0.15s ease"
                               }}
                             >
-                              <td style={{ padding: "5px 6px", fontWeight: 700 }}>{idx + 1}</td>
+                              <td style={{ padding: "5px 6px", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
 
                               {/* Same wall label shown on the drawing canvas (W-1, W-2, ...). */}
                               <td

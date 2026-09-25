@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { TaskRowNumber } from "./TaskUi";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -935,7 +936,7 @@ export default function TimberPostsTask({
                               transition: "background 0.15s ease"
                             }}
                           >
-                            <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
 
                             {/* Post Type */}
                             <td style={{ padding: "4px 8px" }}>

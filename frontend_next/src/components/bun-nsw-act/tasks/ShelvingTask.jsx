@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { EnteredDataCard, TaskField as Field, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
+import { EnteredDataCard, TaskField as Field, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { SHELVING_TYPES, SHELVING_SIZES, SHELVING_EXTRA_FIELDS } from "@/constants/procurementFormParity";
@@ -675,7 +675,7 @@ export default function ShelvingTask({
                             }}
                             title="Click to select · Double-click to edit"
                           >
-                            <td style={{ textAlign: "center", fontWeight: 700 }}>{idx + 1}</td>
+                            <td style={{ textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
                             <td>
                               {isRowEditing ? (
                                 <select value={editRowData.type || "Robe"} onChange={(event) => setEditRowData((prev) => ({ ...prev, type: event.target.value }))} style={controlStyle}>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
+import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
@@ -1100,7 +1101,7 @@ export default function HebelFlooringTask({
                       transition: "background 0.15s ease"
                     }}
                   >
-                    <td style={{ padding: "6px 8px", fontWeight: 700 }}>{idx + 1}</td>
+                    <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
 
                     {/* Floor Level is derived from the drawing page and is display-only. */}
                     <td style={{ padding: "4px 8px" }}>

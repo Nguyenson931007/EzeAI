@@ -10,7 +10,7 @@ import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalize
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { EnteredDataCard, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter } from "./TaskUi";
+import { EnteredDataCard, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
 
 const parseFrameExtras = (value) => {
   try {
@@ -559,7 +559,8 @@ export default function FrameHardwareTask({
           sourcePageIndex: g.sourcePageIndex,
           wallClass: g.wallClass,
           isCanvasWall: true,
-          wallIds: g.wallIds
+          wallIds: g.wallIds,
+          autofill_source: "drawing"
         };
       });
     } else {
@@ -583,7 +584,8 @@ export default function FrameHardwareTask({
           rodMapping: `${Math.ceil(timberMm / 900)} x M12 Rod 3000`,
           rodsQty: `${Math.ceil(timberMm / 900)} pcs`,
           floorLevel: "GF",
-          wallClass: "exterior_wall"
+          wallClass: "exterior_wall",
+          autofill_source: "drawing"
         },
         {
           id: "slab-" + Date.now() + "-2",
@@ -597,7 +599,8 @@ export default function FrameHardwareTask({
           rodMapping: `${Math.ceil(slabMm / 900)} x M12 Rod 3600`,
           rodsQty: `${Math.ceil(slabMm / 900)} pcs`,
           floorLevel: "GF",
-          wallClass: "exterior_wall"
+          wallClass: "exterior_wall",
+          autofill_source: "drawing"
         }
       ];
     }
@@ -806,7 +809,7 @@ export default function FrameHardwareTask({
         }}
         title="Click to select · Double-click to edit"
       >
-        <td style={{ fontWeight: 700, width: "24px" }}>{rowIdx + 1}</td>
+        <td style={{ fontWeight: 700, width: "24px" }}><TaskRowNumber index={rowIdx} row={w} /></td>
         <td>
           <span style={{
             background: isTimber ? "#fef3c7" : "#fee2e2",

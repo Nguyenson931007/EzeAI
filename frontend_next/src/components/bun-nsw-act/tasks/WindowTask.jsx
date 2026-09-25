@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable } from "./TaskUi";
+import { TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable, TaskRowNumber } from "./TaskUi";
 
 const levelRank = (value) => {
   const v = String(value || "GF").trim().toUpperCase();
@@ -177,7 +177,7 @@ export default function WindowTask({
                       }}
                       title={row?.doorId ? `Click to select ${row.label || "window"} · Double-click to edit` : undefined}
                     >
-                      <td style={{ textAlign: "center" }}>{rowNumber}</td>
+                      <td style={{ textAlign: "center" }}><TaskRowNumber value={rowNumber} row={row} /></td>
                       <td style={{ fontWeight: 800, color: "#1d4ed8" }}>
                         {isEditing ? <input value={editDraft.label || ""} onChange={(event) => setEditDraft((prev) => ({ ...prev, label: event.target.value }))} style={controlStyle} /> : (row?.label || "—")}
                       </td>
