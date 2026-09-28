@@ -59,19 +59,117 @@ export function getWallType(w) {
   return "int";
 }
 
-/**
- * Legacy compatibility hook. Semantic wall class is supplied by the backend's
- * building-envelope analysis (or an explicit user edit), never endpoint contact.
- */
 export function classifyWallsTouchingExtEndpoints(walls, snapThresh = 30) {
-  // Compatibility no-op.  Exterior/interior is a building-envelope decision
-  // made by the backend.  Endpoint proximity is not semantic evidence: an
-  // interior partition can touch the facade at both ends.  The previous code
-  // split that partition into extra pieces and promoted its middle to exterior,
-  // which reintroduced mixed classes and small "whisker" walls during every
-  // polygon/render recalculation.
-  void snapThresh;
-  return walls;
+  if (!Array.isArray(walls) || walls.length === 0) return walls;
+
+  const extEndpoints = [];
+  walls.forEach(w => {
+    const cls = getWallClass(w);
+    if (cls === "exterior_wall" && w.centerline && w.centerline.length === 2) {
+      const lvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+      extEndpoints.push({ x: w.centerline[0][0], y: w.centerline[0][1], wallId: w.id, level: lvl });
+      extEndpoints.push({ x: w.centerline[1][0], y: w.centerline[1][1], wallId: w.id, level: lvl });
+    }
+  });
+  if (extEndpoints.length === 0) return walls;
+
+  const resultWalls = [];
+  walls.forEach(w => {
+    if (w.user_modified || w.manual_type || w.is_manual || w.is_manually_set || w.locked || w.user_set_type) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const cls = getWallClass(w);
+    if (cls === "exterior_wall" || !w.centerline || w.centerline.length !== 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const x1 = w.centerline[0][0];
+    const y1 = w.centerline[0][1];
+    const x2 = w.centerline[1][0];
+    const y2 = w.centerline[1][1];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const touchPoints = [];
+    const curLvl = w.sourceLevelCode || (w.sourceLevelOrder !== undefined ? String(w.sourceLevelOrder) : null);
+    extEndpoints.forEach(ep => {
+      if (curLvl && ep.level && curLvl !== ep.level) return;
+      const t = ((ep.x - x1) * dx + (ep.y - y1) * dy) / (len * len);
+      if (t >= -0.05 && t <= 1.05) {
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+        const dist = Math.hypot(ep.x - projX, ep.y - projY);
+        if (dist <= snapThresh) touchPoints.push(Math.max(0, Math.min(1, t)));
+      }
+    });
+    if (touchPoints.length < 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    touchPoints.sort((a, b) => a - b);
+    const uniqueT = [];
+    touchPoints.forEach(t => {
+      if (uniqueT.length === 0 || (t - uniqueT[uniqueT.length - 1]) * len > 15) uniqueT.push(t);
+    });
+    if (uniqueT.length < 2) {
+      resultWalls.push(w);
+      return;
+    }
+
+    const tMin = uniqueT[0];
+    const tMax = uniqueT[uniqueT.length - 1];
+    const thickPx = w.thickness_px || 20;
+    const makePoly = (pStart, pEnd) => {
+      const segDx = pEnd[0] - pStart[0];
+      const segDy = pEnd[1] - pStart[1];
+      const segLen = Math.hypot(segDx, segDy) || 1;
+      const nx = -segDy / segLen;
+      const ny = segDx / segLen;
+      const half = thickPx / 2;
+      return [
+        [pStart[0] + nx * half, pStart[1] + ny * half],
+        [pEnd[0] + nx * half, pEnd[1] + ny * half],
+        [pEnd[0] - nx * half, pEnd[1] - ny * half],
+        [pStart[0] - nx * half, pStart[1] - ny * half]
+      ];
+    };
+
+    if (tMin * len >= 15) {
+      const pStart = [x1, y1];
+      const pEnd = [x1 + tMin * dx, y1 + tMin * dy];
+      resultWalls.push({ ...w, id: `${w.id}_int1`, centerline: [pStart, pEnd], polygon: makePoly(pStart, pEnd) });
+    }
+    if ((tMax - tMin) * len >= 15) {
+      const pStart = [x1 + tMin * dx, y1 + tMin * dy];
+      const pEnd = [x1 + tMax * dx, y1 + tMax * dy];
+      resultWalls.push({
+        ...w,
+        id: (tMin * len < 15 && (1 - tMax) * len < 15) ? w.id : `${w.id}_ext`,
+        class_name: "exterior_wall",
+        wall_type: "ext",
+        is_ext: true,
+        is_exterior: true,
+        centerline: [pStart, pEnd],
+        polygon: makePoly(pStart, pEnd)
+      });
+    }
+    if ((1 - tMax) * len >= 15) {
+      const pStart = [x1 + tMax * dx, y1 + tMax * dy];
+      const pEnd = [x2, y2];
+      resultWalls.push({ ...w, id: `${w.id}_int2`, centerline: [pStart, pEnd], polygon: makePoly(pStart, pEnd) });
+    }
+  });
+
+  return resultWalls;
 }
 
 /**

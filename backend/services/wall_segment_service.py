@@ -796,11 +796,6 @@ def _remove_short_overlapping_walls(walls: List[dict], min_length: float = 80.0,
                 
             w_long = walls[j]
 
-            # Only dedupe within the same semantic class. Cross-class overlap can
-            # be a legitimate junction/perimeter contact and must not erase walls.
-            if w_short.get("class_name") != w_long.get("class_name"):
-                continue
-
             c_long = w_long.get("centerline")
             if not c_long or len(c_long) != 2:
                 continue
@@ -836,8 +831,12 @@ def _remove_short_overlapping_walls(walls: List[dict], min_length: float = 80.0,
 
 def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     """
-    Option 1: Discard any interior/partition walls that lie outside the boundary
-    enclosed by the exterior walls.
+    Mark interior/partition walls that appear outside the inferred exterior boundary.
+
+    This check must be advisory. Wall detection often runs on a cropped ROI, so the
+    detected exterior walls may not form the building's complete outer envelope. A
+    convex-hull fallback built from that incomplete set can put valid interior walls
+    "outside" and previously caused them to be deleted in bulk.
     
     Algorithm:
         1. Find all exterior walls.
@@ -846,7 +845,8 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
         4. If we find closed polygons, use their union as the boundary.
         5. If no closed polygons are found (or area is tiny), fall back to the Convex Hull of exterior walls.
         6. Buffer the boundary by a small margin (e.g., 50px) to prevent borderline discards.
-        7. Filter out interior/partition walls whose midpoints lie outside this boundary.
+        7. Mark interior/partition walls whose midpoints lie outside this boundary,
+           but keep every detected wall for the later cleanup/NMS stages.
     """
     from shapely.geometry import LineString, MultiPoint, Point
     from shapely.ops import polygonize, unary_union
@@ -905,45 +905,42 @@ def _filter_walls_outside_boundary(walls: List[dict]) -> List[dict]:
     except Exception:
         boundary_buffered = boundary_geom
 
-    # 5. Filter interior/partition walls
-    keep_walls = []
-    # Always keep exterior walls
+    # 5. Keep every wall. The boundary result is only a diagnostic hint because an
+    # ROI crop does not guarantee that the exterior envelope is complete.
+    checked_walls = []
+    outside_count = 0
     for w in walls:
         class_name = w.get("class_name", "exterior_wall")
         if class_name == "exterior_wall":
-            keep_walls.append(w)
+            checked_walls.append(w)
             continue
             
         c = w.get("centerline")
         if not c or len(c) != 2:
-            keep_walls.append(w)
+            checked_walls.append(w)
             continue
             
         p1, p2 = c[0], c[1]
         midpoint = Point([(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0])
         
-        # Check if the midpoint is inside the buffered boundary
+        # Check if the midpoint is inside the buffered boundary. Never hard-delete
+        # the wall based on this heuristic alone.
         try:
-            # IMPORTANT: exterior boundary is only advisory.  The exterior class can
-            # be incomplete/wrong, so using it as a hard-delete mask was removing
-            # valid interior walls that YOLO had already detected.
-            inside_boundary = bool(boundary_buffered.contains(midpoint))
-            new_wall = dict(w)
-            new_wall["outside_exterior_boundary"] = not inside_boundary
-            if not inside_boundary:
-                logger.info(
-                    f"[wall_segment_service] Boundary advisory: kept interior/partition wall at midpoint "
-                    f"({midpoint.x:.0f}, {midpoint.y:.0f}) even though it is outside the inferred exterior boundary"
-                )
-            keep_walls.append(new_wall)
+            if boundary_buffered.contains(midpoint):
+                checked_walls.append(w)
+            else:
+                marked_wall = dict(w)
+                marked_wall["outside_exterior_boundary"] = True
+                checked_walls.append(marked_wall)
+                outside_count += 1
         except Exception:
-            keep_walls.append(w)  # Safe default on geometry error
+            checked_walls.append(w)  # Safe default on geometry error
 
     logger.info(
-        f"[wall_segment_service] Boundary advisory: kept all {len(keep_walls)}/{len(walls)} walls; "
-        "outside-boundary candidates are flagged, not removed"
+        f"[wall_segment_service] Boundary check: kept {len(checked_walls)}/{len(walls)} walls; "
+        f"flagged {outside_count} outside inferred exterior boundary (advisory only)"
     )
-    return keep_walls
+    return checked_walls
 
 
 
@@ -1410,6 +1407,128 @@ def _classify_outermost_walls_by_floodfill(
         ext_count, len(result),
     )
     return result
+
+
+def _classify_outermost_walls_by_raycast(
+    walls: List[dict],
+    img_w: int,
+    img_h: int,
+    samples: int = 7,
+) -> List[dict]:
+    """Classify the outermost wall runs without trusting YOLO wall classes.
+
+    From several points along each wall we cast a ray in both normal directions.
+    An outer wall has one predominantly clear side (the ray reaches the image edge)
+    and one predominantly blocked side (the ray meets the rest of the building).
+    Internal walls are normally blocked on both sides; isolated annotation strokes
+    are normally clear on both sides. This also works when an ROI leaves small gaps
+    in the perimeter, where polygon/flood-fill classification can leak.
+    """
+    if not walls or img_w <= 0 or img_h <= 0:
+        return walls
+
+    metrics = [_line_metrics(w) for w in walls]
+    eps = 1e-7
+
+    def _cross(ax, ay, bx, by):
+        return ax * by - ay * bx
+
+    def _distance_to_border(ox, oy, dx, dy):
+        distances = []
+        if dx > eps:
+            distances.append((img_w - 1.0 - ox) / dx)
+        elif dx < -eps:
+            distances.append((0.0 - ox) / dx)
+        if dy > eps:
+            distances.append((img_h - 1.0 - oy) / dy)
+        elif dy < -eps:
+            distances.append((0.0 - oy) / dy)
+        positive = [d for d in distances if d > 0.0]
+        return min(positive) if positive else 0.0
+
+    def _ray_is_clear(ox, oy, dx, dy, current_idx):
+        max_t = _distance_to_border(ox, oy, dx, dy)
+        if max_t <= 1.0:
+            return True
+
+        # Ignore the immediate junction zone around the source wall. A connected
+        # perpendicular wall at its endpoint must not make the outdoor side blocked.
+        min_t = 18.0
+        for idx, m in enumerate(metrics):
+            if idx == current_idx or m is None:
+                continue
+            x1, y1, x2, y2, _, _, _ = m
+            sx, sy = x2 - x1, y2 - y1
+            qx, qy = x1 - ox, y1 - oy
+            den = _cross(dx, dy, sx, sy)
+
+            if abs(den) > eps:
+                t = _cross(qx, qy, sx, sy) / den
+                u = _cross(qx, qy, dx, dy) / den
+                if min_t < t < max_t - 2.0 and -0.02 <= u <= 1.02:
+                    return False
+                continue
+
+            # Collinear wall along the ray: count its nearest forward endpoint as
+            # a blocker. Parallel-but-offset lines are ignored.
+            if abs(_cross(qx, qy, dx, dy)) > 7.0:
+                continue
+            t1 = qx * dx + qy * dy
+            t2 = (x2 - ox) * dx + (y2 - oy) * dy
+            forward = [t for t in (t1, t2) if min_t < t < max_t - 2.0]
+            if forward:
+                return False
+        return True
+
+    result = []
+    ext_count = 0
+    for idx, wall in enumerate(walls):
+        m = metrics[idx]
+        if m is None:
+            result.append(wall)
+            continue
+        x1, y1, x2, y2, ux, uy, length = m
+        nx, ny = -uy, ux
+        clear_a = 0
+        clear_b = 0
+        for si in range(max(3, samples)):
+            t = 0.10 + 0.80 * si / max(1, samples - 1)
+            mx = x1 + (x2 - x1) * t
+            my = y1 + (y2 - y1) * t
+            clear_a += int(_ray_is_clear(mx, my, nx, ny, idx))
+            clear_b += int(_ray_is_clear(mx, my, -nx, -ny, idx))
+
+        ra = clear_a / max(3, samples)
+        rb = clear_b / max(3, samples)
+        is_ext = max(ra, rb) >= 0.57 and min(ra, rb) <= 0.43
+
+        nw = dict(wall)
+        # The earlier boundary check is diagnostic only and may have been based on
+        # incorrect YOLO classes. Do not leak that stale hint into final output.
+        nw.pop("outside_exterior_boundary", None)
+        if is_ext:
+            nw["class_name"] = "exterior_wall"
+            nw["wall_type"] = "ext"
+            nw["is_ext"] = True
+            nw["is_exterior"] = True
+            ext_count += 1
+        else:
+            cls = "partition_wall" if wall.get("class_name") == "partition_wall" else "interior_wall"
+            nw["class_name"] = cls
+            nw["wall_type"] = "part" if cls == "partition_wall" else "int"
+            nw["is_ext"] = False
+            nw["is_exterior"] = False
+        nw["outer_envelope_classified"] = True
+        nw["outer_envelope_method"] = "normal_raycast"
+        nw["clear_ratio_sides"] = [round(ra, 2), round(rb, 2)]
+        result.append(nw)
+
+    logger.info(
+        "[wall_segment_service] Outermost ray classification: %d exterior / %d total",
+        ext_count, len(result),
+    )
+    return result
+
 
 def _classify_walls_touching_ext_endpoints(walls: List[dict], snap_thresh: float = 30.0) -> List[dict]:
     """Preserve the YOLO semantic class for every wall.
@@ -2025,17 +2144,24 @@ def _filter_strong_visual_false_positives(img_np, walls: List[dict]) -> List[dic
         conf = float(wall.get("confidence", 0.0) or 0.0)
         conn = connection_count(idx, wall)
 
-        # Conservative policy: visual evidence is advisory for nearly every wall.
-        # Earlier versions deleted valid partitions because raster text/openings interrupted
-        # the wall band.  Only an isolated, extremely-low-confidence and almost completely
-        # unsupported run may be removed.  Any connected wall or confidence >= 0.18 survives.
-        reject = (
+        # Connected geometry remains protected. For isolated candidates, reject either
+        # extremely weak detections or short single-stroke runs typical of room labels,
+        # dimensions and leaders. A true wall band must show repeated cross-section support.
+        extremely_weak = (
             conn == 0
             and conf < 0.18
             and length >= 45.0
             and cont < 0.08
             and score < 0.05
         )
+        isolated_drafting_stroke = (
+            conn == 0
+            and 18.0 <= length <= 240.0
+            and conf < 0.55
+            and cont < 0.14
+            and score < 0.10
+        )
+        reject = extremely_weak or isolated_drafting_stroke
 
         if reject:
             removed += 1
@@ -2835,59 +2961,24 @@ class WallSegmentService:
         # Step 0.5: Skip backend door cross-filter (frontend handles door gaps correctly)
         # detected_walls = _filter_walls_by_doors(detected_walls, image_bytes)
 
-        # Step 0.75: Recover only strong raster-supported orthogonal wall runs that YOLO missed.
-        # Recovery is graph-constrained: isolated drawing/text lines are not admitted.
-        detected_walls = _recover_missing_orthogonal_wall_bands(img_np, detected_walls, max_new=80)
-
-        # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(detected_walls, perp_dist_threshold=12.0, gap_threshold=42.0)
-
-        # Step 2: Establish geometry first, then node the wall graph.
-        # Compute adaptive tolerances based on real_scale (mm/px) and wall thickness
-        # to ensure robust snapping across different PDF render DPIs.
-        scale_tols = _compute_adaptive_scale_tolerances(
-            real_scale=real_scale,
-            wall_thicknesses=wall_thicknesses,
-            img_w=img_w,
-            img_h=img_h
+        # Original floor-tool wall generation pipeline. Keep this sequence and
+        # its tolerances aligned with the reference implementation; the newer
+        # raster recovery/dedupe/classification stack produced substantially
+        # worse walls on the target plans.
+        merged_walls = _merge_collinear_walls(
+            detected_walls,
+            perp_dist_threshold=15.0,
+            gap_threshold=250.0,
         )
-        t_snap_dist = scale_tols["t_snap_dist"]
-        corner_snap_dist = scale_tols["corner_snap_dist"]
-        touch_tol = scale_tols["touch_tol"]
-        min_piece_px = scale_tols["min_piece_px"]
-
-        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=12.0)
-        snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
-        snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
-        # Pure geometry snap is only for already-touching corners.
-        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=corner_snap_dist)
-        # First bridge stems that visually continue into a nearby cross wall; then do a
-        # scale-aware T snap. This lets real T-junctions node even when YOLO stops short.
-        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=max(38.0, t_snap_dist * 2.0))
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
-        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
-        snapped_walls = _filter_repetitive_stair_and_screen_arrays(snapped_walls)
-        snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
-        )
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        # Keep visual evidence as a very conservative cleanup.
+        snapped_walls = _snap_perpendicular_corners(merged_walls)
+        snapped_walls = _snap_t_junctions(snapped_walls)
+        snapped_walls = _split_walls_at_t_junctions(snapped_walls)
+        snapped_walls = _orthogonalize_walls(snapped_walls, max_angle_deviation=5.0)
+        # Reject obvious text/dimension strokes only when raster evidence is
+        # decisively negative, then collapse near-identical YOLO axes.
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
-        snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
-        # Restored/collapsed walls were added after the first noding pass: node again with scale-aware tolerance
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
-        snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
-        )
-        # Filter outdoor dangling whisker stubs that protrude completely outside
-        snapped_walls = _filter_outdoor_whiskers(snapped_walls, img_w, img_h)
-        # Final semantic classification comes from the actual outermost envelope,
-        # not YOLO's ext/int guess. Interior walls that merely touch the facade
-        # therefore stay interior.
-        snapped_walls = _classify_outermost_walls_by_floodfill(snapped_walls, img_w, img_h)
 
         # Step 3: Reconstruct into perfect 20px-wide rectangles from final snapped/merged centerlines
         reconstructed_walls = []
@@ -2964,10 +3055,8 @@ class WallSegmentService:
                 # Extend endpoints at junctions to prevent gaps at corners
                 p1_ext = list(p1)
                 p2_ext = list(p2)
-                # Junction extension only inflated the temporary polygons used by cleanup passes
-                # (final geometry is rebuilt from centerline+thickness) -> remove the drift.
-                ext1 = 0.0
-                ext2 = 0.0
+                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
+                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
                 if ext1 > 0:
                     p1_ext[0] -= d * ux * ext1
                     p1_ext[1] -= d * uy * ext1
@@ -3025,11 +3114,8 @@ class WallSegmentService:
 
             overlap = False
             for accepted_w in filtered_walls:
-                # Different wall classes may legitimately meet/overlap at a
-                # junction. NMS is only for duplicate geometry of the same class.
-                if w.get("class_name") != accepted_w.get("class_name"):
-                    continue
-                # Perpendicular walls (T/L stubs) are never duplicates of each other.
+                # NMS is duplicate cleanup, not junction cleanup. A perpendicular
+                # T/L wall may overlap in area but must never suppress another wall.
                 if not _walls_near_parallel(w, accepted_w):
                     continue
                 try:
@@ -3057,15 +3143,9 @@ class WallSegmentService:
             if not overlap:
                 filtered_walls.append(w)
 
-        # Step 5.5: DO NOT promote walls to exterior merely because they touch
-        # exterior endpoints. Interior walls commonly terminate at the building
-        # envelope, and endpoint adjacency alone is not a semantic classifier.
-        # Keep model/user-assigned classes intact.
-        snap_thresh = (250.0 / real_scale) if (real_scale and real_scale != 1.0) else 25.0
-        filtered_walls = _classify_walls_touching_ext_endpoints(filtered_walls, snap_thresh=snap_thresh)
-
-        # Topology passes mutate centerlines. Rebuild all render/selection geometry
-        # once at the end so polygon/fill/selection can never drift apart.
+        # Step 5.5: Ignore YOLO ext/int labels. Classify from the actual outermost
+        # geometry by casting normal rays from both sides of every wall run.
+        filtered_walls = _classify_outermost_walls_by_raycast(filtered_walls, img_w, img_h)
         filtered_walls = _rebuild_wall_geometry(filtered_walls, real_scale, wall_thicknesses)
 
         # Reassign sequential IDs to filtered walls
@@ -3190,13 +3270,8 @@ class WallSegmentService:
             )
             detected_walls = _merge_ensemble_walls(detected_walls, detected_walls_last)
 
-        raw_yolo_walls = list(detected_walls)
-
-        # Do NOT rewrite interior/exterior classes from crossing heuristics here.
-        # Semantic class is rebuilt later from the actual outer envelope after
-        # topology (snap + intersection split) is established.
-        # This avoids turning internal runs into exterior just because they touch
-        # or cross a perimeter wall.
+        # Do not split runs from YOLO's ext/int guess. Final semantic classes are
+        # rebuilt geometrically, and this old split produced many tiny slivers.
 
         # Build initial raw walls to yield immediately so the user doesn't wait
         raw_yield_walls = []
@@ -3248,59 +3323,18 @@ class WallSegmentService:
         # already handles door gaps by splitting walls into segments, not deleting them.
         # _filter_walls_by_doors was too aggressive (removed entire walls near doors).
         processed_walls = detected_walls
-        # Recover strong raster-supported wall runs before destructive geometry cleanup.
-        # This is especially important for narrow partitions that YOLO intermittently misses.
-        processed_walls = _recover_missing_orthogonal_wall_bands(img_np, processed_walls, max_new=80)
-
-        # Step 1: Merge collinear overlapping walls of the same class
-        merged_walls = _merge_collinear_walls(processed_walls, perp_dist_threshold=12.0, gap_threshold=42.0)
-
-        # Step 2: Establish geometry first, then node the wall graph.
-        # Compute adaptive tolerances based on real_scale (mm/px) and wall thickness
-        # to ensure robust snapping across different PDF render DPIs.
-        scale_tols = _compute_adaptive_scale_tolerances(
-            real_scale=real_scale,
-            wall_thicknesses=wall_thicknesses,
-            img_w=img_w,
-            img_h=img_h
+        merged_walls = _merge_collinear_walls(
+            processed_walls,
+            perp_dist_threshold=15.0,
+            gap_threshold=250.0,
         )
-        t_snap_dist = scale_tols["t_snap_dist"]
-        corner_snap_dist = scale_tols["corner_snap_dist"]
-        touch_tol = scale_tols["touch_tol"]
-        min_piece_px = scale_tols["min_piece_px"]
-
-        snapped_walls = _orthogonalize_walls(merged_walls, max_angle_deviation=12.0)
-        snapped_walls = _snap_walls_to_visual_axis(img_np, snapped_walls, max_offset=16)
-        snapped_walls = _refine_wall_axes_from_band_centers(img_np, snapped_walls, max_shift=9.0)
-        # Pure geometry snap is only for already-touching corners.
-        snapped_walls = _snap_perpendicular_corners(snapped_walls, max_dist_to_corner=corner_snap_dist)
-        # First bridge stems that visually continue into a nearby cross wall; then do a
-        # scale-aware T snap. This lets real T-junctions node even when YOLO stops short.
-        snapped_walls = _bridge_visual_t_junction_gaps(img_np, snapped_walls, max_gap=max(38.0, t_snap_dist * 2.0))
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
-        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
-        snapped_walls = _filter_repetitive_stair_and_screen_arrays(snapped_walls)
-        snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
-        )
-        snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        # Keep visual evidence as a very conservative cleanup.
+        snapped_walls = _snap_perpendicular_corners(merged_walls)
+        snapped_walls = _snap_t_junctions(snapped_walls)
+        snapped_walls = _split_walls_at_t_junctions(snapped_walls)
+        snapped_walls = _orthogonalize_walls(snapped_walls, max_angle_deviation=5.0)
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
-        snapped_walls = _restore_supported_raw_walls(img_np, raw_yolo_walls, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
-        snapped_walls = _collapse_same_band_parallel_walls(img_np, snapped_walls)
-        # Restored/collapsed walls were added after the first noding pass: node again with scale-aware tolerance
-        snapped_walls = _snap_t_junctions(snapped_walls, max_dist_to_segment=t_snap_dist)
-        snapped_walls = _split_walls_at_all_junctions(
-            snapped_walls, touch_tolerance=touch_tol, min_piece_len=min_piece_px
-        )
-        # Filter outdoor dangling whisker stubs that protrude completely outside
-        snapped_walls = _filter_outdoor_whiskers(snapped_walls, img_w, img_h)
-        # Final semantic classification comes from the actual outermost envelope,
-        # not YOLO's ext/int guess. Interior walls that merely touch the facade
-        # therefore stay interior.
-        snapped_walls = _classify_outermost_walls_by_floodfill(snapped_walls, img_w, img_h)
 
         # Step 3: Reconstruct
         reconstructed_walls = []
@@ -3370,10 +3404,8 @@ class WallSegmentService:
 
                 p1_ext = list(p1)
                 p2_ext = list(p2)
-                # Junction extension only inflated the temporary polygons used by cleanup passes
-                # (final geometry is rebuilt from centerline+thickness) -> remove the drift.
-                ext1 = 0.0
-                ext2 = 0.0
+                ext1 = get_ext_factor(p1, idx, snapped_walls, ux, uy)
+                ext2 = get_ext_factor(p2, idx, snapped_walls, ux, uy)
                 if ext1 > 0:
                     p1_ext[0] -= d * ux * ext1
                     p1_ext[1] -= d * uy * ext1
@@ -3431,11 +3463,6 @@ class WallSegmentService:
 
             overlap = False
             for accepted_w in filtered_walls:
-                # Cross-class contact is commonly a real junction. Near-identical
-                # cross-class duplicates were already handled by centerline dedupe.
-                if w.get("class_name") != accepted_w.get("class_name"):
-                    continue
-                # Perpendicular walls (T/L stubs) are never duplicates of each other.
                 if not _walls_near_parallel(w, accepted_w):
                     continue
                 try:
@@ -3463,6 +3490,7 @@ class WallSegmentService:
             if not overlap:
                 filtered_walls.append(w)
 
+        filtered_walls = _classify_outermost_walls_by_raycast(filtered_walls, img_w, img_h)
         filtered_walls = _rebuild_wall_geometry(filtered_walls, real_scale, wall_thicknesses)
 
         for idx, w in enumerate(filtered_walls):
@@ -3508,7 +3536,7 @@ class WallSegmentService:
         return results
 
 
-def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 12.0) -> List[dict]:
+def _orthogonalize_walls(walls: List[dict], max_angle_deviation: float = 5.0) -> List[dict]:
     """
     Orthogonalizes walls that are close to horizontal or vertical (within max_angle_deviation degrees).
     Maintains junctions (joints) by grouping connected wall endpoints and aligning them to the

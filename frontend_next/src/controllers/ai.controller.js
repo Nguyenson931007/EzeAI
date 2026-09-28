@@ -1078,11 +1078,7 @@ export const useAIController = (
             setRoiProgress(100);
           }
 
-          // raw_detected is progress/debug only. Persisting it to the canvas meant the
-          // user briefly received raw YOLO geometry and, more importantly, repeated scans
-          // accumulated stale AI walls before the final event arrived. Only FINAL walls may
-          // mutate the canvas.
-          if (event.walls && event.status === "final") {
+          if (event.walls) {
             let detectedWalls = event.walls.map(w => {
               const rawCls = getWallClass(w);
               const class_name = rawCls;
@@ -1090,10 +1086,7 @@ export const useAIController = (
               // Always use user-configured thickness based on frontend class determination
               // (backend may classify differently from getWallClass, causing mismatches)
               const thickness = wall_type === "ext" ? ext : (wall_type === "part" ? part : int);
-              const configuredThicknessPx = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
-              const backendThicknessPx = Number(w?.thickness_px);
-              const useRasterThickness = w?.render_thickness_source === "raster" && Number.isFinite(backendThicknessPx) && backendThicknessPx >= 4 && backendThicknessPx <= 96;
-              const thickness_px = useRasterThickness ? backendThicknessPx : configuredThicknessPx;
+              const thickness_px = (realScale && realScale > 0 && realScale !== 1.0) ? (thickness / realScale) : (wall_type === "ext" ? 20 : 15);
               const shiftedCenterline = w.centerline ? w.centerline.map(pt => [
                 pt[0] + pdfOffset.x,
                 pt[1] + pdfOffset.y
@@ -1103,7 +1096,6 @@ export const useAIController = (
                 pt[1] + pdfOffset.y
               ]) : null;
               return {
-                ...w,
                 id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                 centerline: shiftedCenterline,
                 polygon: shiftedPoly,
@@ -1123,44 +1115,8 @@ export const useAIController = (
             const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
-            // A new local-AI scan REPLACES stale AI walls in the scanned area instead of
-            // appending to them. This was the main reason backend wall fixes looked unchanged:
-            // the previous bad wall graph survived every re-scan and was merged back in.
-            const isManualWall = (w) => String(w?.review_state || "").toUpperCase() === "MANUAL";
-            const wallTouchesRoi = (w) => {
-              if (!roiRect || !Array.isArray(w?.centerline) || w.centerline.length !== 2) return !roiRect;
-              const pts = w.centerline.map(pt => ({
-                x: Number(pt?.[0] ?? 0) - Number(pdfOffset?.x || 0),
-                y: Number(pt?.[1] ?? 0) - Number(pdfOffset?.y || 0),
-              }));
-              const minX = Math.min(pts[0].x, pts[1].x), maxX = Math.max(pts[0].x, pts[1].x);
-              const minY = Math.min(pts[0].y, pts[1].y), maxY = Math.max(pts[0].y, pts[1].y);
-              const pad = 6;
-              const rx1 = Number(roiRect.x || 0) - pad;
-              const ry1 = Number(roiRect.y || 0) - pad;
-              const rx2 = Number(roiRect.x || 0) + Number(roiRect.w || 0) + pad;
-              const ry2 = Number(roiRect.y || 0) + Number(roiRect.h || 0) + pad;
-              return maxX >= rx1 && minX <= rx2 && maxY >= ry1 && minY <= ry2;
-            };
-
-            const keptExistingWalls = existingWallsSnapshot.filter(w => {
-              if (isManualWall(w)) return true; // never destroy user-drawn geometry
-              if (!roiRect) return false;        // full-page AI scan replaces old AI graph
-              return !wallTouchesRoi(w);         // ROI scan replaces only AI walls in ROI
-            });
-
-            const allWalls = dedupeDetectedWallCenterlines([...keptExistingWalls, ...cleanWalls]);
-            // Backend final output is already canonicalized/merged. Frontend may only heal a
-            // tiny ROI-boundary seam; the old defaults (8px lane, 120px gap) could undo backend
-            // rules, bridge doors/openings, and pull neighbouring wall pieces together.
-            const mergedWalls = mergeCollinearWalls(allWalls, 4, 0.998, 6);
-            console.info("[Wall AI] final replace", {
-              previous: existingWallsSnapshot.length,
-              kept: keptExistingWalls.length,
-              detected: cleanWalls.length,
-              final: mergedWalls.length,
-              roi: roiRect || null,
-            });
+            const allWalls = [...existingWallsSnapshot, ...cleanWalls];
+            const mergedWalls = mergeCollinearWalls(allWalls);
 
             // Snap existing doors to the newly detected merged walls!
             const snappedDoors = doors.map(d => {
@@ -1778,7 +1734,6 @@ export const useAIController = (
               pt[1] + pdfOffset.y
             ]) : null;
             return {
-              ...w,
               id: `wall_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
               centerline: shiftedCenterline,
               polygon: shiftedPoly,
@@ -1803,7 +1758,7 @@ export const useAIController = (
 
           // Merge with existing walls if not clearing
           const existingWalls = clearExisting ? [] : ((wallsByPageRef.current && wallsByPageRef.current[currentPage]) || []);
-          const allWalls = dedupeDetectedWallCenterlines([...existingWalls, ...cleanWalls]);
+          const allWalls = [...existingWalls, ...cleanWalls];
           const mergedWalls = mergeCollinearWalls(allWalls);
 
           // Snap doors to the newly detected merged walls!
