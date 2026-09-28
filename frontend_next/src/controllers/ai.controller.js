@@ -564,6 +564,16 @@ export function generateLintelsForOpenings(
     const roundedBase = roundLintelLength(measuredLengthM);
     const finalLen = Math.round((roundedBase + offset) * 1000) / 1000;
 
+    // Structural activity status:
+    // Exterior wall -> always active
+    // Interior wall -> active only if load-bearing (LBW)
+    const isExtWall = parentWall
+      ? (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior || wallThicknessMm > 75)
+      : Boolean(opening.is_ext || opening.is_exterior || opening.location === 'external' || opening.scope === 'external');
+    const isLbw = parentWall ? Boolean(parentWall.is_lbw || parentWall.is_load_bearing || parentWall.lbw) : false;
+    const isActive = isExtWall || isLbw;
+    const parentWallClass = parentWall ? (parentWall.class_name || (isExtWall ? 'exterior_wall' : 'interior_wall')) : (isExtWall ? 'exterior_wall' : 'interior_wall');
+
     newAutoLintels.push({
       id: `lintel_auto_${now}_${idx}`,
       wallId: parentWall ? parentWall.id : null,
@@ -586,7 +596,10 @@ export function generateLintelsForOpenings(
       ply: 1,
       isAutoDoorLintel: true,
       doorId: opening.id,
-      openingName: opening.doorName || opening.door_name || opening.label || opening.id
+      openingName: opening.doorName || opening.door_name || opening.label || opening.id,
+      isActive,
+      isParentLbw: isLbw,
+      parentWallClass
     });
   });
 

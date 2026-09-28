@@ -5,69 +5,69 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel } from "@/utils/procurementAutoFill";
 
 /**
- * FrameworkJobsModal â€“ Modal bÃ³c tÃ¡ch khá»‘i lÆ°á»£ng tÆ°á»ng & phÃ¢n loáº¡i sÃ n theo FrameWork Jobs (MSSQL emsflow)
+ * FrameworkJobsModal – Modal bóc tách khối lượng tường & phân loại sàn theo FrameWork Jobs (MSSQL emsflow)
  */
 export default function FrameworkJobsModal({ visible, onClose, walls = [], scaleValue, realScale, activeJobNumber }) {
-  // Láº¥y thÃ´ng tin tÃ i khoáº£n Ä‘ang Ä‘Äƒng nháº­p vÃ  dá»¯ liá»‡u cÃ¡c trang tá»« AppContext (backend/api/auth.py)
+  // Lấy thông tin tài khoản đang đăng nhập và dữ liệu các trang từ AppContext (backend/api/auth.py)
   const { user, pages = [], wallsByPage = {}, scalesByPage = {} } = useAppModel();
   const isAdmin = user?.role === "admin";
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 1. TRáº NG THÃI GIAO DIá»†N & Dá»® LIá»†U (STATE)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 1. TRẠNG THÁI GIAO DIỆN & DỮ LIỆU (STATE)
+  // ══════════════════════════════════════════════════════
 
-  /** Danh sÃ¡ch dá»¯ liá»‡u gá»‘c cÃ¡c jobs nháº­n vá» tá»« MSSQL endpoint /api/framework/jobs */
+  /** Danh sách dữ liệu gốc các jobs nhận về từ MSSQL endpoint /api/framework/jobs */
   const [jobsData, setJobsData] = useState([]);
 
-  /** Tráº¡ng thÃ¡i Ä‘ang táº£i dá»¯ liá»‡u tá»« API */
+  /** Trạng thái đang tải dữ liệu từ API */
   const [loading, setLoading] = useState(false);
 
-  /** ThÃ´ng bÃ¡o lá»—i khi gá»i API (náº¿u cÃ³) */
+  /** Thông báo lỗi khi gọi API (nếu có) */
   const [error, setError] = useState(null);
 
-  /** BÆ°á»›c hiá»ƒn thá»‹ hiá»‡n táº¡i: 1 = Danh sÃ¡ch Jobs (Step 1), 2 = Chi tiáº¿t bÃ³c tÃ¡ch (Step 2) */
+  /** Bước hiển thị hiện tại: 1 = Danh sách Jobs (Step 1), 2 = Chi tiết bóc tách (Step 2) */
   const [currentStep, setCurrentStep] = useState(1);
 
-  /** MÃ£ Job Number Ä‘ang Ä‘Æ°á»£c chá»n Ä‘á»ƒ lá»c (hoáº·c "ALL" Ä‘á»ƒ xem táº¥t cáº£ jobs) */
+  /** Mã Job Number đang được chọn để lọc (hoặc "ALL" để xem tất cả jobs) */
   const [selectedJobNumber, setSelectedJobNumber] = useState("ALL");
 
-  /** Tá»« khoÃ¡ tÃ¬m kiáº¿m Job Number trÃªn thanh search */
+  /** Từ khoá tìm kiếm Job Number trên thanh search */
   const [searchTerm, setSearchTerm] = useState("");
 
-  /** Dá»¯ liá»‡u Ä‘ang chá»‰nh sá»­a trÃªn UI (key: `${IDJob_HW}_${floorType}_${height}`) */
+  /** Dữ liệu đang chỉnh sửa trên UI (key: `${IDJob_HW}_${floorType}_${height}`) */
   const [editedData, setEditedData] = useState({});
 
-  /** Key cá»§a dÃ²ng Ä‘ang thá»±c hiá»‡n lÆ°u Ä‘Æ¡n láº» vÃ o database */
+  /** Key của dòng đang thực hiện lưu đơn lẻ vào database */
   const [savingKey, setSavingKey] = useState(null);
 
-  /** Tráº¡ng thÃ¡i Ä‘ang thá»±c hiá»‡n lÆ°u Ä‘á»“ng loáº¡t táº¥t cáº£ cÃ¡c dÃ²ng (Save All) */
+  /** Trạng thái đang thực hiện lưu đồng loạt tất cả các dòng (Save All) */
   const [isSavingAll, setIsSavingAll] = useState(false);
 
-  /** Táº­p há»£p cÃ¡c keys cá»§a cÃ¡c dÃ²ng Ä‘Ã£ lÆ°u thÃ nh cÃ´ng (hiá»ƒn thá»‹ hiá»‡u á»©ng Ä‘Ã£ lÆ°u) */
+  /** Tập hợp các keys của các dòng đã lưu thành công (hiển thị hiệu ứng đã lưu) */
   const [savedKeys, setSavedKeys] = useState(new Set());
 
-  /** Tráº¡ng thÃ¡i hiá»ƒn thá»‹ 3 cá»™t phÃ¢n tÃ¡ch 2 táº§ng (Táº§ng 1 DB + Táº§ng 2 AI = Tá»•ng 2 táº§ng) sau khi báº¥m Auto-Calculate */
+  /** Trạng thái hiển thị 3 cột phân tách 2 tầng (Tầng 1 DB + Tầng 2 AI = Tổng 2 tầng) sau khi bấm Auto-Calculate */
   const [isAccumulatedView, setIsAccumulatedView] = useState(false);
 
-  /** Modal popup xem chi tiáº¿t bÃ³c tÃ¡ch Ä‘á»™c láº­p cá»§a táº¥t cáº£ cÃ¡c táº§ng (5 táº§ng / N táº§ng) */
+  /** Modal popup xem chi tiết bóc tách độc lập của tất cả các tầng (5 tầng / N tầng) */
   const [showMultiFloorModal, setShowMultiFloorModal] = useState(false);
 
-  /** Cháº¿ Ä‘á»™ xem trong Multi-Floor Modal: 'matrix' (NhÃ³m theo chiá»u cao nhÆ° hÃ¬nh 4) hoáº·c 'byFloor' (Theo tá»«ng táº§ng) */
+  /** Chế độ xem trong Multi-Floor Modal: 'matrix' (Nhóm theo chiều cao như hình 4) hoặc 'byFloor' (Theo từng tầng) */
   const [multiFloorViewMode, setMultiFloorViewMode] = useState("matrix");
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 2. KHá»žI Táº O & Äá»’NG Bá»˜ CONFIG (EFFECTS)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 2. KHỞI TẠO & ĐỒNG BỘ CONFIG (EFFECTS)
+  // ══════════════════════════════════════════════════════
 
-  /** Táº£i danh sÃ¡ch jobs tá»« backend MSSQL khi má»Ÿ modal */
+  /** Tải danh sách jobs từ backend MSSQL khi mở modal */
   useEffect(() => {
     if (visible) {
       loadJobsList();
     }
   }, [visible]);
 
-  // Tá»± Ä‘á»™ng chuyá»ƒn tháº³ng sang Step 2 náº¿u Ä‘ang má»Ÿ má»™t Saved Job cá»¥ thá»ƒ
+  // Tự động chuyển thẳng sang Step 2 nếu đang mở một Saved Job cụ thể
   useEffect(() => {
     if (visible && activeJobNumber) {
       const targetStr = String(activeJobNumber).trim().toLowerCase();
@@ -90,19 +90,19 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }
   }, [visible, jobsData, activeJobNumber]);
 
-  // Tá»± Ä‘á»™ng tÃ­nh toÃ¡n & Ä‘iá»n báº£ng ngay láº­p tá»©c khi má»Ÿ modal cho Job hiá»‡n táº¡i
+  // Tự động tính toán & điền bảng ngay lập tức khi mở modal cho Job hiện tại
   useEffect(() => {
     if (visible && activeJobNumber && currentStep === 2) {
       applyAILengthsToAll();
     }
   }, [visible, activeJobNumber, currentStep, jobsData.length]);
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 3. TÃNH TOÃN KHá»I LÆ¯á»¢NG TÆ¯á»œNG AI Tá»ª CANVAS TÃCH THEO (FLOOR TYPE, HEIGHT)
-  // (Äá»“ng bá»™ vá»›i logic write_walls_with_height_groups trong takeoff_exporter.py)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 3. TÍNH TOÁN KHỐI LƯỢNG TƯỜNG AI TỪ CANVAS TÁCH THEO (FLOOR TYPE, HEIGHT)
+  // (Đồng bộ với logic write_walls_with_height_groups trong takeoff_exporter.py)
+  // ══════════════════════════════════════════════════════
 
-  /** Helper chuáº©n hÃ³a tÃ­nh mm tá»« px vÃ  scale factor cá»§a tá»«ng trang */
+  /** Helper chuẩn hóa tính mm từ px và scale factor của từng trang */
   const computeMmLength = (lenPx, pScale, pRealScale) => {
     if (!lenPx || lenPx <= 0) return 0;
     const s = (pScale !== undefined && pScale !== null && pScale > 0)
@@ -112,15 +112,15 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     if (!s) return Math.round(lenPx);
 
     if (s < 0.5) {
-      // scale Ä‘Æ°á»£c lÆ°u dáº¡ng mÃ©t/pixel (vÃ­ dá»¥ 0.005 m/px)
+      // scale được lưu dạng mét/pixel (ví dụ 0.005 m/px)
       return Math.round(lenPx * s * 1000);
     } else {
-      // scale Ä‘Æ°á»£c lÆ°u dáº¡ng mm/pixel (vÃ­ dá»¥ 5.2 mm/px)
+      // scale được lưu dạng mm/pixel (ví dụ 5.2 mm/px)
       return Math.round(lenPx * s);
     }
   };
 
-  /** TÃ­nh chiá»u dÃ i thá»±c táº¿ (mm) cho 1 Ä‘oáº¡n tÆ°á»ng trÃªn Canvas */
+  /** Tính chiều dài thực tế (mm) cho 1 đoạn tường trên Canvas */
   const calculateWallSegmentLengthMm = (w) => {
     const c = w.centerline;
     if (!c || !Array.isArray(c) || c.length !== 2) return 0;
@@ -130,7 +130,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return computeMmLength(lenPx, scaleValue, realScale);
   };
 
-  /** PhÃ¢n nhÃ³m tÆ°á»ng Canvas theo (Loáº¡i sÃ n + Chiá»u cao tÆ°á»ng) */
+  /** Phân nhóm tường Canvas theo (Loại sàn + Chiều cao tường) */
   const aiCanvasGroupsMap = useMemo(() => {
     const groupsMap = {}; // key: `${floorType}_${height}` -> { floorType, height, totalMm }
     if (!walls || !Array.isArray(walls)) return groupsMap;
@@ -157,25 +157,25 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return groupsMap;
   }, [walls, scaleValue, realScale]);
 
-  /** Tá»•ng chiá»u dÃ i Timber tá»« AI Canvas hiá»‡n táº¡i (mm) */
+  /** Tổng chiều dài Timber từ AI Canvas hiện tại (mm) */
   const aiTimberTotalMm = useMemo(() => {
     return Object.values(aiCanvasGroupsMap)
       .filter(g => g.floorType === "Timber")
       .reduce((sum, g) => sum + g.totalMm, 0);
   }, [aiCanvasGroupsMap]);
 
-  /** Tá»•ng chiá»u dÃ i Slab tá»« AI Canvas hiá»‡n táº¡i (mm) */
+  /** Tổng chiều dài Slab từ AI Canvas hiện tại (mm) */
   const aiSlabTotalMm = useMemo(() => {
     return Object.values(aiCanvasGroupsMap)
       .filter(g => g.floorType === "Slab")
       .reduce((sum, g) => sum + g.totalMm, 0);
   }, [aiCanvasGroupsMap]);
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 3.5 BÃ“C TÃCH KHá»I LÆ¯á»¢NG TÆ¯á»œNG THEO Tá»ªNG Táº¦NG (PER-FLOOR / MULTI-PAGE BREAKDOWN)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 3.5 BÓC TÁCH KHỐI LƯỢNG TƯỜNG THEO TỪNG TẦNG (PER-FLOOR / MULTI-PAGE BREAKDOWN)
+  // ══════════════════════════════════════════════════════
 
-  /** Chi tiáº¿t bÃ³c tÃ¡ch tá»«ng táº§ng / tá»«ng trang báº£n váº½ (Táº§ng 1, Táº§ng 2, Táº§ng 3, Táº§ng 4, Táº§ng 5...) */
+  /** Chi tiết bóc tách từng tầng / từng trang bản vẽ (Tầng 1, Tầng 2, Tầng 3, Tầng 4, Tầng 5...) */
   const perPageBreakdown = useMemo(() => {
     const architecturalPageIndices = getArchitecturalPageIndices(pages);
     const wallPageIndices = Object.keys(wallsByPage || {})
@@ -246,7 +246,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
 
   const floorLevelsByPage = useMemo(() => buildArchitecturalFloorLevelMap(pages), [pages]);
 
-  /** Tá»•ng há»£p khá»‘i lÆ°á»£ng cá»§a Táº¤T Cáº¢ cÃ¡c táº§ng cá»™ng láº¡i */
+  /** Tổng hợp khối lượng của TẤT CẢ các tầng cộng lại */
   const grandTotalAllFloorsSummary = useMemo(() => {
     let timberTotalMm = 0;
     let slabTotalMm = 0;
@@ -270,7 +270,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     };
   }, [perPageBreakdown]);
 
-  /** Tá»•ng há»£p danh sÃ¡ch nhÃ³m (Loáº¡i sÃ n + Chiá»u cao) cá»§a Táº¤T Cáº¢ cÃ¡c táº§ng cho Modal Popup (Giá»‘ng HÃ¬nh 4) */
+  /** Tổng hợp danh sách nhóm (Loại sàn + Chiều cao) của TẤT CẢ các tầng cho Modal Popup (Giống Hình 4) */
   const allHeightGroupRows = useMemo(() => {
     const groups = [];
     const heights = [2100, 2400, 2700, 3000, 3300, 3600];
@@ -302,7 +302,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return activeGroups.length > 0 ? activeGroups : groups;
   }, [perPageBreakdown]);
 
-  /** Ãp dá»¥ng khá»‘i lÆ°á»£ng cá»§a Táº¤T Cáº¢ CÃC Táº¦NG vÃ o báº£ng bÃ³c tÃ¡ch cá»§a Job */
+  /** Áp dụng khối lượng của TẤT CẢ CÁC TẦNG vào bảng bóc tách của Job */
   const applyAllFloorsTotalToJob = () => {
     const newEdits = {};
 
@@ -313,7 +313,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         const rowHeight = getDisplayHeight(row);
         const heightKey = `${targetFloorType}_${rowHeight}`;
 
-        // Láº¥y tá»•ng chiá»u dÃ i mm tá»« Táº¤T Cáº¢ cÃ¡c táº§ng cho má»‘c chiá»u cao nÃ y
+        // Lấy tổng chiều dài mm từ TẤT CẢ các tầng cho mốc chiều cao này
         let sumAllPagesMm = 0;
         perPageBreakdown.forEach(p => {
           if (p.groupsMap && p.groupsMap[heightKey]) {
@@ -336,13 +336,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     setShowMultiFloorModal(false);
   };
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 4. Gá»ŒI API Láº¤Y Dá»® LIá»†U Tá»ª SERVER (API FETCHING & REFRESH)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 4. GỌI API LẤY DỮ LIỆU TỪ SERVER (API FETCHING & REFRESH)
+  // ══════════════════════════════════════════════════════
 
   /**
-   * Táº£i / LÃ m má»›i danh sÃ¡ch tá»« báº£ng FrameWork MSSQL
-   * NÃºt Refresh gá»i hÃ m nÃ y vÃ  reset bá»™ Ä‘á»‡m editedData Ä‘á»ƒ náº¡p dá»¯ liá»‡u gá»‘c chÃ­nh xÃ¡c nháº¥t tá»« database
+   * Tải / Làm mới danh sách từ bảng FrameWork MSSQL
+   * Nút Refresh gọi hàm này và reset bộ đệm editedData để nạp dữ liệu gốc chính xác nhất từ database
    */
   const loadJobsList = async () => {
     setLoading(true);
@@ -351,24 +351,24 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       const res = await ApiService.fetchFrameworkJobs();
       if (res.success && res.data) {
         setJobsData(res.data);
-        // Reset láº¡i dá»¯ liá»‡u Ä‘ang sá»­a táº¡m thá»i vÃ  cháº¿ Ä‘á»™ xem 2 táº§ng
+        // Reset lại dữ liệu đang sửa tạm thời và chế độ xem 2 tầng
         setEditedData({});
         setIsAccumulatedView(false);
       } else {
-        setError(res.detail || "KhÃ´ng thá»ƒ táº£i danh sÃ¡ch Jobs tá»« MSSQL.");
+        setError(res.detail || "Không thể tải danh sách Jobs từ MSSQL.");
       }
     } catch (e) {
-      setError(e.message || "Lá»—i káº¿t ná»‘i Ä‘áº¿n mÃ¡y chá»§ API backend.");
+      setError(e.message || "Lỗi kết nối đến máy chủ API backend.");
     } finally {
       setLoading(false);
     }
   };
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 5. Xá»¬ LÃ Lá»ŒC & Táº O CÃC DÃ’NG SUB-ROWS NÄ‚NG Äá»˜NG THEO (FLOOR TYPE, HEIGHT)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 5. XỬ LÝ LỌC & TẠO CÁC DÒNG SUB-ROWS NĂNG ĐỘNG THEO (FLOOR TYPE, HEIGHT)
+  // ══════════════════════════════════════════════════════
 
-  /** Danh sÃ¡ch duy nháº¥t táº¥t cáº£ cÃ¡c Job Number phá»¥c vá»¥ hiá»ƒn thá»‹ á»Ÿ BÆ°á»›c 1 */
+  /** Danh sách duy nhất tất cả các Job Number phục vụ hiển thị ở Bước 1 */
   const uniqueJobsList = useMemo(() => {
     const map = new Map();
     jobsData.forEach(j => {
@@ -384,7 +384,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return Array.from(map.values());
   }, [jobsData]);
 
-  /** Danh sÃ¡ch Jobs sau khi lá»c theo tá»« khoÃ¡ tÃ¬m kiáº¿m á»Ÿ BÆ°á»›c 1 */
+  /** Danh sách Jobs sau khi lọc theo từ khoá tìm kiếm ở Bước 1 */
   const filteredJobsListStep1 = useMemo(() => {
     if (!searchTerm) return uniqueJobsList;
     const term = searchTerm.toLowerCase();
@@ -393,7 +393,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     );
   }, [uniqueJobsList, searchTerm]);
 
-  /** Danh sÃ¡ch cÃ¡c dÃ²ng dá»¯ liá»‡u thÃ´ phá»¥c vá»¥ hiá»ƒn thá»‹ á»Ÿ BÆ°á»›c 2 dá»±a theo Job Ä‘Æ°á»£c chá»n */
+  /** Danh sách các dòng dữ liệu thô phục vụ hiển thị ở Bước 2 dựa theo Job được chọn */
   const filteredRawJobsStep2 = useMemo(() => {
     let result = jobsData;
     if (selectedJobNumber && selectedJobNumber !== "ALL") {
@@ -409,13 +409,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   }, [jobsData, selectedJobNumber, searchTerm, currentStep]);
 
   /**
-   * Táº¡o danh sÃ¡ch cÃ¡c dÃ²ng sub-rows Ä‘á»™ng theo cáº·p (Loáº¡i sÃ n + Chiá»u cao).
-   * Tá»•ng há»£p tá»« cáº£ DB rows Ä‘Ã£ lÆ°u vÃ  cÃ¡c nhÃ³m tÆ°á»ng phÃ¡t hiá»‡n tá»« AI Canvas.
+   * Tạo danh sách các dòng sub-rows động theo cặp (Loại sàn + Chiều cao).
+   * Tổng hợp từ cả DB rows đã lưu và các nhóm tường phát hiện từ AI Canvas.
    */
   const groupedJobRows = useMemo(() => {
     const jobMap = {};
 
-    // 1. PhÃ¢n nhÃ³m cÃ¡c dÃ²ng Ä‘Ã£ cÃ³ trong DB theo IDJob_HW
+    // 1. Phân nhóm các dòng đã có trong DB theo IDJob_HW
     filteredRawJobsStep2.forEach(job => {
       const key = job.IDJob_HW || job.hw_id;
       if (!key) return;
@@ -432,14 +432,14 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
       if (job.job_status) jobMap[key].job_status = job.job_status;
     });
 
-    // 2. Dá»±ng danh sÃ¡ch cÃ¡c sub-rows Ä‘á»™ng theo (floorType, height)
+    // 2. Dựng danh sách các sub-rows động theo (floorType, height)
     const resultList = [];
 
     Object.values(jobMap).forEach(group => {
       const subRows = [];
       const seenKeys = new Set();
 
-      // a) Duyá»‡t qua cÃ¡c dÃ²ng cÃ³ sáºµn tá»« DB
+      // a) Duyệt qua các dòng có sẵn từ DB
       group.dbRows.forEach(dbRow => {
         const floorType = (dbRow.wall_above || dbRow.floor_type || "").toLowerCase() === "slab" ? "Slab" : "Timber";
         const height = Number(dbRow.wall_height || 2700);
@@ -458,7 +458,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         });
       });
 
-      // b) Bá»• sung cÃ¡c nhÃ³m tÆ°á»ng má»›i tá»« AI Canvas náº¿u DB chÆ°a cÃ³
+      // b) Bổ sung các nhóm tường mới từ AI Canvas nếu DB chưa có
       Object.values(aiCanvasGroupsMap).forEach(aiGroup => {
         const subKey = `${aiGroup.floorType.toLowerCase()}_${aiGroup.height}`;
         if (!seenKeys.has(subKey)) {
@@ -476,7 +476,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         }
       });
 
-      // c) Máº·c Ä‘á»‹nh táº¡o sáºµn náº¿u chÆ°a cÃ³ dÃ²ng nÃ o
+      // c) Mặc định tạo sẵn nếu chưa có dòng nào
       if (subRows.length === 0) {
         ["Timber", "Slab"].forEach(fType => {
           const subKey = `${fType.toLowerCase()}_2700`;
@@ -493,7 +493,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         });
       }
 
-      // Sáº¯p xáº¿p cÃ¡c sub-rows: Timber trÆ°á»›c, Slab sau, sau Ä‘Ã³ theo chiá»u cao
+      // Sắp xếp các sub-rows: Timber trước, Slab sau, sau đó theo chiều cao
       subRows.sort((a, b) => {
         if (a.floorType !== b.floorType) return a.floorType === "Timber" ? -1 : 1;
         return a.height - b.height;
@@ -508,9 +508,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return resultList;
   }, [filteredRawJobsStep2, aiCanvasGroupsMap]);
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 6. THá»NG KÃŠ Tá»”NG Cá»˜NG (SUMMARY CALCULATIONS)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 6. THỐNG KÊ TỔNG CỘNG (SUMMARY CALCULATIONS)
+  // ══════════════════════════════════════════════════════
 
   const summary = useMemo(() => {
     let totalTimberMm = 0;
@@ -531,11 +531,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     };
   }, [groupedJobRows, editedData]);
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 7. CÃC HÃ€M Láº¤Y & THAY Äá»”I GIÃ TRá»Š Tá»ªNG DÃ’NG (GETTERS & SETTERS)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 7. CÁC HÀM LẤY & THAY ĐỔI GIÁ TRỊ TỪNG DÒNG (GETTERS & SETTERS)
+  // ══════════════════════════════════════════════════════
 
-  /** Láº¥y chiá»u cao hiá»ƒn thá»‹ cho 1 sub-row */
+  /** Lấy chiều cao hiển thị cho 1 sub-row */
   function getDisplayHeight(row) {
     if (editedData[row.rowKey]?.wall_height !== undefined) {
       return editedData[row.rowKey].wall_height;
@@ -543,24 +543,24 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return row.height;
   }
 
-  /** Láº¥y chiá»u dÃ i (mm) hiá»ƒn thá»‹ cho 1 sub-row (Æ¯u tiÃªn: Edit > SQL DB > AI Canvas) */
+  /** Lấy chiều dài (mm) hiển thị cho 1 sub-row (Ưu tiên: Edit > SQL DB > AI Canvas) */
   function getDisplayLength(row) {
-    // 1. Æ¯u tiÃªn giÃ¡ trá»‹ ngÆ°á»i dÃ¹ng Ä‘ang chá»‰nh sá»­a trÃªn UI
+    // 1. Ưu tiên giá trị người dùng đang chỉnh sửa trên UI
     if (editedData[row.rowKey]?.wall_length !== undefined && editedData[row.rowKey]?.wall_length !== "") {
       return editedData[row.rowKey].wall_length;
     }
 
-    // 2. Æ¯u tiÃªn giÃ¡ trá»‹ gá»‘c láº¥y trá»±c tiáº¿p tá»« MSSQL Database (row.dbLength)
+    // 2. Ưu tiên giá trị gốc lấy trực tiếp từ MSSQL Database (row.dbLength)
     if (row.dbLength != null && row.dbLength !== 0 && row.dbLength !== "0" && row.dbLength !== "") {
       return row.dbLength;
     }
 
-    // 3. Náº¿u DB chÆ°a cÃ³ thÃ¬ má»›i láº¥y gá»£i Ã½ tá»« AI Canvas
+    // 3. Nếu DB chưa có thì mới lấy gợi ý từ AI Canvas
     if (row.aiLength > 0) return row.aiLength;
     return "";
   }
 
-  /** Láº¥y chiá»u dÃ i dáº¡ng MÃ©t (m) Ä‘á»ƒ hiá»ƒn thá»‹ trÃªn báº£ng sá»‘ liá»‡u */
+  /** Lấy chiều dài dạng Mét (m) để hiển thị trên bảng số liệu */
   function getDisplayLengthInMeters(row) {
     const rawVal = getDisplayLength(row);
     if (rawVal === "" || rawVal === null || rawVal === undefined) return "";
@@ -569,7 +569,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     return (num / 1000).toFixed(2);
   }
 
-  /** Chá»‰nh sá»­a chiá»u cao cho 1 sub-row (Há»— trá»£ chá»n chiá»u cao tÃ¹y chá»‰nh Custom...) */
+  /** Chỉnh sửa chiều cao cho 1 sub-row (Hỗ trợ chọn chiều cao tùy chỉnh Custom...) */
   function handleHeightChange(row, value) {
     if (value === "CUSTOM") {
       const currentH = getDisplayHeight(row) || 2700;
@@ -594,7 +594,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }));
   }
 
-  /** Chá»‰nh sá»­a chiá»u dÃ i cho 1 sub-row (Nháº­p báº±ng MÃ©t, lÆ°u trá»¯ dáº¡ng mm) */
+  /** Chỉnh sửa chiều dài cho 1 sub-row (Nhập bằng Mét, lưu trữ dạng mm) */
   function handleLengthChange(row, meterValue) {
     const num = parseFloat(meterValue);
     const mmVal = isNaN(num) ? "" : Math.round(num * 1000);
@@ -604,20 +604,20 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }));
   }
 
-  /** Chá»n Job á»Ÿ BÆ°á»›c 1 chuyá»ƒn sang BÆ°á»›c 2 */
+  /** Chọn Job ở Bước 1 chuyển sang Bước 2 */
   function handleSelectJob(jn) {
     setSelectedJobNumber(jn);
     setCurrentStep(2);
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // 8. CÃC HÃ€M Tá»° Äá»˜NG TÃNH & LÆ¯U Dá»® LIá»†U (AUTO FILL & SAVE ACTIONS)
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ══════════════════════════════════════════════════════
+  // 8. CÁC HÀM TỰ ĐỘNG TÍNH & LƯU DỮ LIỆU (AUTO FILL & SAVE ACTIONS)
+  // ══════════════════════════════════════════════════════
 
   /**
-   * NÃºt "âš¡ Auto-Calculate & Fill":
-   * Láº¥y chiá»u dÃ i wall_height/floor_type Ä‘Ã£ lÆ°u trong DB (hoáº·c cÃ¡c táº§ng cÅ©)
-   * cá»™ng vá»›i khá»‘i lÆ°á»£ng bÃ³c tÃ¡ch AI Ä‘á»™c láº­p cá»§a táº§ng/trang hiá»‡n táº¡i!
+   * Nút "⚡ Auto-Calculate & Fill":
+   * Lấy chiều dài wall_height/floor_type đã lưu trong DB (hoặc các tầng cũ)
+   * cộng với khối lượng bóc tách AI độc lập của tầng/trang hiện tại!
    */
   function applyAILengthsToAll() {
     const newEdits = {};
@@ -689,7 +689,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     }
   }
 
-  /** LÆ°u 1 sub-row (hoáº·c toÃ n bá»™ sub-rows cá»§a Job chá»©a dÃ²ng Ä‘Ã³) vÃ o MSSQL báº£ng FrameWork qua endpoint POST /api/framework/save-jobs */
+  /** Lưu 1 sub-row (hoặc toàn bộ sub-rows của Job chứa dòng đó) vào MSSQL bảng FrameWork qua endpoint POST /api/framework/save-jobs */
   async function saveSingleRow(targetRow) {
     const parentJobGroup = groupedJobRows.find(j => String(j.IDJob_HW) === String(targetRow.IDJob_HW));
     if (!parentJobGroup) return false;
@@ -744,7 +744,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         return true;
       }
     } catch (e) {
-      console.error("Lá»—i khi lÆ°u dÃ²ng FrameWork:", e);
+      console.error("Lỗi khi lưu dòng FrameWork:", e);
     } finally {
       setSavingKey(null);
     }
@@ -791,7 +791,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         await loadJobsList();
       }
     } catch (e) {
-      console.error("Lá»—i khi lÆ°u Ä‘á»“ng loáº¡t (Save All Jobs):", e);
+      console.error("Lỗi khi lưu đồng loạt (Save All Jobs):", e);
     } finally {
       setIsSavingAll(false);
       setTimeout(() => setSavedKeys(new Set()), 3000);
@@ -831,19 +831,19 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           background: "#f8fafc"
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 22 }}>ðŸ—ï¸</span>
+            <span style={{ fontSize: 22 }}>🏗️</span>
             <div>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
-                FrameWork Jobs â€” Floor Takeoff
+                FrameWork Jobs — Floor Takeoff
               </h3>
               <span style={{ fontSize: 11, color: "#2563eb", fontWeight: 600 }}>
-                ðŸ“Œ Active Job: {currentStep === 1 ? "Jobs List" : (selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs")}
+                📌 Active Job: {currentStep === 1 ? "Jobs List" : (selectedJobNumber && selectedJobNumber !== "ALL" ? selectedJobNumber : activeJobNumber || "All Jobs")}
               </span>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {currentStep === 2 && isAdmin && (
-              <button onClick={() => setCurrentStep(1)} style={btnStyle("#64748b")}>â† Back to Jobs</button>
+              <button onClick={() => setCurrentStep(1)} style={btnStyle("#64748b")}>← Back to Jobs</button>
             )}
             {currentStep === 2 && (
               <>
@@ -856,9 +856,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
                     transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
                   }}
-                  title="Xem chi tiáº¿t bÃ³c tÃ¡ch khá»‘i lÆ°á»£ng tÆ°á»ng cá»§a táº¥t cáº£ cÃ¡c táº§ng"
+                  title="Xem chi tiết bóc tách khối lượng tường của tất cả các tầng"
                 >
-                  ðŸ¢ View Per-Floor Breakdown ({perPageBreakdown.length} Floors)
+                  🏢 View Per-Floor Breakdown ({perPageBreakdown.length} Floors)
                 </button>
                 <button
                   onClick={saveAllRows}
@@ -871,18 +871,18 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
                   }}
                 >
-                  {isSavingAll ? "â³ Saving All..." : "ðŸ’¾ Save All Jobs"}
+                  {isSavingAll ? "⏳ Saving All..." : "💾 Save All Jobs"}
                 </button>
               </>
             )}
             <button onClick={loadJobsList} disabled={loading} style={btnStyle("#2563eb")}>
-              {loading ? "â³ Loading..." : "ðŸ”„ Refresh"}
+              {loading ? "⏳ Loading..." : "🔄 Refresh"}
             </button>
-            <button onClick={onClose} style={btnStyle("#64748b")}>âœ•</button>
+            <button onClick={onClose} style={btnStyle("#64748b")}>✕</button>
           </div>
         </div>
 
-        {/* Sub-Header Toolbar (Chá»‰ Admin má»›i cÃ³ quyá»n tháº¥y vÃ  chá»n/tÃ¬m kiáº¿m Job khÃ¡c) */}
+        {/* Sub-Header Toolbar (Chỉ Admin mới có quyền thấy và chọn/tìm kiếm Job khác) */}
         {isAdmin && (
           <div style={{
             padding: "12px 24px",
@@ -905,11 +905,11 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 }}
               >
                 <option value="ALL" style={{ background: "#ffffff", color: "#1e293b" }}>
-                  ðŸ“‚ All Jobs ({uniqueJobsList.length})
+                  📂 All Jobs ({uniqueJobsList.length})
                 </option>
                 {uniqueJobsList.map(j => (
                   <option key={j.job_number} value={j.job_number} style={{ background: "#ffffff", color: "#1e293b" }}>
-                    ðŸ“Œ {j.job_number}
+                    📌 {j.job_number}
                   </option>
                 ))}
               </select>
@@ -917,7 +917,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
             <div style={{ flex: 1.5, minWidth: 260 }}>
               <input
                 type="text"
-                placeholder="ðŸ” Search Job Number..."
+                placeholder="🔍 Search Job Number..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{
@@ -936,13 +936,13 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
           <div style={{ flex: 1, overflow: "auto", padding: "0 24px 16px" }}>
             {loading && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>â³</div>
+                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
                 <div style={{ fontSize: 14 }}>Loading jobs from MSSQL...</div>
               </div>
             )}
             {!loading && !error && filteredJobsListStep1.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>ðŸ“­</div>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
                 <div style={{ fontSize: 13 }}>No jobs found</div>
               </div>
             )}
@@ -975,7 +975,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                             fontSize: 12, fontWeight: 700, cursor: "pointer"
                           }}
                         >
-                          Select Job â†’
+                          Select Job →
                         </button>
                       </td>
                     </tr>
@@ -994,33 +994,33 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 borderBottom: "1px solid #e2e8f0", flexWrap: "wrap"
               }}>
                 <StatCard color="#eab308" flex="1">
-                  <div style={{ fontSize: 14, marginBottom: 2 }}>ðŸªµ</div>
+                  <div style={{ fontSize: 14, marginBottom: 2 }}>🪵</div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#d97706" }}>{summary.timberMeters} m</div>
                   <div style={statLabel}>Timber Floor</div>
                 </StatCard>
                 <StatCard color="#0284c7" flex="1">
-                  <div style={{ fontSize: 14, marginBottom: 2 }}>ðŸ§±</div>
+                  <div style={{ fontSize: 14, marginBottom: 2 }}>🧱</div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#0284c7" }}>{summary.slabMeters} m</div>
                   <div style={statLabel}>Concrete Slab</div>
                 </StatCard>
                 <StatCard color="#16a34a" flex="1">
-                  <div style={{ fontSize: 14, marginBottom: 2 }}>ðŸ“</div>
+                  <div style={{ fontSize: 14, marginBottom: 2 }}>📏</div>
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#16a34a" }}>{summary.grandTotalMeters} m</div>
                   <div style={statLabel}>Total Length</div>
                 </StatCard>
                 {hasAICanvasWalls && (
                   <StatCard color="#6366f1" flex="1.5">
                     <div style={{ fontSize: 10, color: "#6366f1", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 3, fontWeight: 700 }}>
-                      âš¡ AI Canvas (Grouped by Height)
+                      ⚡ AI Canvas (Grouped by Height)
                     </div>
                     <div style={{ fontSize: 10, color: "#475569", marginBottom: 4, fontWeight: 600 }}>
-                      {aiTimberTotalMm > 0 && <>ðŸªµ Timber: {(aiTimberTotalMm / 1000).toFixed(1)}m</>}
+                      {aiTimberTotalMm > 0 && <>🪵 Timber: {(aiTimberTotalMm / 1000).toFixed(1)}m</>}
                       {aiTimberTotalMm > 0 && aiSlabTotalMm > 0 && " - "}
-                      {aiSlabTotalMm > 0 && <>ðŸ§± Slab: {(aiSlabTotalMm / 1000).toFixed(1)}m</>}
+                      {aiSlabTotalMm > 0 && <>🧱 Slab: {(aiSlabTotalMm / 1000).toFixed(1)}m</>}
                     </div>
                     <button
                       onClick={applyAILengthsToAll}
-                      title="Báº¥m Ä‘á»ƒ tá»± Ä‘á»™ng cá»™ng dá»“n khá»‘i lÆ°á»£ng tÆ°á»ng Táº§ng 2 / Báº£n váº½ má»›i vÃ o khá»‘i lÆ°á»£ng Ä‘Ã£ lÆ°u trong Database"
+                      title="Bấm để tự động cộng dồn khối lượng tường Tầng 2 / Bản vẽ mới vào khối lượng đã lưu trong Database"
                       style={{
                         background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
                         border: "none", color: "#fff", borderRadius: 6,
@@ -1029,17 +1029,17 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                         boxShadow: "0 2px 6px rgba(99,102,241,0.25)"
                       }}
                     >
-                      âš¡ Auto-Calculate & Fill
+                      ⚡ Auto-Calculate & Fill
                     </button>
                   </StatCard>
                 )}
               </div>
             )}
 
-            {/* Báº¢NG CHI TIáº¾T */}
+            {/* BẢNG CHI TIẾT */}
             {loading && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>â³</div>
+                <div style={{ fontSize: 28, marginBottom: 12, animation: "spin 1s linear infinite", display: "inline-block" }}>⏳</div>
                 <div style={{ fontSize: 14 }}>Loading details from MSSQL...</div>
               </div>
             )}
@@ -1049,14 +1049,14 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                 textAlign: "center", padding: "30px 0", color: "#dc2626",
                 background: "rgba(239,68,68,0.08)", borderRadius: 8, margin: "16px 0"
               }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>âš ï¸</div>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>⚠️</div>
                 <div style={{ fontSize: 13 }}>{error}</div>
               </div>
             )}
 
             {!loading && !error && groupedJobRows.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>ðŸ“­</div>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📭</div>
                 <div style={{ fontSize: 13 }}>No jobs found</div>
               </div>
             )}
@@ -1070,7 +1070,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.25)"
                   }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#6366f1" }}>
-                      ðŸ¢ Multi-floor breakdown active: {perPageBreakdown.map((p, i) => `Floor ${i + 1}`).join(" + ")} = Total {perPageBreakdown.length} floors
+                      🏢 Multi-floor breakdown active: {perPageBreakdown.map((p, i) => `Floor ${i + 1}`).join(" + ")} = Total {perPageBreakdown.length} floors
                     </span>
                     <button
                       onClick={() => setIsAccumulatedView(false)}
@@ -1079,7 +1079,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                         color: "#475569", borderRadius: 5, padding: "2px 8px", fontSize: 10, cursor: "pointer"
                       }}
                     >
-                      âœ• Normal View
+                      ✕ Normal View
                     </button>
                   </div>
                 )}
@@ -1175,7 +1175,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      <span>ðŸ“¦</span> Saved
+                                      <span>📦</span> Saved
                                     </span>
                                   ) : (
                                     <span style={{
@@ -1190,7 +1190,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                       alignItems: "center",
                                       gap: 4
                                     }}>
-                                      <span>âš¡</span> New
+                                      <span>⚡</span> New
                                     </span>
                                   )}
                                 </td>
@@ -1199,7 +1199,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 {sIdx === 0 && (
                                   <td rowSpan={rowCount} style={{ padding: "8px 10px", verticalAlign: "middle" }}>
                                     <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 13 }}>
-                                      {jobGroup.job_number || "â€”"}
+                                      {jobGroup.job_number || "—"}
                                     </div>
                                     <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
                                       ID: {jobGroup.IDJob_HW}
@@ -1281,7 +1281,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                             border: `1px solid ${theme.border}`,
                                             borderRadius: 6, color: theme.color, textAlign: "center"
                                           }}>
-                                            {floorMm > 0 ? (floorMm / 1000).toFixed(2) : "â€”"}
+                                            {floorMm > 0 ? (floorMm / 1000).toFixed(2) : "—"}
                                           </div>
                                         </td>
                                       );
@@ -1340,7 +1340,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         )}
       </div>
 
-      {/* â”€â”€ MULTI-FLOOR PER-PAGE BREAKDOWN MODAL â”€â”€ */}
+      {/* ── MULTI-FLOOR PER-PAGE BREAKDOWN MODAL ── */}
       {showMultiFloorModal && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 10000,
@@ -1360,7 +1360,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
               display: "flex", alignItems: "center", justifyContent: "space-between"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 24 }}>ðŸ¢</span>
+                <span style={{ fontSize: 24 }}>🏢</span>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1e293b" }}>
                     Per-Floor Wall Takeoff Breakdown
@@ -1386,7 +1386,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                       transition: "all 0.2s"
                     }}
                   >
-                    ðŸ“Š Matrix View (By Height)
+                    📊 Matrix View (By Height)
                   </button>
                   <button
                     onClick={() => setMultiFloorViewMode("byFloor")}
@@ -1397,7 +1397,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                       transition: "all 0.2s"
                     }}
                   >
-                    ðŸ¢ Summary By Floor
+                    🏢 Summary By Floor
                   </button>
                 </div>
 
@@ -1409,7 +1409,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     fontWeight: 700
                   }}
                 >
-                  âœ•
+                  ✕
                 </button>
               </div>
             </div>
@@ -1463,7 +1463,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                                 background: isSlab ? "rgba(2,132,199,0.08)" : "rgba(217,119,6,0.08)", color: badgeColor,
                                 border: `1px solid ${isSlab ? "#bae6fd" : "#fde68a"}`
                               }}>
-                                {isSlab ? "ðŸ§± Slab" : "ðŸªµ Timber"}
+                                {isSlab ? "🧱 Slab" : "🪵 Timber"}
                               </span>
                               <strong style={{ color: "#1e293b", fontSize: 13 }}>
                                 {g.height} mm ({(g.height / 1000).toFixed(1)} m)
@@ -1474,7 +1474,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                             const val = (p.groupsMap && p.groupsMap[g.key]) ? p.groupsMap[g.key] : 0;
                             return (
                               <td key={p.pageIndex} style={{ padding: "12px 10px", textAlign: "right", fontWeight: 700, color: val > 0 ? "#1e293b" : "#94a3b8" }}>
-                                {val > 0 ? val.toLocaleString() : "â€”"}
+                                {val > 0 ? val.toLocaleString() : "—"}
                               </td>
                             );
                           })}
@@ -1503,9 +1503,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>FLOOR / PAGE NAME</th>
                       <th style={{ ...thStyle, textAlign: "center" }}>AI WALL SEGMENTS</th>
-                      <th style={{ ...thStyle, color: "#fbbf24", textAlign: "right" }}>ðŸªµ TIMBER FLOOR</th>
-                      <th style={{ ...thStyle, color: "#38bdf8", textAlign: "right" }}>ðŸ§± CONCRETE SLAB</th>
-                      <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>ðŸ“ TOTAL LENGTH</th>
+                      <th style={{ ...thStyle, color: "#fbbf24", textAlign: "right" }}>🪵 TIMBER FLOOR</th>
+                      <th style={{ ...thStyle, color: "#38bdf8", textAlign: "right" }}>🧱 CONCRETE SLAB</th>
+                      <th style={{ ...thStyle, color: "#34d399", textAlign: "right" }}>📏 TOTAL LENGTH</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1524,7 +1524,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                           </td>
                           <td style={{ padding: "12px 10px" }}>
                             <div style={{ color: "#a5b4fc", fontWeight: 700 }}>
-                              ðŸ¢ {p.pageName}
+                              🏢 {p.pageName}
                             </div>
                             <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
                               Scale Factor: {scaleText}
@@ -1584,7 +1584,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     boxShadow: "0 2px 10px rgba(99,102,241,0.3)"
                   }}
                 >
-                  âš¡ Auto-Fill All Floors Total To Job
+                  ⚡ Auto-Fill All Floors Total To Job
                 </button>
                 <button
                   onClick={() => setShowMultiFloorModal(false)}
@@ -1601,9 +1601,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// 10. COMPONENT PHá»¤ TRá»¢ & STYLES (HELPERS & STYLES)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════
+// 10. COMPONENT PHỤ TRỢ & STYLES (HELPERS & STYLES)
+// ══════════════════════════════════════════════════════
 
 function StatCard({ children, color, flex = "1" }) {
   return (

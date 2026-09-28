@@ -2081,6 +2081,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       return;
     }
 
+    // Synchronize auto door lintels with updated walls (isActive state & sizing)
+    let updatedLintels = null;
+    const isWallTypeOrLbwField = field === "is_lbw" || field === "is_load_bearing" || field === "lbw" || field === "class_name" || field === "wall_type";
+    if (setLintelsByPage && isWallTypeOrLbwField) {
+      const pageLintels = lintelsByPage[currentPage] || [];
+      if (pageLintels.some(l => l.isAutoDoorLintel)) {
+        const scaleVal = scaleValue || (realScale ? realScale / 1000 : null);
+        updatedLintels = syncLintelsWithDoors(pageLintels, doorsByPage[currentPage] || [], finalized, realScale, scaleVal, lintelController?.globalLengthOffset);
+        setLintelsByPage(prev => ({ ...prev, [currentPage]: updatedLintels }));
+      }
+    }
+
     // When changing to block_wall, auto-set block_work on hosted doors
     if ((field === "class_name" || field === "wall_type") && (value === "block_wall" || value === "block")) {
       const pageDoors = doorsByPage[currentPage] || [];
@@ -2097,11 +2109,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         ...prev,
         [currentPage]: updatedDoors
       }));
-      pushHistory(null, finalized, updatedDoors);
+      pushHistory(null, finalized, updatedDoors, updatedLintels);
       return;
     }
 
-    pushHistory(null, finalized, doorsByPage[currentPage] || []);
+    pushHistory(null, finalized, doorsByPage[currentPage] || [], updatedLintels);
   }
 
   function autoMergeCollinearWalls(targetWallIds = null) {
@@ -5726,6 +5738,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const pageLintels = (layerVisibility?.lintel !== false) ? (lintelsByPage && lintelsByPage[currentPage] ? lintelsByPage[currentPage] : []) : [];
         const rawWalls = wallsByPage[currentPage] || [];
         const matchedLintels = pageLintels.filter(l => {
+          if (l.isActive === false) return false;
           let p1, p2;
           if (!l.wallId && l.points && l.points.length === 2) {
             p1 = { x: l.points[0][0] ?? l.points[0].x, y: l.points[0][1] ?? l.points[0].y };
@@ -5788,7 +5801,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         matchedAnns.forEach(ann => {
           const lId = ann.lintelId || (ann.id && String(ann.id).startsWith("lintel_callout_") ? String(ann.id).replace("lintel_callout_", "") : null);
           if (lId) {
-            const foundLintel = pageLintels.find(l => l.id === lId);
+            const foundLintel = pageLintels.find(l => l.id === lId && l.isActive !== false);
             if (foundLintel && !matchedLintels.some(l => l.id === lId)) {
               matchedLintels.push(foundLintel);
             }

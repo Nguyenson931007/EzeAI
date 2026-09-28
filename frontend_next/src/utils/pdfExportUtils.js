@@ -722,6 +722,8 @@ export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = 
   if (!Array.isArray(lintels) || lintels.length === 0) return;
 
   lintels.forEach(l => {
+    if (l.isActive === false) return;
+
     // Check if this lintel is linked to an active door from Door AI
     const associatedDoor = (l.isAutoDoorLintel && l.doorId && doors && doors.length > 0)
       ? doors.find(d => String(d.id) === String(l.doorId))
@@ -730,6 +732,8 @@ export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = 
     const effectiveL = associatedDoor
       ? syncLintelWithDoor(l, associatedDoor, walls, realScale, scaleValue, l.lengthOffset)
       : l;
+
+    if (effectiveL.isActive === false) return;
 
     // Resolve lintel start/end coordinates
     let startPt, endPt, wallThickness;
@@ -780,7 +784,7 @@ export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = 
     const fontSizePx = Math.max(8, Math.round(fontSizePt * (dpi / 72)));
 
     // 3. Format Callout Text
-    const fullList = allLintels && allLintels.length > 0 ? allLintels : lintels;
+    const fullList = (allLintels && allLintels.length > 0 ? allLintels : lintels).filter(item => item.isActive !== false);
     const catList = fullList.filter(item => (item.category || 'lintel') === (effectiveL.category || 'lintel'));
     const catIdx = catList.findIndex(item => item.id === effectiveL.id) + 1;
     const autoCalloutText = formatLintelCalloutText(effectiveL, fullList);
@@ -1078,7 +1082,7 @@ export async function exportPdfToolsDocument({
   if (onProgress) onProgress(10, `Preparing ${totalPages} page(s)...`);
 
   // Aggregate all lintels across all pages for consistent indexing
-  const allLintels = Object.values(lintelsByPage).flat();
+  const allLintels = Object.values(lintelsByPage).flat().filter(l => l.isActive !== false);
 
   // Helper to render a page item to canvas
   const renderItem = async (item) => {
@@ -1089,7 +1093,7 @@ export async function exportPdfToolsDocument({
       walls: wallsByPage[idx] || [],
       doors: doorsByPage[idx] || [],
       rooms: roomsByPage[idx] || [],
-      lintels: lintelsByPage[idx] || [],
+      lintels: (lintelsByPage[idx] || []).filter(l => l.isActive !== false),
       allLintels,
       roofs: roofsByPage[idx] || [],
       realScale,

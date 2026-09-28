@@ -287,14 +287,6 @@ export default function SummaryTakeoffPanel({
 
             {/* Export Wall Output & Takeoff */}
             <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <div style={{ flex: 1 }}>
-                  <ExportButton onClick={() => exportWallExcel && exportWallExcel()} disabled={!scaleValue && (!walls || walls.length === 0)}>
-                    📊 Xuất Excel Tường (.xlsx)
-                  </ExportButton>
-                </div>
-              </div>
-
               <ExportButton onClick={() => { lintelController?.roundAllLintels && lintelController.roundAllLintels(); openTakeoffModal && openTakeoffModal(); }} disabled={!scaleValue}>
                 📋 Export Takeoff Form (.xlsx)
               </ExportButton>

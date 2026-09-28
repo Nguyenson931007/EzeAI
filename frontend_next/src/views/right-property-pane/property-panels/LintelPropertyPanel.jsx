@@ -478,7 +478,7 @@ export default function LintelPropertyPanel({
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span>Lintel Properties</span>
-            {/* {selectedLintel && (
+            {selectedLintel && (
               <span
                 style={{
                   fontSize: "10px",
@@ -491,7 +491,21 @@ export default function LintelPropertyPanel({
               >
                 #{selectedLintel.id}
               </span>
-            )} */}
+            )}
+            {selectedLintel && selectedLintel.isActive === false && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  background: "#fef3c7",
+                  color: "#b45309",
+                  padding: "2px 6px",
+                  borderRadius: "4px"
+                }}
+              >
+                Non-LBW
+              </span>
+            )}
           </div>
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>
             {isPropertyOpen ? "▲" : "▼"}
@@ -500,6 +514,21 @@ export default function LintelPropertyPanel({
 
         {isPropertyOpen && selectedLintel && (
           <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {selectedLintel.isActive === false && (
+              <div
+                style={{
+                  background: "#fffbeb",
+                  border: "1px solid #fde68a",
+                  borderRadius: "6px",
+                  padding: "8px 10px",
+                  fontSize: "11px",
+                  color: "#92400e",
+                  lineHeight: "1.4"
+                }}
+              >
+                ℹ️ <strong>Non-Load Bearing Wall:</strong> Lintel is hidden and excluded from Takeoff &amp; calculations until the parent wall is toggled to Load Bearing (LBW) or Exterior.
+              </div>
+            )}
             {/* Structural Category */}
             <div>
               {/* 1. Live Callout Box Preview */}
