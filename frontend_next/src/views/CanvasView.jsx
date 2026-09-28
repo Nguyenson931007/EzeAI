@@ -25,7 +25,7 @@ import FloorCeilingWallRenderer from "@/features/floor-ceiling/components/FloorC
 import FloorCeilingLevelControlPanel from "@/features/floor-ceiling/components/FloorCeilingLevelControlPanel";
 import { shiftWallsByLevel, recalcZoneAreas } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
 import AnnotationCanvasLayer from "./canvas/AnnotationCanvasLayer";
-import { formatLintelCalloutText, syncLintelWithDoor } from "../controllers/lintel.controller";
+import { formatLintelCalloutText, syncLintelWithDoor, isLintelActive } from "../controllers/lintel.controller";
 import { getWallConnectionPoints, findNearestWallJunctionOrVertex } from "../controllers/interaction.controller";
 import { getBrushCursor } from "@/utils/cursorUtils";
 import {
@@ -197,6 +197,8 @@ const LintelsLayer = React.memo(({
           ? syncLintelWithDoor(l, associatedDoor, walls, realScale, scaleValue, (lintelController?.globalLengthOffset ?? l.lengthOffset))
           : l;
 
+        if (effectiveL.isActive === false) return null;
+
         // Resolve lintel start/end coordinates
         let startPt, endPt, wallThickness;
 
@@ -249,7 +251,7 @@ const LintelsLayer = React.memo(({
 
         // 2. Format lintel callout text: e.g. "L1: 90x35 LVL 14 1/0.82"
         const fullList = allLintels && allLintels.length > 0 ? allLintels : lintels;
-        const catList = fullList.filter(item => (item.category || 'lintel') === (effectiveL.category || 'lintel'));
+        const catList = fullList.filter(item => (item.category || 'lintel') === (effectiveL.category || 'lintel') && item.isActive !== false);
         const catIdx = catList.findIndex(item => item.id === effectiveL.id) + 1;
         const autoCalloutText = formatLintelCalloutText(effectiveL, fullList);
         const calloutText = (effectiveL.calloutNote && effectiveL.calloutNote.trim() !== "")
@@ -3540,8 +3542,12 @@ export default function CanvasView({
 
   const displayLintels = useMemo(() => {
     if (layerVisibility?.lintel === false) return [];
-    return (lintelsByPage[currentPage] || []).filter(l => !hiddenItemIds?.has(l.id));
-  }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds]);
+    return (lintelsByPage[currentPage] || []).filter(l => {
+      if (hiddenItemIds?.has(l.id)) return false;
+      if (l.isActive !== undefined) return l.isActive !== false;
+      return isLintelActive ? isLintelActive(l, walls, doors) : true;
+    });
+  }, [lintelsByPage, currentPage, layerVisibility, hiddenItemIds, walls, doors]);
 
   const displayTrusses = useMemo(() => {
     if (layerVisibility?.truss === false) return [];
@@ -5851,7 +5857,7 @@ export default function CanvasView({
             {/* Lintel Layer */}
             <LintelsLayer
               lintels={displayLintels}
-              allLintels={lintelsByPage[currentPage] || []}
+              allLintels={displayLintels}
               walls={walls}
               doors={displayDoors || doors || []}
               rooms={displayRooms}

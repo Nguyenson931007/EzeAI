@@ -668,9 +668,9 @@ export default function WallPropertyPanel({
       )}
 
       {/* WALL ACTION BUTTONS */}
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase" }}>
-          📤 Xuất Dữ Liệu Tường (Export Output)
+          Export Output
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button
@@ -756,7 +756,7 @@ export default function WallPropertyPanel({
         >
           🗑️ Delete {selectedWallIds.length > 1 ? `${selectedWallIds.length} Selected Walls` : "Selected Wall"}
         </button>
-      </div>
+      </div> */}
     </>
   );
 }

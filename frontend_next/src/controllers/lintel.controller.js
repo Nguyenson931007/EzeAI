@@ -150,6 +150,35 @@ export function formatLintelCalloutText(l, allLintels = []) {
 }
 
 /**
+ * Determines whether a lintel is currently active/enabled.
+ * - Manual lintels are always active.
+ * - Auto door lintels:
+ *   - If lintel.isActive is explicitly boolean, returns lintel.isActive.
+ *   - Otherwise derived from parent wall (exterior or interior LBW).
+ */
+export function isLintelActive(lintel, walls = [], doors = []) {
+  if (!lintel) return false;
+  if (!lintel.isAutoDoorLintel) return true;
+  if (typeof lintel.isActive === 'boolean') return lintel.isActive;
+
+  // Fallback for legacy lintels without isActive property:
+  let targetWallId = lintel.wallId;
+  if (!targetWallId && lintel.doorId && doors && doors.length > 0) {
+    const d = doors.find(door => String(door.id) === String(lintel.doorId));
+    if (d?.parentWallId) targetWallId = d.parentWallId;
+  }
+  if (!targetWallId || !walls || walls.length === 0) return true;
+
+  const baseId = getBaseWallId ? getBaseWallId(targetWallId) : String(targetWallId).split('-A-')[0].split('-B-')[0];
+  const parentWall = walls.find(w => w.id === targetWallId || (getBaseWallId ? getBaseWallId(w.id) : w.id) === baseId);
+  if (!parentWall) return true;
+
+  const isExt = parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior;
+  if (isExt) return true;
+  return Boolean(parentWall.is_lbw || parentWall.is_load_bearing || parentWall.lbw);
+}
+
+/**
  * Synchronizes a single auto door lintel with its corresponding door object.
  * Moves the lintel along with the door, updates its span/points, updates its length
  * when door width changes, and updates its sizing (90x35 vs 90x45) based on parent wall thickness.
@@ -294,6 +323,15 @@ export function syncLintelWithDoor(
     : finalMeasured;
   const wallThicknessPx = parentWall?.thickness_px || (realScale && realScale > 0 ? wallThicknessMm / realScale : (lintel.wallThickness_px || 20));
 
+  // Structural Activity Status (Exterior wall or Interior Load-Bearing Wall)
+  const isExtWall = parentWall
+    ? (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior || wallThicknessMm > 75)
+    : Boolean(door.is_ext || door.is_exterior || door.location === 'external' || door.scope === 'external');
+  const isLbw = parentWall ? Boolean(parentWall.is_lbw || parentWall.is_load_bearing || parentWall.lbw) : false;
+  const isAuto = lintel.isAutoDoorLintel !== false;
+  const isActive = !isAuto ? true : (isExtWall || isLbw);
+  const parentWallClass = parentWall ? (parentWall.class_name || (isExtWall ? 'exterior_wall' : 'interior_wall')) : (isExtWall ? 'exterior_wall' : 'interior_wall');
+
   return {
     ...lintel,
     wallId: parentWall ? parentWall.id : (door.parentWallId || lintel.wallId),
@@ -311,7 +349,10 @@ export function syncLintelWithDoor(
     size: lintelSize,
     isCustomSize: hasUserCustomSize ? true : Boolean(lintel.isCustomSize),
     wallThickness_px: wallThicknessPx,
-    openingName: door.doorName || door.door_name || door.label || lintel.openingName
+    openingName: door.doorName || door.door_name || door.label || lintel.openingName,
+    isActive,
+    isParentLbw: isLbw,
+    parentWallClass
   };
 }
 
@@ -362,7 +403,8 @@ export function createLintelForDoor(
     ply: 1,
     isAutoDoorLintel: true,
     doorId: door.id,
-    openingName: door.doorName || door.door_name || door.label || door.id
+    openingName: door.doorName || door.door_name || door.label || door.id,
+    isActive: true
   };
 
   return syncLintelWithDoor(

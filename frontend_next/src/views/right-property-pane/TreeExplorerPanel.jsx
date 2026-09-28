@@ -727,7 +727,14 @@ export default function TreeExplorerPanel({
                           <span>🪵</span>
                           <span>Lintels</span>
                         </div>
-                        <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>({pageLintels.length})</span>
+                        {(() => {
+                          const activeCount = pageLintels.filter(l => l.isActive !== false).length;
+                          return (
+                            <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 500 }}>
+                              ({activeCount}{pageLintels.length !== activeCount ? ` / ${pageLintels.length}` : ''})
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       {expandedNodes.has(`${floorKey}_lintels`) && (
@@ -735,6 +742,7 @@ export default function TreeExplorerPanel({
                           {filteredLintels.map((l, idx) => {
                             const isSelected = (selectedId === l.id && selectedType === "lintel") || (selectedLintelIds && selectedLintelIds.includes(l.id));
                             const isHidden = hiddenItemIds?.has(l.id);
+                            const isInactive = l.isActive === false;
                             const label = l.description || l.label || `Lintel #${idx + 1}`;
 
                             return (
@@ -756,13 +764,19 @@ export default function TreeExplorerPanel({
                                   fontSize: "12px",
                                   background: isSelected ? "#eff6ff" : "transparent",
                                   border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
-                                  color: isSelected ? "#1d4ed8" : (isHidden ? "#94a3b8" : "var(--text)"),
+                                  color: isSelected ? "#1d4ed8" : (isHidden || isInactive ? "#94a3b8" : "var(--text)"),
+                                  opacity: isInactive ? 0.7 : 1,
                                   fontWeight: isSelected ? 700 : 500
                                 }}
                               >
                                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                   <span>🪵</span>
                                   <span>{label}</span>
+                                  {isInactive && (
+                                    <span style={{ fontSize: "9px", padding: "1px 4px", borderRadius: "3px", background: "#f1f5f9", color: "#64748b", fontWeight: 600 }}>
+                                      Non-LBW
+                                    </span>
+                                  )}
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                                   <button

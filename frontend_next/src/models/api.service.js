@@ -1,10 +1,10 @@
-﻿const getBaseUrl = () => {
+const getBaseUrl = () => {
   if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) {
     return process.env.NEXT_PUBLIC_API_BASE_URL.trim();
   }
-  // Báº±ng cÃ¡ch tráº£ vá» chuá»—i rá»—ng "", trÃ¬nh duyá»‡t sáº½ gá»i URL tÆ°Æ¡ng Ä‘á»‘i (relative path).
-  // YÃªu cáº§u sáº½ Ä‘i qua cá»•ng 3011 cá»§a Next.js vÃ  Ä‘Æ°á»£c proxy ná»™i bá»™ vá» cá»•ng 8090 cá»§a Backend.
-  // Äiá»u nÃ y trÃ¡nh Ä‘Æ°á»£c lá»—i CORS vÃ  giÃºp báº¡n khÃ´ng cáº§n pháº£i má»Ÿ cá»•ng 8090 trÃªn Router.
+  // Bằng cách trả về chuỗi rỗng "", trình duyệt sẽ gọi URL tương đối (relative path).
+  // Yêu cầu sẽ đi qua cổng 3011 của Next.js và được proxy nội bộ về cổng 8090 của Backend.
+  // Điều này tránh được lỗi CORS và giúp bạn không cần phải mở cổng 8090 trên Router.
   return "";
 };
 
@@ -33,7 +33,7 @@ const handleResponse = async (res) => {
     }
     localStorage.removeItem("isLoggedIn");
     localStorage.removeItem("user");
-    // Reload vá» trang chá»§ (app dÃ¹ng isLoggedIn state, khÃ´ng cÃ³ route /login riÃªng)
+    // Reload về trang chủ (app dùng isLoggedIn state, không có route /login riêng)
     window.location.reload();
     return { detail: "Unauthorized" };
   }
@@ -76,11 +76,11 @@ export const ApiService = {
         return await res.json();
       }
       return {
-        detail: "KhÃ´ng thá»ƒ káº¿t ná»‘i Ä‘áº¿n Backend Server (Port 8090). Vui lÃ²ng kiá»ƒm tra Backend Ä‘Ã£ Ä‘Æ°á»£c khá»Ÿi Ä‘á»™ng chÆ°a!"
+        detail: "Không thể kết nối đến Backend Server (Port 8090). Vui lòng kiểm tra Backend đã được khởi động chưa!"
       };
     } catch (err) {
       return {
-        detail: `Lá»—i káº¿t ná»‘i Backend: ${err.message}. Vui lÃ²ng khá»Ÿi Ä‘á»™ng Backend trÃªn cá»•ng 8090.`
+        detail: `Lỗi kết nối Backend: ${err.message}. Vui lòng khởi động Backend trên cổng 8090.`
       };
     }
   },
@@ -96,7 +96,7 @@ export const ApiService = {
 
   async logout(username) {
     try {
-      // KhÃ´ng dÃ¹ng handleResponse á»Ÿ Ä‘Ã¢y vÃ¬ ká»ƒ cáº£ backend lá»—i, ta váº«n pháº£i logout Ä‘Æ°á»£c
+      // Không dùng handleResponse ở đây vì kể cả backend lỗi, ta vẫn phải logout được
       const res = await fetch(`${BASE_URL}/logout`, {
         method: "POST",
         headers: getHeaders(),
@@ -106,7 +106,7 @@ export const ApiService = {
       const data = await res.json().catch(() => ({}));
       return data;
     } catch (err) {
-      console.warn("[Logout] Backend khÃ´ng pháº£n há»“i, váº«n tiáº¿p tá»¥c logout client-side:", err);
+      console.warn("[Logout] Backend không phản hồi, vẫn tiếp tục logout client-side:", err);
       return {};
     }
   },
@@ -137,7 +137,7 @@ export const ApiService = {
         credentials: "include",
       });
       if (res.status === 401) {
-        console.warn("[getJobByEmsId] 401 Unauthorized khi táº£i Job EMS:", emsId);
+        console.warn("[getJobByEmsId] 401 Unauthorized khi tải Job EMS:", emsId);
         return null;
       }
       // Pure read: do not mutate pendingEmsJob/customer context here.
@@ -148,7 +148,7 @@ export const ApiService = {
       const result = await handleResponse(res);
       return result;
     } catch (err) {
-      console.warn("[getJobByEmsId] Lá»—i khi táº£i Job EMS:", err);
+      console.warn("[getJobByEmsId] Lỗi khi tải Job EMS:", err);
       return null;
     }
   },
@@ -428,8 +428,8 @@ export const ApiService = {
 
   // --- AI Detection ---
   /**
-   * Gá»i unified YOLO segmentation pipeline (predict_seg).
-   * Tráº£ vá»: [{filename, pages: [{objects: [...]}]}]
+   * Gọi unified YOLO segmentation pipeline (predict_seg).
+   * Trả về: [{filename, pages: [{objects: [...]}]}]
    */
   async floorAIDetect(imageBlob, confidence = "0.05") {
     const fd = new FormData();
@@ -640,9 +640,9 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ═══════════════════════════════════════════════════
   // ROI-Based Detection
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ═══════════════════════════════════════════════════
 
   async floorAIDetectStream(imageBlob, confidence = "0.05", roi = null, padding = 128, upscale = 1.0, existingRooms = null, onEvent, signal) {
     const fd = new FormData();
@@ -820,7 +820,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ FrameWork Jobs (MSSQL emsflow) â”€â”€
+  // ── FrameWork Jobs (MSSQL emsflow) ──
   async fetchFrameworkJobs() {
     const res = await fetch(`${BASE_URL}/api/framework/jobs`, {
       headers: getHeaders(),
@@ -857,7 +857,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Eaves & Soffit Jobs (MSSQL ProcurementApp.dbo.EavesSoffit) â”€â”€
+  // ── Eaves & Soffit Jobs (MSSQL ProcurementApp.dbo.EavesSoffit) ──
   async fetchEavesJobs(office = "EZE0098") {
     const url = office ? `${BASE_URL}/api/eaves/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/eaves/jobs`;
     const res = await fetch(url, {
@@ -905,7 +905,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Cladding Jobs (MSSQL ProcurementApp.dbo.Cladding) â”€â”€
+  // ── Cladding Jobs (MSSQL ProcurementApp.dbo.Cladding) ──
   async fetchCladdingJobs(office = null) {
     const url = office ? `${BASE_URL}/api/cladding/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/cladding/jobs`;
     const res = await fetch(url, {
@@ -943,7 +943,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ AreaSummary Jobs (MSSQL emsflow) â”€â”€
+  // ── AreaSummary Jobs (MSSQL emsflow) ──
   async fetchAreaSummaryJobs() {
     const res = await fetch(`${BASE_URL}/api/area-summary/jobs`, {
       headers: getHeaders(),
@@ -952,7 +952,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ AreaSummary Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── AreaSummary Jobs (MSSQL ProcurementApp) ──
   async fetchAreaSummaryJobs(office = null) {
     const url = office ? `${BASE_URL}/api/area-summary/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/area-summary/jobs`;
     const res = await fetch(url, {
@@ -972,7 +972,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Insulation Jobs (MSSQL emsflow) â”€â”€
+  // ── Insulation Jobs (MSSQL emsflow) ──
   async fetchInsulationJobs() {
     const res = await fetch(`${BASE_URL}/api/insulation/jobs`, {
       headers: getHeaders(),
@@ -1001,7 +1001,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ LockOut Jobs (MSSQL emsflow) â”€â”€
+  // ── LockOut Jobs (MSSQL emsflow) ──
   async fetchLockoutJobs(jobNumber = null) {
     const qs = jobNumber ? `?job_number=${encodeURIComponent(jobNumber)}` : "";
     const res = await fetch(`${BASE_URL}/api/lockout/jobs${qs}`, {
@@ -1031,7 +1031,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Fixout Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── Fixout Jobs (MSSQL ProcurementApp) ──
   async fetchFixoutJobs(idJobHw = null, office = null) {
     const params = new URLSearchParams();
     if (idJobHw) params.append("id_job_hw", idJobHw);
@@ -1054,7 +1054,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ TimberPosts Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── TimberPosts Jobs (MSSQL ProcurementApp) ──
   async fetchTimberPostsJobs(office = null) {
     const qs = office ? `?office=${encodeURIComponent(office)}` : "";
     const res = await fetch(`${BASE_URL}/api/timber-posts/jobs${qs}`, {
@@ -1074,7 +1074,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Shelving Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── Shelving Jobs (MSSQL ProcurementApp) ──
   async fetchShelvingJobs(idJobHw = null, office = null) {
     const params = new URLSearchParams();
     if (idJobHw) params.append("id_job_hw", idJobHw);
@@ -1097,7 +1097,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ FOW Plumbing Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── FOW Plumbing Jobs (MSSQL ProcurementApp) ──
   async fetchFowPlumbingJobs(idJobHw = null, office = null) {
     const params = new URLSearchParams();
     if (idJobHw) params.append("id_job_hw", idJobHw);
@@ -1120,7 +1120,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Power Truss Braces Jobs (MSSQL ProcurementApp) â”€â”€
+  // ── Power Truss Braces Jobs (MSSQL ProcurementApp) ──
   async fetchPowerTrussJobs(idJobHw = null, office = null) {
     const params = new URLSearchParams();
     if (idJobHw) params.append("id_job_hw", idJobHw);
@@ -1143,7 +1143,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  // â”€â”€ Roof V3 Engine API Endpoints â”€â”€
+  // ── Roof V3 Engine API Endpoints ──
   async computeRoof2D(payload) {
     const res = await fetch(`${BASE_URL}/api/v3/compute-roof`, {
       method: "POST",
