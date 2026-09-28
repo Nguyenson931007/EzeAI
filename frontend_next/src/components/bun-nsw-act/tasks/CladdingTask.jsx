@@ -870,7 +870,7 @@ const claddingManualRows = (() => {
                                 transition: "background 0.15s ease"
                               }}
                             >
-                              <td style={{ padding: "5px 6px", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
+                              <td style={{ padding: "5px 6px", fontWeight: 700 }}><TaskRowNumber index={idx} row={w} /></td>
 
                               {/* Same wall label shown on the drawing canvas (W-1, W-2, ...). */}
                               <td
