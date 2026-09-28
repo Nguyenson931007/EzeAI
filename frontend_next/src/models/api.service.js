@@ -513,7 +513,7 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async rebuildWallsWithGemini(imageBlob, realScale = 1.0, wallThicknesses = null, existingWalls = [], pageContext = null, signal = null, confidence = "0.001") {
+  async rebuildWallsWithOpenAI(imageBlob, realScale = 1.0, wallThicknesses = null, existingWalls = [], pageContext = null, signal = null, confidence = "0.001") {
     const fd = new FormData();
     fd.append("file", imageBlob);
 
@@ -544,7 +544,7 @@ export const ApiService = {
     } catch (e) {
       fd.append("page_context", "{}");
     }
-    const res = await fetch(`${BASE_URL}/api/gemini/rebuild-walls`, {
+    const res = await fetch(`${BASE_URL}/api/openai/rebuild-walls`, {
       method: "POST",
       headers: getHeaders(null),
       body: fd,
@@ -1235,6 +1235,25 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+
+  async planAiAgentTask({ instruction, taskKey, taskSchema, currentData = null, localAiData = null, catalogContext = null, imageBlob = null, model = null }) {
+    const fd = new FormData();
+    fd.append("instruction", instruction || "");
+    fd.append("task_key", taskKey || "");
+    fd.append("task_schema", JSON.stringify(taskSchema || {}));
+    if (currentData != null) fd.append("current_data", JSON.stringify(currentData));
+    if (localAiData != null) fd.append("local_ai_data", JSON.stringify(localAiData));
+    if (catalogContext != null) fd.append("catalog_context", JSON.stringify(catalogContext));
+    if (model) fd.append("model", model);
+    if (imageBlob) fd.append("file", imageBlob);
+    const res = await fetch(`${BASE_URL}/api/ai/agent/plan`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
   async getLockoutDoorTypes(customerId = "BUN-NSW-ACT") {
     const res = await fetch(`${BASE_URL}/api/lockout/door-types?customer_id=${encodeURIComponent(customerId)}`, {
       headers: getHeaders(null),

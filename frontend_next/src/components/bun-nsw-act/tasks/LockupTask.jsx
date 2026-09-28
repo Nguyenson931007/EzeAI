@@ -1063,7 +1063,7 @@ export default function LockupTask({
 
       // Window objects are handled by the local-only Window task. Lockup must
       // only calculate/save real door rows.
-      const nonWindowDoors = allDoors.filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door) === "lock_up");
+      const nonWindowDoors = allDoors.filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door, allWalls) === "lock_up");
       const timberDoors = nonWindowDoors.filter(d => {
         const mat = String(d.material || d.door_material || d.material_type || "timber").trim().toLowerCase();
         return !mat || mat === "timber" || mat === "wood" || mat === "default";

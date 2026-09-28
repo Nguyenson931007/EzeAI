@@ -1,4 +1,4 @@
-"""Reusable Gemini support-agent endpoints for EzeFloor tasks."""
+"""Reusable OpenAI support-agent endpoints for EzeFloor tasks."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from api.auth import validate_session
-from services.gemini_agent_service import run_gemini_agent
+from services.openai_agent_service import run_openai_agent
 
 logger = logging.getLogger("ezefloor.agent")
 router = APIRouter(prefix="/api/ai/agent", tags=["AI-agent"])
@@ -29,7 +29,7 @@ def _parse_json(value: Optional[str], default: Any) -> Any:
 def get_agent_capabilities(username: str = Depends(validate_session)):
     return {
         "status": "ok",
-        "provider": "gemini",
+        "provider": "openai",
         "mode": "support_agent",
         "execution": "proposal_only",
         "principles": {
@@ -65,7 +65,7 @@ async def plan_agent_actions(
     image_bytes = await file.read() if file is not None else None
     try:
         result = await run_in_threadpool(
-            run_gemini_agent,
+            run_openai_agent,
             instruction=instruction,
             task_key=task_key,
             task_schema=schema_obj,
@@ -76,7 +76,7 @@ async def plan_agent_actions(
             model=model,
         )
         logger.info(
-            "Gemini agent planned task=%s actions=%s rejected=%s user=%s",
+            "OpenAI agent planned task=%s actions=%s rejected=%s user=%s",
             task_key,
             len(result.get("actions") or []),
             len(result.get("rejected_actions") or []),
@@ -84,10 +84,10 @@ async def plan_agent_actions(
         )
         return result
     except RuntimeError as exc:
-        logger.error("Gemini agent failed: %s", exc)
+        logger.error("OpenAI agent failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Unexpected Gemini agent error: %s", exc, exc_info=True)
+        logger.error("Unexpected OpenAI agent error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

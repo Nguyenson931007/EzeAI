@@ -75,9 +75,11 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "EzeFloor AI Support")
 
-# Gemini wall rebuild (experimental, explicit user action only)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_WALL_MODEL = os.getenv("GEMINI_WALL_MODEL", "gemini-2.5-flash")
+# Azure OpenAI support model (YOLO remains primary; explicit user action only)
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-Power-Automate-integration")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
 
 # Session / security
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))

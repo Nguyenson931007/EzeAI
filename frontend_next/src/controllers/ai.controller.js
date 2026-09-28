@@ -960,14 +960,14 @@ export const useAIController = (
       const existingWallsSnapshot = wallsByPageRef.current ? (wallsByPageRef.current[currentPage] || []) : [];
       let isCacheHit = false;
 
-      if (provider === "gemini") {
-        setCacheStatus("EzeFloor Local AI + Gemini are reviewing walls...");
+      if (provider === "openai") {
+        setCacheStatus("EzeFloor Local AI + GPT-4o are reviewing walls...");
         setRoiProgress(20);
 
         // Send the current canvas as an additional prior. Coordinates stored on
         // the canvas include pdfOffset, while the API image uses image-local
         // coordinates, so remove that offset before serializing.
-        const existingWallsForGemini = existingWallsSnapshot
+        const existingWallsForOpenAI = existingWallsSnapshot
           .filter(w => Array.isArray(w?.centerline) && w.centerline.length === 2)
           .map(w => ({
             id: w.id || "",
@@ -986,17 +986,17 @@ export const useAIController = (
         const pageContext = {
           current_page: currentPage,
           roi: roiRect || null,
-          current_wall_count: existingWallsForGemini.length,
+          current_wall_count: existingWallsForOpenAI.length,
           door_count: doorsForContext.length,
           room_count: roomsForContext.length,
           instruction: "Use EzeFloor local wall logic as prior, verify/correct it from the drawing, and return one complete corrected wall graph."
         };
 
-        const result = await ApiService.rebuildWallsWithGemini(
+        const result = await ApiService.rebuildWallsWithOpenAI(
           blob,
           realScale,
           activeThicknesses,
-          existingWallsForGemini,
+          existingWallsForOpenAI,
           pageContext,
           job.controller.signal
         );
@@ -1019,35 +1019,35 @@ export const useAIController = (
             thickness_px,
             height: defaultHeight,
             confidence: w.confidence,
-            gemini_reason: w.reason || "",
+            openai_reason: w.reason || "",
             review_state: "AI_GENERATED",
-            ai_provider: "gemini"
+            ai_provider: "openai"
           };
         }).filter(w => Array.isArray(w.centerline) && w.centerline.length === 2);
 
-        // Gemini is an explicit replacement flow. Ask once before destroying the
+        // GPT-4o is an explicit replacement flow. Ask once before destroying the
         // current page's geometry so the local-AI/manual result can be kept.
         const currentCount = existingWallsSnapshot.length;
         const localPriorCount = Number(result?.local_candidate_count || 0);
-        const summaryLine = result?.summary ? `\n\nGemini: ${result.summary}` : "";
-        const applyGemini = typeof window === "undefined"
+        const summaryLine = result?.summary ? `\n\nGPT-4o: ${result.summary}` : "";
+        const applyOpenAI = typeof window === "undefined"
           ? true
           : window.confirm(
               `EzeFloor Local AI produced ${localPriorCount} candidate wall(s).\n` +
-              `Gemini reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
+              `GPT-4o reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
               `Replace the current ${currentCount} wall(s) on this page?` +
               summaryLine
             );
 
-        if (applyGemini) {
+        if (applyOpenAI) {
           const uniqueDetectedWalls = dedupeDetectedWallCenterlines(detectedWalls);
           setWallsByPage(prev => ({
             ...prev,
             [currentPage]: recalculateAllWallsPolygons(uniqueDetectedWalls)
           }));
-          setCacheStatus(`Gemini applied ${uniqueDetectedWalls.length} walls`);
+          setCacheStatus(`GPT-4o applied ${uniqueDetectedWalls.length} walls`);
         } else {
-          setCacheStatus(`Gemini result discarded (${detectedWalls.length} walls)`);
+          setCacheStatus(`GPT-4o result discarded (${detectedWalls.length} walls)`);
         }
         setRoiProgress(100);
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);

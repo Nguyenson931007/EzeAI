@@ -945,8 +945,8 @@ async def wall_segment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/gemini/rebuild-walls")
-async def gemini_rebuild_walls(
+@router.post("/api/openai/rebuild-walls")
+async def openai_rebuild_walls(
     file: UploadFile = File(...),
     confidence: float = Form(0.001),
     real_scale: Optional[float] = Form(1.0),
@@ -957,10 +957,10 @@ async def gemini_rebuild_walls(
     page_context: Optional[str] = Form(None),
     username: str = Depends(validate_session)
 ):
-    """Gemini reviews RAW YOLO candidates before destructive wall post-processing."""
+    """GPT-4o reviews the existing Local AI wall candidates as a support layer."""
     import json as _json
     from services.wall_segment_service import WallSegmentService
-    from services.gemini_wall_service import review_raw_candidates_with_gemini
+    from services.openai_wall_service import review_raw_candidates_with_openai
 
     content = await file.read()
     wall_thicknesses = {
@@ -971,8 +971,8 @@ async def gemini_rebuild_walls(
     try:
         current = _json.loads(existing_walls) if existing_walls else []
         context = _json.loads(page_context) if page_context else {}
-        raw = await run_in_threadpool(
-            WallSegmentService.predict_raw_candidates,
+        local_result = await run_in_threadpool(
+            WallSegmentService.predict,
             image_bytes=content,
             confidence=confidence,
             real_scale=real_scale or 1.0,
@@ -980,24 +980,24 @@ async def gemini_rebuild_walls(
             wall_thicknesses=wall_thicknesses,
         )
         result = await run_in_threadpool(
-            review_raw_candidates_with_gemini,
+            review_raw_candidates_with_openai,
             image_bytes=content,
-            raw_candidates=raw.get("walls") or [],
+            raw_candidates=local_result.get("walls") or [],
             real_scale=real_scale or 1.0,
             wall_thicknesses=wall_thicknesses,
             existing_walls=current,
             page_context=context,
         )
         logger.info(
-            "Gemini RAW review: %s raw -> %s selected",
+            "OpenAI wall review: %s local -> %s selected",
             result.get("raw_candidate_count"), result.get("count")
         )
         return result
     except RuntimeError as exc:
-        logger.error("Gemini raw-candidate review failed: %s", exc)
+        logger.error("OpenAI raw-candidate review failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        logger.error("Unexpected Gemini raw-candidate review error: %s", exc, exc_info=True)
+        logger.error("Unexpected OpenAI raw-candidate review error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 @router.post("/predict_wall_stream")
 async def predict_wall_stream(

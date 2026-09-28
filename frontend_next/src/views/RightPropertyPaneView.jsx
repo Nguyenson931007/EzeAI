@@ -95,6 +95,7 @@ import {
   buildFlooringRows,
   buildInsulationRows,
   buildInsulationAreaRow,
+  replaceAutoFillRows,
   buildFrameRows,
   buildShelvingRows,
   buildFinalFitPatch,
@@ -1334,6 +1335,17 @@ export default function RightPropertyPaneView({
           __sourcePageIndex: currentPage,
         }));
 
+    const allWallsForDoorRouting = effectiveWallsByPage && Object.keys(effectiveWallsByPage).length
+      ? Object.entries(effectiveWallsByPage).flatMap(([pageKey, pageWalls]) => {
+          const pIdx = Number(pageKey);
+          return (pageWalls || [])
+            .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
+            .map((wall) => ({ ...wall, __sourcePageIndex: pIdx }));
+        })
+      : (currentWalls || [])
+          .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
+          .map((wall) => ({ ...wall, __sourcePageIndex: currentPage }));
+
     let formPatch = {};
     let generatedCount = 0;
 
@@ -1403,7 +1415,7 @@ export default function RightPropertyPaneView({
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
         allRows.push(...buildInsulationRows(pageWalls || [], pageScale, floorLevelForPage(pIdx)));
       });
-      setInsulationWallEntries(allRows);
+      setInsulationWallEntries((current) => replaceAutoFillRows(current, allRows));
 
       const areaPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? roomsByPageProp : { [currentPage]: currentRooms };
       const ceilEntries = [];
@@ -1421,7 +1433,7 @@ export default function RightPropertyPaneView({
           areaM2: Number(area.toFixed(2)),
         }));
       });
-      setInsulationAreaEntries(ceilEntries);
+      setInsulationAreaEntries((current) => replaceAutoFillRows(current, ceilEntries));
       generatedCount = allRows.length + ceilEntries.length;
       formPatch = {
         ext_wall_area: String(allRows.filter((x) => x.type === "Ext wall").reduce((s, x) => s + Number(x.insulationArea || 0), 0).toFixed(2)),
@@ -1429,11 +1441,11 @@ export default function RightPropertyPaneView({
         ceiling_area: String(ceilEntries.reduce((s, x) => s + Number(x.areaM2 || 0), 0).toFixed(2)),
       };
     } else if (normalizedModuleId === "fixout") {
-      const rows = buildFixoutRows(allDoors);
+      const rows = buildFixoutRows(allDoors, allWallsForDoorRouting);
       setFixoutDoorEntries(rows);
       generatedCount = rows.length;
     } else if (normalizedModuleId === "lock_up") {
-      const rows = buildLockupRows(allDoors);
+      const rows = buildLockupRows(allDoors, allWallsForDoorRouting);
       setLockupEntries(rows);
       generatedCount = rows.length;
     } else if (normalizedModuleId === "windows") {
@@ -2620,7 +2632,7 @@ export default function RightPropertyPaneView({
           next.forEach(entry => {
             const ids = entry.wallIds && entry.wallIds.length > 0
               ? entry.wallIds
-              : (entry.wallId ? [entry.wallId] : (selectedWallIds && selectedWallIds.length === 1 ? [selectedWallIds[0]] : (selectedWall?.id ? [selectedWall.id] : [])));
+              : (entry.wallId ? [entry.wallId] : []);
             ids.forEach(wId => {
               newOverrides[wId] = {
                 type: entry.type,
@@ -2642,7 +2654,7 @@ export default function RightPropertyPaneView({
       }, 0);
       return next;
     });
-  }, [selectedWallIds, selectedWall, queueTaskRowsToPlan]);
+  }, [queueTaskRowsToPlan]);
 
   const handleSetInsulationAreaEntries = React.useCallback((actionOrEntries) => {
     setInsulationAreaEntries(prev => {
@@ -2654,7 +2666,7 @@ export default function RightPropertyPaneView({
           next.forEach(entry => {
             const ids = entry.roomIds && entry.roomIds.length > 0
               ? entry.roomIds
-              : (entry.roomId ? [entry.roomId] : (selectedRoomIds && selectedRoomIds.length === 1 ? [selectedRoomIds[0]] : (selectedRoom?.id ? [selectedRoom.id] : [])));
+              : (entry.roomId ? [entry.roomId] : []);
             ids.forEach(rId => {
               newOverrides[rId] = {
                 areaType: entry.areaType || entry.type,
@@ -2673,7 +2685,7 @@ export default function RightPropertyPaneView({
       }, 0);
       return next;
     });
-  }, [selectedRoomIds, selectedRoom, queueTaskRowsToPlan]);
+  }, [queueTaskRowsToPlan]);
 
   // Listen for sync events from Floor & Ceiling Workspace
   React.useEffect(() => {
@@ -2850,7 +2862,8 @@ export default function RightPropertyPaneView({
             product: "0810620 · INS CEILING BATT R4.0 430MM",
             areaM2: cVal,
             area: cVal,
-            totalArea: Number((cVal * 1.05).toFixed(2))
+            totalArea: Number((cVal * 1.05).toFixed(2)),
+            autofill_source: "drawing"
           }
         ]);
       }
@@ -2892,7 +2905,8 @@ export default function RightPropertyPaneView({
       length: l,
       rakedArea: raked,
       doorArea: door,
-      netArea: Number(net.toFixed(2))
+      netArea: Number(net.toFixed(2)),
+      autofill_source: "manual"
     };
     setInsulationWallEntries(prev => [...prev, newEntry]);
     setInsWallLength("");
@@ -2914,7 +2928,8 @@ export default function RightPropertyPaneView({
       rValue: insAreaRValue,
       productCode: code,
       productName: insAreaProduct,
-      area: Number(a.toFixed(2))
+      area: Number(a.toFixed(2)),
+      autofill_source: "manual"
     };
     setInsulationAreaEntries(prev => [...prev, newEntry]);
     setInsAreaValue("");
@@ -3211,7 +3226,7 @@ export default function RightPropertyPaneView({
             autofill_source: "drawing",
           };
         });
-        setInsulationWallEntries(wallRows);
+        setInsulationWallEntries((current) => replaceAutoFillRows(current, wallRows));
       }
 
       setEnabledModuleIds(prev => prev.includes("insulation") ? prev : [...prev, "insulation"]);
@@ -3333,7 +3348,9 @@ export default function RightPropertyPaneView({
       if (manuallyClearedTasksRef.current?.lock_up || manuallyClearedTasks?.lock_up) return;
 
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
-      const targetDoors = (curDoors || []).filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door) === "lock_up");
+      const curRoutingWalls = ((wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []))
+        .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks);
+      const targetDoors = (curDoors || []).filter((door) => !isWindowOpening(door) && getDoorProcurementTask(door, curRoutingWalls) === "lock_up");
 
       if (!targetDoors || targetDoors.length === 0) {
         return;
@@ -3725,7 +3742,8 @@ export default function RightPropertyPaneView({
   const planDataRevision = React.useMemo(() => JSON.stringify({
     walls: Object.entries(effectiveWallsByPage || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.centerline, item?.class_name, item?.wall_type, item?.height_mm ?? item?.height,
-      item?.is_lbw, item?.fire_wall_system, item?.lining_spec,
+      item?.is_lbw, item?.is_load_bearing, item?.lbw, item?.is_ext, item?.is_exterior,
+      item?.fire_wall_system, item?.lining_spec,
     ])]),
     doors: Object.entries(effectiveDoorsByPage || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.points, item?.width_mm ?? item?.width, item?.height_mm ?? item?.height,
@@ -3761,6 +3779,10 @@ export default function RightPropertyPaneView({
         __sourcePageIndex: pageIndex,
         __floorLevel: resolveObjectFloorLevel(door, pages, pageIndex),
       }));
+    });
+    const allWallsForDoorRouting = Object.entries(wallPages).flatMap(([pageKey, pageWalls]) => {
+      const pageIndex = Number(pageKey);
+      return (pageWalls || []).map((wall) => ({ ...wall, __sourcePageIndex: pageIndex }));
     });
     const allRooms = Object.entries(planRoomsByPage).flatMap(([pageKey, pageRooms]) => {
       const pageIndex = Number(pageKey);
@@ -3850,8 +3872,8 @@ export default function RightPropertyPaneView({
       flooring_decking: flooringRows,
       hebel_flooring: flooringRows,
       cladding: claddingRows,
-      fixout: buildFixoutRows(allDoors),
-      lock_up: buildLockupRows(allDoors),
+      fixout: buildFixoutRows(allDoors, allWallsForDoorRouting),
+      lock_up: buildLockupRows(allDoors, allWallsForDoorRouting),
       windows: buildWindowRows(allDoors),
       shelving: buildShelvingRows(allRooms),
       hardies_fire_walls: hardiesRows,
@@ -5406,4 +5428,3 @@ export default function RightPropertyPaneView({
     </div>
   );
 }
-

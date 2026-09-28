@@ -6,7 +6,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, replaceAutoFillRows } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
@@ -142,6 +142,8 @@ export default function InsulationTask({
   editingRowIdRef.current = editingRowId;
   const wallEntriesRef = useRef(wallEntries);
   wallEntriesRef.current = wallEntries;
+  const setWallEntriesRef = useRef(onSetWallEntries);
+  setWallEntriesRef.current = onSetWallEntries;
   const areaEntriesRef = useRef(areaEntries);
   areaEntriesRef.current = areaEntries;
 
@@ -361,17 +363,6 @@ export default function InsulationTask({
     }
   }, [areaProductOptions, areaProduct]);
 
-  // Pre-populate Area Input from synced or existing area entries when type changes or on sync
-  useEffect(() => {
-    if (!areaTotalInsulation) {
-      const matching = (areaEntries || []).find(a => String(a.type).toLowerCase() === String(areaInsType).toLowerCase());
-      if (matching) {
-        const val = matching.insulationArea || matching.area || matching.totalArea;
-        if (val) setAreaTotalInsulation(String(val));
-      }
-    }
-  }, [areaInsType, areaEntries]);
-
   // Direct listener for Floor & Ceiling sync events
   useEffect(() => {
     const handleDirectSync = (e) => {
@@ -395,11 +386,6 @@ export default function InsulationTask({
       setAreaRValue("R3.5");
     } else if (newType === "Floor") {
       setAreaRValue("R2.0");
-    }
-    const matching = (areaEntries || []).find(a => String(a.type).toLowerCase() === String(newType).toLowerCase());
-    if (matching) {
-      const val = matching.insulationArea || matching.area || matching.totalArea;
-      if (val) setAreaTotalInsulation(String(val));
     }
   };
 
@@ -432,7 +418,8 @@ export default function InsulationTask({
       raked: rakedM2,
       door: doorM2,
       insulationArea: insArea,
-      totalArea: insArea
+      totalArea: insArea,
+      autofill_source: "manual"
     };
 
     if (onSetWallEntries) {
@@ -461,7 +448,8 @@ export default function InsulationTask({
       product: areaProduct,
       insulationArea: Number(areaVal.toFixed(2)),
       totalArea: Number(areaVal.toFixed(2)),
-      area: Number(areaVal.toFixed(2))
+      area: Number(areaVal.toFixed(2)),
+      autofill_source: "manual"
     };
 
     if (onSetAreaEntries) {
@@ -589,7 +577,7 @@ export default function InsulationTask({
         });
 
         if (onSetWallEntries) {
-          onSetWallEntries(mappedRows);
+          onSetWallEntries((current) => replaceAutoFillRows(current, mappedRows));
         }
       } else {
         if (onAddDataAI) onAddDataAI("insulation");
@@ -606,7 +594,7 @@ export default function InsulationTask({
   // Doors and windows both reduce the insulated wall area. This is UI/state-only;
   // the existing API and database schema stay unchanged.
   useEffect(() => {
-    if (!onSetWallEntries) return;
+    if (!setWallEntriesRef.current) return;
 
     const fallbackScale = (realScale && realScale > 0)
       ? realScale
@@ -625,9 +613,9 @@ export default function InsulationTask({
       (doors || []).forEach((opening) => openings.push({ opening, scale: fallbackScale }));
     }
 
-    onSetWallEntries((prev) => {
-      let changed = false;
-      const next = (prev || []).map((entry) => {
+    let changed = false;
+    const currentEntries = wallEntriesRef.current || [];
+    const next = currentEntries.map((entry) => {
         if (entry?.autofill_source !== "drawing") return entry;
 
         const ids = [
@@ -667,11 +655,12 @@ export default function InsulationTask({
           insulationArea: netArea,
           totalArea: netArea
         };
-      });
-
-      return changed ? next : prev;
     });
-  }, [doors, doorsByPage, scalesByPage, realScale, scaleValue, onSetWallEntries]);
+
+    // The parent setter also writes linked task rows back to the plan. Calling
+    // it when values are unchanged creates a plan -> task -> plan render loop.
+    if (changed) setWallEntriesRef.current(next);
+  }, [doors, doorsByPage, scalesByPage, realScale, scaleValue, wallEntries]);
 
   // Wall Inline Edit Logic
   const handleStartEdit = (w) => {

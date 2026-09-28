@@ -35,7 +35,7 @@ function saveConfig(config) {
  *   onConfirm    — Callback({ ext, int, part, defaultHeight }) when user clicks Detect
  *   onClose      — Callback to dismiss without running
  */
-export default function WallThicknessDialog({ visible, onConfirm, onGeminiConfirm, onClose }) {
+export default function WallThicknessDialog({ visible, onConfirm, onOpenAIConfirm, onClose }) {
   const overlayRef = useRef(null);
   const saved = loadSavedConfig();
   const initialHeight = saved?.defaultHeight || 2700;
@@ -100,10 +100,10 @@ export default function WallThicknessDialog({ visible, onConfirm, onGeminiConfir
     onConfirm(config);
   };
 
-  const handleGeminiConfirm = () => {
+  const handleOpenAIConfirm = () => {
     const config = buildConfig();
     saveConfig(config);
-    if (onGeminiConfirm) onGeminiConfirm({ ...config, provider: 'gemini' });
+    if (onOpenAIConfirm) onOpenAIConfirm({ ...config, provider: 'openai' });
   };
 
   const handleOverlayClick = (e) => {
@@ -303,16 +303,16 @@ export default function WallThicknessDialog({ visible, onConfirm, onGeminiConfir
           </button>
           <button
             type="button"
-            disabled
-            title="Gemini wall rebuild is temporarily paused while Local AI wall geometry is stabilized"
+            onClick={handleOpenAIConfirm}
+            title="GPT-4o support review using the OpenAI API"
             style={{
               flex: 1.5, padding: '10px 12px', fontSize: 12, fontWeight: 700,
-              background: '#cbd5e1',
-              color: '#64748b', border: 'none', borderRadius: 8,
-              cursor: 'not-allowed'
+              background: 'linear-gradient(135deg, #111827 0%, #374151 100%)',
+              color: 'white', border: 'none', borderRadius: 8,
+              cursor: 'pointer'
             }}
           >
-            Gemini (Pending)
+            GPT-4o
           </button>
         </div>
       </div>

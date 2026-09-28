@@ -123,12 +123,59 @@ export const normalizeDoorProcurementTask = (value) => {
 
 // Routing is EzeFloor plan/UI metadata only. Procurement DB payloads deliberately
 // whitelist their own schema and never persist this field. Explicit user routing
-// wins; otherwise external doors default to Lockup and internal doors to Fixout.
-export const getDoorProcurementTask = (door) => {
+// always wins. Otherwise a door is routed from the wall that owns it:
+//   - Exterior Wall + Door => Lockup
+//   - Internal Load Bearing Wall + Door => Lockup
+//   - Other internal / non-load-bearing wall + Door => Fixout
+// If no parent wall can be resolved we keep the legacy door-only heuristic as a
+// fallback so older/imported plans still behave sensibly.
+export const isExternalProcurementWall = (wall) => {
+  if (!wall) return false;
+  const cls = lower(wall?.class_name || wall?.wall_class || wall?.wallClass || wall?.type || wall?.wall_type);
+  return Boolean(
+    wall?.is_ext === true || wall?.is_exterior === true || wall?.isExternal === true ||
+    cls === "exterior_wall" || cls === "external_wall" || cls === "exterior" || cls === "external" || cls === "ext"
+  );
+};
+
+export const isInternalLoadBearingProcurementWall = (wall) => {
+  if (!wall) return false;
+  if (isExternalProcurementWall(wall)) return false;
+  const cls = lower(wall?.class_name || wall?.wall_class || wall?.wallClass || wall?.type || wall?.wall_type);
+  const isInternal = !cls || cls === "interior_wall" || cls === "internal_wall" || cls === "interior" || cls === "internal" || cls === "int";
+  const isLoadBearing = wall?.is_lbw === true || wall?.is_load_bearing === true || wall?.lbw === true;
+  return Boolean(isInternal && isLoadBearing);
+};
+
+export const isLockupProcurementWall = (wall) =>
+  isExternalProcurementWall(wall) || isInternalLoadBearingProcurementWall(wall);
+
+export const findDoorParentWall = (door, walls = []) => {
+  if (!door || !Array.isArray(walls) || walls.length === 0) return null;
+  const parentId = door?.parentWallId ?? door?.parent_wall_id ?? door?.wallId ?? door?.wall_id;
+  if (parentId === undefined || parentId === null || String(parentId).trim() === "") return null;
+
+  const doorPage = door?.__sourcePageIndex ?? door?.sourcePageIndex ?? door?.pageIndex ?? door?.page_index;
+  const candidates = walls.filter((wall) => String(wall?.id) === String(parentId));
+  if (candidates.length <= 1) return candidates[0] || null;
+  if (doorPage !== undefined && doorPage !== null) {
+    const samePage = candidates.find((wall) => {
+      const wallPage = wall?.__sourcePageIndex ?? wall?.sourcePageIndex ?? wall?.pageIndex ?? wall?.page_index;
+      return wallPage !== undefined && wallPage !== null && Number(wallPage) === Number(doorPage);
+    });
+    if (samePage) return samePage;
+  }
+  return candidates[0] || null;
+};
+
+export const getDoorProcurementTask = (door, walls = []) => {
   const explicit = normalizeDoorProcurementTask(
     door?.procurement_task ?? door?.procurementTask ?? door?.task_route ?? door?.taskRoute
   );
   if (explicit) return explicit;
+
+  const parentWall = findDoorParentWall(door, walls);
+  if (parentWall) return isLockupProcurementWall(parentWall) ? "lock_up" : "fixout";
 
   const scope = lower(door?.scope || door?.location);
   const identity = [
@@ -216,7 +263,7 @@ const explicitHanding = (d, allowed) => {
   return explicitAllowed(aliases[u] || raw, allowed);
 };
 
-export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d) === "fixout").map((d, idx) => {
+export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "fixout").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const rawType = lower(d?.door_type || d?.type || d?.class_name);
   const cavity = /slid|cavity/.test(`${label.toLowerCase()} ${rawType}`);
@@ -253,7 +300,7 @@ export const buildFixoutRows = (doors = []) => doors.filter((d) => !isWindowOpen
   };
 });
 
-export const buildLockupRows = (doors = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d) === "lock_up").map((d, idx) => {
+export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "lock_up").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const dims = doorDimensions(d);
   const explicitScope = lower(d?.scope || d?.location);
@@ -351,6 +398,18 @@ export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") =>
   });
   return [...groups.values()].map((x) => ({ ...x, insulationArea: Number(x.insulationArea.toFixed(2)), autofill_source: "drawing" }));
 };
+
+export const isAutoFillRow = (row) => {
+  const source = lower(row?.autofill_source || row?.autoFillSource);
+  return Boolean(source && source !== "manual") || /^(?:ins-)?ai-/i.test(text(row?.id));
+};
+
+// Auto Fill owns only drawing/AI rows. Rows entered through a task form have a
+// separate lifecycle and must survive every regeneration of plan-derived data.
+export const replaceAutoFillRows = (currentRows = [], generatedRows = []) => [
+  ...(Array.isArray(currentRows) ? currentRows : []).filter((row) => !isAutoFillRow(row)),
+  ...(Array.isArray(generatedRows) ? generatedRows : []),
+];
 
 export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, fallbackScale = 1) => {
   const groups = new Map();

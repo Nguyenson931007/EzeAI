@@ -1,7 +1,7 @@
 import { ApiService } from "./api.service";
 
 /**
- * Shared bridge for embedding the Gemini support agent into any EzeFloor task.
+ * Shared bridge for embedding the OpenAI support agent into any EzeFloor task.
  *
  * A task owns its real schema + handlers. The agent can only propose actions;
  * EzeFloor validates them on the backend and this helper dispatches them to the

@@ -2910,10 +2910,10 @@ export default function RibbonView({
           setActiveAiTask("wall");
           detectWallFromFloorAI({ ...config, provider: "local" }, roiRect);
         }}
-        onGeminiConfirm={(config) => {
+        onOpenAIConfirm={(config) => {
           setShowWallConfig(false);
           setActiveAiTask("wall");
-          detectWallFromFloorAI({ ...config, provider: "gemini" }, roiRect);
+          detectWallFromFloorAI({ ...config, provider: "openai" }, roiRect);
         }}
         onClose={() => setShowWallConfig(false)}
       />
