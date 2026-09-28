@@ -250,9 +250,9 @@ export default function ShelvingTask({
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
 
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
-  const [isExtrasOpen, setIsExtrasOpen] = useState(true);
+  const [isExtrasOpen, setIsExtrasOpen] = useState(false);
 
   // Draft input state
   const floorLevel = useCurrentTaskFloorLevel(formData);

@@ -320,7 +320,7 @@ export default function TimberPostsTask({
   const editRowDataRef = useRef({});
   const entriesRef = useRef(entries);
 
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);

@@ -523,10 +523,10 @@ export default function EavesSoffitTask({
     }
   };
 
-  const [isMaterialOpen, setIsMaterialOpen] = useState(true);
-  const [isStandardOpen, setIsStandardOpen] = useState(true);
-  const [isSoffitOpen, setIsSoffitOpen] = useState(true);
-  const [isExtrasOpen, setIsExtrasOpen] = useState(true);
+  const [isMaterialOpen, setIsMaterialOpen] = useState(false);
+  const [isStandardOpen, setIsStandardOpen] = useState(false);
+  const [isSoffitOpen, setIsSoffitOpen] = useState(false);
+  const [isExtrasOpen, setIsExtrasOpen] = useState(false);
   const [isScheduleOpen, setIsScheduleOpen] = useState(true);
 
   const handleAddEave = () => {

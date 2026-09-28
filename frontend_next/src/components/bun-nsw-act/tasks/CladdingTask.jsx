@@ -419,9 +419,9 @@ export default function CladdingTask({
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
-  const [isMaterialsOpen, setIsMaterialsOpen] = useState(true);
+  const [isMaterialsOpen, setIsMaterialsOpen] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
 

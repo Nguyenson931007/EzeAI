@@ -97,8 +97,8 @@ export default function HardiesFireWallsTask({
   const [notes, setNotes] = useState("");
 
   // ── UI COLLAPSIBLE STATES ──
-  const [isSpecOpen, setIsSpecOpen] = useState(true);
-  const [isFormOpen, setIsFormOpen] = useState(true);
+  const [isSpecOpen, setIsSpecOpen] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   // ── INLINE EDITING ──
   const [editingRowId, setEditingRowId] = useState(null);

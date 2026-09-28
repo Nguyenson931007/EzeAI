@@ -899,8 +899,8 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
 
   const [robeDraft, setRobeDraft] = useState({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
   const [revealDraft, setRevealDraft] = useState({ type: "window", height: "", width: "", blockWork: "No" });
-  const [isRobeOpen, setIsRobeOpen] = useState(true);
-  const [isTrimOpen, setIsTrimOpen] = useState(true);
+  const [isRobeOpen, setIsRobeOpen] = useState(false);
+  const [isTrimOpen, setIsTrimOpen] = useState(false);
   const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
   const revealRows = safeParseJson(read("fixout_reveal_openings", "[]"), []);
 
@@ -1068,7 +1068,7 @@ export default function FixoutTask({
   const activeCustomerShortName = getActiveClientShortName();
 
   const floorLevel = useCurrentTaskFloorLevel(formData);
-  const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(true);
+  const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);

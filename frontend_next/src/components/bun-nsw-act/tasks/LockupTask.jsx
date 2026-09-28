@@ -935,12 +935,12 @@ export default function LockupTask({
   const [looseIntColor, setLooseIntColor] = useState("CHR");
 
   const [isSection1Open, setIsSection1Open] = useState(false);
-  const [isPrehungOpen, setIsPrehungOpen] = useState(true);
-  const [isPreExtOpen, setIsPreExtOpen] = useState(true);
-  const [isPreIntOpen, setIsPreIntOpen] = useState(true);
-  const [isLooseOpen, setIsLooseOpen] = useState(true);
-  const [isLooseExtOpen, setIsLooseExtOpen] = useState(true);
-  const [isLooseIntOpen, setIsLooseIntOpen] = useState(true);
+  const [isPrehungOpen, setIsPrehungOpen] = useState(false);
+  const [isPreExtOpen, setIsPreExtOpen] = useState(false);
+  const [isPreIntOpen, setIsPreIntOpen] = useState(false);
+  const [isLooseOpen, setIsLooseOpen] = useState(false);
+  const [isLooseExtOpen, setIsLooseExtOpen] = useState(false);
+  const [isLooseIntOpen, setIsLooseIntOpen] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
   const handleAddDoor = (item) => {
     const newEntry = {

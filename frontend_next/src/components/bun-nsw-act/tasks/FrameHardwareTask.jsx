@@ -90,10 +90,10 @@ export default function FrameHardwareTask({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSection1Open, setIsSection1Open] = useState(false);
-  const [isSlabOpen, setIsSlabOpen] = useState(true);
-  const [isTimberOpen, setIsTimberOpen] = useState(true);
+  const [isSlabOpen, setIsSlabOpen] = useState(false);
+  const [isTimberOpen, setIsTimberOpen] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
-  const [isExtrasOpen, setIsExtrasOpen] = useState(true);
+  const [isExtrasOpen, setIsExtrasOpen] = useState(false);
 
   // Slab Floor State
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");

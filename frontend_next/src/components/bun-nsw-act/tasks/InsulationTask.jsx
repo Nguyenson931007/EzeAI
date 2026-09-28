@@ -159,11 +159,11 @@ export default function InsulationTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Sections Collapsible states
-  const [isSection1Open, setIsSection1Open] = useState(true);
-  const [isExtOpen, setIsExtOpen] = useState(true);
-  const [isIntOpen, setIsIntOpen] = useState(true);
-  const [isPartyOpen, setIsPartyOpen] = useState(true);
-  const [isSection3Open, setIsSection3Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
+  const [isExtOpen, setIsExtOpen] = useState(false);
+  const [isIntOpen, setIsIntOpen] = useState(false);
+  const [isPartyOpen, setIsPartyOpen] = useState(false);
+  const [isSection3Open, setIsSection3Open] = useState(false);
   const [isEnteredWallsOpen, setIsEnteredWallsOpen] = useState(true);
 
   // Helper to resolve English floor level abbreviations (GF, FF, SF, TF...)
@@ -1378,7 +1378,7 @@ export default function InsulationTask({
           style={{
             padding: "10px 14px",
             background: "#f8fafc",
-            borderBottom: isSection3Open ? "1px solid #e2e8f0" : "none",
+            borderBottom: "1px solid #e2e8f0",
             fontWeight: "800",
             fontSize: "13px",
             color: "#0f2744",
@@ -1397,9 +1397,9 @@ export default function InsulationTask({
           </span>
         </div>
 
-        {isSection3Open && (
-          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
-            {/* Form Inputs matching Image 1, 2, 3 */}
+        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* Keep the entered table visible while the manual input form starts collapsed. */}
+          {isSection3Open && (
             <div style={{ padding: "10px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
               {/* Insulation Type Dropdown (Image 1) */}
               <div style={{ flex: "1 1 110px" }}>
@@ -1514,6 +1514,7 @@ export default function InsulationTask({
                 + Add
               </button>
             </div>
+          )}
 
             {/* Table of Entered Floor & Ceiling Entries */}
             <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
@@ -1697,7 +1698,6 @@ export default function InsulationTask({
             </div>
 
           </div>
-        )}
       </div>
 
 

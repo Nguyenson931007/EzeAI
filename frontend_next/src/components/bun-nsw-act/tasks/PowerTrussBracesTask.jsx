@@ -305,7 +305,7 @@ export default function PowerTrussBracesTask({
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
 
-  const [isSection1Open, setIsSection1Open] = useState(true);
+  const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSection2Open, setIsSection2Open] = useState(true);
 
   // Draft input state
