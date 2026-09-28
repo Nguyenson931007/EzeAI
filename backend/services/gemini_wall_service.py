@@ -91,6 +91,7 @@ def review_raw_candidates_with_gemini(
     real_scale: float = 1.0,
     wall_thicknesses: Dict[str, int] | None = None,
     existing_walls: List[Dict[str, Any]] | None = None,
+    page_context: Dict[str, Any] | None = None,
     model: str | None = None,
 ) -> Dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -144,6 +145,7 @@ Rules:
 
 RAW_CANDIDATES={json.dumps(compact, separators=(',', ':'))}
 CURRENT_CANVAS_WALLS={json.dumps(current_context, separators=(',', ':'))}
+PAGE_CONTEXT={json.dumps(page_context or {}, separators=(',', ':'))}
 """
 
     payload = {

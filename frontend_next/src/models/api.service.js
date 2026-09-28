@@ -513,10 +513,16 @@ export const ApiService = {
     return handleResponse(res);
   },
 
-  async rebuildWallsWithGemini(imageBlob, realScale = 1.0, wallThicknesses = null, signal = null, confidence = "0.001", existingWalls = []) {
+  async rebuildWallsWithGemini(imageBlob, realScale = 1.0, wallThicknesses = null, existingWalls = [], pageContext = null, signal = null, confidence = "0.001") {
     const fd = new FormData();
     fd.append("file", imageBlob);
-    fd.append("confidence", confidence || "0.001");
+
+    // Keep this multipart field strictly numeric. The wall controller passes
+    // existingWalls + pageContext before the AbortSignal; the old signature
+    // interpreted pageContext as confidence and serialized it as
+    // "[object Object]", which FastAPI correctly rejected as a float.
+    const parsedConfidence = Number(confidence);
+    fd.append("confidence", Number.isFinite(parsedConfidence) ? String(parsedConfidence) : "0.001");
     fd.append("real_scale", realScale || 1.0);
     if (wallThicknesses) {
       fd.append("ext_thickness", wallThicknesses.ext || 90);
@@ -532,6 +538,11 @@ export const ApiService = {
       fd.append("existing_walls", JSON.stringify(compactWalls));
     } catch (e) {
       fd.append("existing_walls", "[]");
+    }
+    try {
+      fd.append("page_context", JSON.stringify(pageContext || {}));
+    } catch (e) {
+      fd.append("page_context", "{}");
     }
     const res = await fetch(`${BASE_URL}/api/gemini/rebuild-walls`, {
       method: "POST",

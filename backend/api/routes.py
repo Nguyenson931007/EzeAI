@@ -954,6 +954,7 @@ async def gemini_rebuild_walls(
     int_thickness: Optional[int] = Form(70),
     part_thickness: Optional[int] = Form(70),
     existing_walls: Optional[str] = Form(None),
+    page_context: Optional[str] = Form(None),
     username: str = Depends(validate_session)
 ):
     """Gemini reviews RAW YOLO candidates before destructive wall post-processing."""
@@ -969,6 +970,7 @@ async def gemini_rebuild_walls(
     }
     try:
         current = _json.loads(existing_walls) if existing_walls else []
+        context = _json.loads(page_context) if page_context else {}
         raw = await run_in_threadpool(
             WallSegmentService.predict_raw_candidates,
             image_bytes=content,
@@ -984,6 +986,7 @@ async def gemini_rebuild_walls(
             real_scale=real_scale or 1.0,
             wall_thicknesses=wall_thicknesses,
             existing_walls=current,
+            page_context=context,
         )
         logger.info(
             "Gemini RAW review: %s raw -> %s selected",
