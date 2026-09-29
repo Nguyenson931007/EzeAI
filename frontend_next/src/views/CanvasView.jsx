@@ -48,7 +48,7 @@ import {
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
-import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall, findStackedLowerDoor } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -1884,8 +1884,17 @@ const DoorLayer = React.memo(({
           // Dynamic architectural height (synced with d.height_mm / d.height when user edits)
           const defaultManualHeight = isManualWindow ? 1200 : (isManualGarage ? 2200 : 2040);
           const manualDoorHeight = Math.round(Number(d.height_mm || d.height || d.heightMm || defaultManualHeight));
+          const manualDoorHeight2 = (isManualWindow && d.height2_mm !== undefined && d.height2_mm !== null) ? Math.round(Number(d.height2_mm)) : null;
+          const isRakedWindow = isManualWindow && manualDoorHeight2 !== null && manualDoorHeight2 !== manualDoorHeight;
 
-          const manualDimensionText = `${manualDoorHeight}x${manualDoorWidth}`;
+          // Check if window is stacked over a lower door
+          const stackedLowerDoor = isManualWindow ? findStackedLowerDoor(d, doors, walls) : null;
+          const isStackedWindow = Boolean(stackedLowerDoor);
+          const labelYOffset = isStackedWindow ? 26 : 0;
+
+          const manualDimensionText = isRakedWindow
+            ? `${manualDoorHeight}/${manualDoorHeight2}x${manualDoorWidth}`
+            : `${manualDoorHeight}x${manualDoorWidth}`;
 
           const renderSingleDoor = () => {
             const geom = calculateDoorGeometry({
@@ -2042,6 +2051,20 @@ const DoorLayer = React.memo(({
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
                 <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
+
+                {/* Raked window slope indicator */}
+                {isRakedWindow && (
+                  <line
+                    x1={p1.x + nx * (manualDoorHeight > manualDoorHeight2 ? thickness : -thickness)}
+                    y1={p1.y + ny * (manualDoorHeight > manualDoorHeight2 ? thickness : -thickness)}
+                    x2={p2.x + nx * (manualDoorHeight > manualDoorHeight2 ? -thickness : thickness)}
+                    y2={p2.y + ny * (manualDoorHeight > manualDoorHeight2 ? -thickness : thickness)}
+                    stroke={isSelected ? "#FF5722" : "#0284c7"}
+                    strokeWidth={1.5}
+                    strokeDasharray="2,2"
+                    opacity={0.8}
+                  />
+                )}
               </g>
             );
           };
@@ -2306,23 +2329,23 @@ const DoorLayer = React.memo(({
                     {hasCustomName && (
                       <text
                         x={(p1.x + p2.x) / 2}
-                        y={(p1.y + p2.y) / 2 - 28}
+                        y={(p1.y + p2.y) / 2 - 28 - labelYOffset}
                         fontSize="12"
                         textAnchor="middle"
-                        fill={isSelected ? color : "#64748b"}
+                        fill={isSelected ? color : (isStackedWindow ? "#2563eb" : "#64748b")}
                         fontFamily="Inter, sans-serif"
                         fontWeight="bold"
                         style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                       >
-                        {d.door_name}
+                        {d.door_name}{isStackedWindow ? " [Stacked]" : ""}
                       </text>
                     )}
                     <text
                       x={(p1.x + p2.x) / 2}
-                      y={(p1.y + p2.y) / 2 - 13}
+                      y={(p1.y + p2.y) / 2 - 13 - labelYOffset}
                       fontSize="14"
                       textAnchor="middle"
-                      fill={isSelected ? color : "#1e293b"}
+                      fill={isSelected ? color : (isStackedWindow ? "#1d4ed8" : "#1e293b")}
                       fontFamily="Inter, sans-serif"
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
@@ -2503,6 +2526,73 @@ const DoorLayer = React.memo(({
                         onMouseOut={(e) => e.currentTarget.style.background = 'none'}
                       >
                         ✏️ Edit
+                      </button>
+                    </div>
+                  </foreignObject>
+                );
+              })()}
+
+              {/* Floating interactive flip control panel for Raked Windows */}
+              {isSelected && type === "window" && isRakedWindow && (() => {
+                return (
+                  <foreignObject
+                    x={(p1.x + p2.x) / 2 - 45}
+                    y={(p1.y + p2.y) / 2 - 32}
+                    width={90}
+                    height={30}
+                    style={{ overflow: 'visible' }}
+                  >
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        gap: '4px',
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(255, 87, 34, 0.5)',
+                        borderRadius: '20px',
+                        padding: '3px 8px',
+                        boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        title="Flip Slope Direction"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (updateDoor) {
+                            const h1 = Number(d.height_mm || d.height || 1200);
+                            const h2 = Number(d.height2_mm !== undefined ? d.height2_mm : h1);
+                            updateDoor({
+                              ...d,
+                              height_mm: h2,
+                              height: h2,
+                              heightMm: h2,
+                              height2_mm: h1,
+                            });
+                          }
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '11px',
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          fontWeight: 'bold',
+                          borderRadius: '12px',
+                          transition: 'background 0.2s',
+                          whiteSpace: 'nowrap'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                      >
+                        ⇄ Flip Slope
                       </button>
                     </div>
                   </foreignObject>
@@ -7747,6 +7837,7 @@ export default function CanvasView({
               visible={doorEditDialog.visible}
               door={d}
               walls={walls}
+              doors={doors}
               realScale={realScale}
               onSave={handleDoorEditSave}
               onClose={() => setDoorEditDialog({ visible: false, door: null })}

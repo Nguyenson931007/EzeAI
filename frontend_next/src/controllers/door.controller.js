@@ -26,6 +26,8 @@ import {
   WALL_TYPE_DEFAULTS,
   setDoorSequence,
   setWindowSequence,
+  findStackedLowerDoor,
+  isWindowPenetration,
 } from '@/models/DoorTypeRegistry';
 import {
   snapPointToWall,
@@ -150,7 +152,7 @@ export function useDoorController({
 
     const storedConfig = getStoredDoorConfig();
     const doorDef = DOOR_TYPE_REGISTRY[doorTypeId];
-    const isWin = doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard';
+    const isWin = doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard' || doorTypeId === 'win_raked';
     const isGar = doorDef?.doorType === 'garage' || doorDef?.renderClass === 'garage_door' || doorTypeId === 'ext_garage';
 
     // Penetration category: External Penetrations, Garage, Window -> external; Internal Penetrations -> internal
@@ -159,7 +161,8 @@ export function useDoorController({
     const scope = location;
 
     // Height: window = 1200, garage = 2200, others from stored default (2040)
-    const heightMm = isGar ? 2200 : (isWin ? 1200 : (doorPreset?.height || storedConfig.doorHeight || 2040));
+    const heightMm = isGar ? 2200 : (isWin ? (doorPreset?.height || doorPreset?.h || doorDef?.defaultHeight || 1200) : (doorPreset?.height || storedConfig.doorHeight || 2040));
+    const height2Mm = doorPreset?.height2 || doorPreset?.height2_mm || doorPreset?.h2 || (doorDef?.defaultHeight2 !== undefined ? doorDef.defaultHeight2 : heightMm);
 
     // Lockup model: window -> 'Window', external -> extDoorType ('SCX1 D/C'), internal -> intDoorType ('H1 PCM')
     const doorModel = isWin ? 'Window' : (isExt ? storedConfig.extDoorType : storedConfig.intDoorType);
@@ -186,6 +189,7 @@ export function useDoorController({
         lockup_door_type: doorModel,
         product: doorModel,
         height_mm: heightMm,
+        height2_mm: height2Mm,
         height: heightMm,
         heightMm: heightMm,
         ...(doorPreset?.width ? { width_mm: doorPreset.width } : {})
@@ -197,6 +201,34 @@ export function useDoorController({
 
     // Snap to wall (using legacy function for compatibility)
     const snappedDoor = snapDoorToWalls(newDoor, walls, 40);
+
+    // Auto-detect if window is placed on top of an existing lower door (Option A: Spatial Auto-Detection)
+    if (isWin) {
+      const lowerDoor = findStackedLowerDoor(snappedDoor, doors, walls);
+      if (lowerDoor) {
+        const lowerH = Number(lowerDoor.height_mm || lowerDoor.height || 2040);
+        snappedDoor.sillHeight = lowerH;
+        snappedDoor.sill_height = lowerH;
+        snappedDoor.stackedAboveDoorId = lowerDoor.id;
+
+        // If drawn points are close to lower door points, snap endpoints flush to lower door
+        if (lowerDoor.points && lowerDoor.points.length >= 2) {
+          const lp1 = Array.isArray(lowerDoor.points[0]) ? { x: lowerDoor.points[0][0], y: lowerDoor.points[0][1] } : lowerDoor.points[0];
+          const lp2 = Array.isArray(lowerDoor.points[1]) ? { x: lowerDoor.points[1][0], y: lowerDoor.points[1][1] } : lowerDoor.points[1];
+          const sp1 = snappedDoor.points[0];
+          const sp2 = snappedDoor.points[1];
+          const d1 = Math.hypot(sp1.x - lp1.x, sp1.y - lp1.y);
+          const d2 = Math.hypot(sp2.x - lp2.x, sp2.y - lp2.y);
+          if (d1 < 45 && d2 < 45) {
+            snappedDoor.points = [{ x: lp1.x, y: lp1.y }, { x: lp2.x, y: lp2.y }];
+            if (lowerDoor.width_mm) {
+              snappedDoor.width_mm = lowerDoor.width_mm;
+              snappedDoor.width = lowerDoor.width_mm;
+            }
+          }
+        }
+      }
+    }
 
     // Re-find parent wall after snap (position may have changed)
     if (!snappedDoor.parentWallId) {
@@ -367,6 +399,7 @@ export function useDoorController({
         doorPreset.class === 'window' ||
         doorPreset.doorType === 'window' ||
         doorPreset.id === 'win_standard' ||
+        doorPreset.id === 'win_raked' ||
         doorPreset.renderClass === 'garage_door' ||
         doorPreset.class === 'garage_door' ||
         doorPreset.doorType === 'garage' ||
@@ -461,6 +494,7 @@ export function useDoorController({
       doorPreset.class === 'window' ||
       doorPreset.doorType === 'window' ||
       doorPreset.id === 'win_standard' ||
+      doorPreset.id === 'win_raked' ||
       doorPreset.renderClass === 'garage_door' ||
       doorPreset.class === 'garage_door' ||
       doorPreset.doorType === 'garage' ||
@@ -614,15 +648,47 @@ export function useDoorController({
     }
 
     // 5. Update area/perimeter if dimensions changed
-    if (updatedDoor.width_mm !== oldDoor.width_mm || updatedDoor.height_mm !== oldDoor.height_mm) {
-      updatedDoor.area_mm2 = (updatedDoor.width_mm || 760) * (updatedDoor.height_mm || 1980);
-      updatedDoor.perimeter_mm = 2 * ((updatedDoor.width_mm || 760) + (updatedDoor.height_mm || 1980));
+    if (updatedDoor.width_mm !== oldDoor.width_mm || updatedDoor.height_mm !== oldDoor.height_mm || updatedDoor.height2_mm !== oldDoor.height2_mm) {
+      const w = updatedDoor.width_mm || 760;
+      const h1 = updatedDoor.height_mm || 1980;
+      const h2 = updatedDoor.height2_mm !== undefined ? Number(updatedDoor.height2_mm) : h1;
+      const isRaked = h2 !== h1;
+      updatedDoor.is_raked = isRaked;
+      if (isRaked) {
+        const slopedLen = Math.hypot(w, h2 - h1);
+        updatedDoor.area_mm2 = Math.round((w * (h1 + h2)) / 2);
+        updatedDoor.perimeter_mm = Math.round(w + h1 + h2 + slopedLen);
+      } else {
+        updatedDoor.area_mm2 = w * h1;
+        updatedDoor.perimeter_mm = 2 * (w + h1);
+      }
     }
 
     // Increment geometry version
     updatedDoor.geometryVersion = (oldDoor.geometryVersion || 1) + 1;
 
-    const updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
+    let updatedDoors = doors.map(d => d.id === newDoorData.id ? updatedDoor : d);
+
+    // If a lower door's height changed, auto-synchronize sillHeight of any window stacked above it
+    const newLowerH = Number(updatedDoor.height_mm || updatedDoor.height || 2040);
+    const oldLowerH = Number(oldDoor.height_mm || oldDoor.height || 2040);
+    if (newLowerH !== oldLowerH && !isWindowPenetration(updatedDoor)) {
+      updatedDoors = updatedDoors.map(d => {
+        if (isWindowPenetration(d)) {
+          const lower = findStackedLowerDoor(d, updatedDoors, walls);
+          if (lower && lower.id === updatedDoor.id) {
+            return {
+              ...d,
+              sillHeight: newLowerH,
+              sill_height: newLowerH,
+              stackedAboveDoorId: updatedDoor.id,
+              geometryVersion: (d.geometryVersion || 1) + 1
+            };
+          }
+        }
+        return d;
+      });
+    }
 
     if (setDoorsByPage) {
       setDoorsByPage(prev => ({ ...prev, [currentPage]: updatedDoors }));
@@ -729,6 +795,26 @@ export function useDoorController({
   // ──────────────────────────────────────────────────────────
   //  DOOR FLIP / ROTATE HELPERS
   // ──────────────────────────────────────────────────────────
+
+  /**
+   * Flip window slope (swap height_mm and height2_mm).
+   */
+  const flipSlope = useCallback((doorId) => {
+    const doors = getCurrentDoors();
+    const door = doors.find(d => d.id === doorId);
+    if (!door) return;
+
+    const currentH1 = door.height_mm || 1200;
+    const currentH2 = door.height2_mm !== undefined ? door.height2_mm : currentH1;
+
+    updateDoor({
+      ...door,
+      height_mm: currentH2,
+      height: currentH2,
+      heightMm: currentH2,
+      height2_mm: currentH1,
+    });
+  }, [getCurrentDoors, updateDoor]);
 
   /**
    * Flip door hinge side.
@@ -1059,6 +1145,7 @@ export function useDoorController({
     // Manipulation
     flipHinge,
     flipSwing,
+    flipSlope,
     rotateDoor,
     changeDoorType,
     swapFrameLeaf,

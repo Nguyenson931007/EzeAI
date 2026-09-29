@@ -52,6 +52,24 @@ function getDoorSVGIcon(doorClass) {
     );
   }
 
+  if (doorClass.includes('raked')) {
+    return (
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+        <path d="M6 30 L34 30 L34 16 L6 8 Z" stroke="#64748b" strokeWidth="2" fill="#f8fafc" />
+        <line x1="20" y1="12" x2="20" y2="30" stroke="#94a3b8" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+  if (doorClass.includes('window')) {
+    return (
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+        <rect x="6" y="8" width="28" height="24" rx="2" stroke="#64748b" strokeWidth="2" fill="#f8fafc" />
+        <line x1="20" y1="8" x2="20" y2="32" stroke="#94a3b8" strokeWidth="1.5" />
+        <line x1="6" y1="20" x2="34" y2="20" stroke="#94a3b8" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+
   // Single swing door (Default)
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -227,7 +245,8 @@ export default function DoorTypePanel({
                               const doorConfig = getStoredDoorConfig();
                               const isGarage = item.class === 'garage_door' || item.id === 'ext_garage';
                               const isWindow = item.class === 'window' || item.id?.startsWith('win_');
-                              const dynamicHeight = isGarage ? 2200 : (isWindow ? 1200 : (doorConfig?.doorHeight || 2040));
+                              const dynamicHeight = size.h || (isGarage ? 2200 : (isWindow ? 1200 : (doorConfig?.doorHeight || 2040)));
+                              const dynamicHeight2 = size.h2 !== undefined ? size.h2 : dynamicHeight;
 
                               const isActive = activePreset && 
                                 activePreset.id === item.id && 
@@ -242,7 +261,8 @@ export default function DoorTypePanel({
                                     class: item.class,
                                     category: item.category || category.id,
                                     width: size.w,
-                                    height: dynamicHeight
+                                    height: dynamicHeight,
+                                    height2: dynamicHeight2,
                                   })}
                                   style={{
                                     border: isActive ? '1.5px solid #2563eb' : '1px solid #e2e8f0',

@@ -732,19 +732,27 @@ export function useDocumentController({
             : 90;
         }
 
+        const finalThickness = thicknessMm || 90;
         return {
           id: w.id,
           wall_type: wallType,
           class_name: w.class_name,
           centerline: centerline,
           centerline_mm: centerline_mm,
-          thickness: thicknessMm || 90,
-          thickness_mm: thicknessMm || 90,
+          thickness: finalThickness,
+          thickness_mm: finalThickness,
           length: lengthMm,
           length_mm: lengthMm,
           height: w.height_mm || w.height || 2700,
           level: currentPage,
-          level_name: `LEVEL_${String(currentPage + 1).padStart(2, '0')}`
+          level_name: `LEVEL_${String(currentPage + 1).padStart(2, '0')}`,
+          is_lbw: Boolean(w.is_lbw || w.is_load_bearing || w.lbw || wallType === "ext"),
+          frame_stud_spacing: w.frame_stud_spacing || "450",
+          frame_timber_grade: w.frame_timber_grade || "MGP10",
+          frame_stud_size: w.frame_stud_size || `${finalThickness}x35`,
+          frame_stud_ply_count: Number(w.frame_stud_ply_count || 1),
+          frame_plate_ply_count: Number(w.frame_plate_ply_count || 1),
+          treated: w.treated || "UNTREATED"
         };
       });
 

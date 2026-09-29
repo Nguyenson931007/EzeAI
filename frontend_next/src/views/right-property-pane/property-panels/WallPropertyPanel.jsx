@@ -1,5 +1,12 @@
 import React from "react";
 import { getWallClass } from "@/utils/geometry";
+import {
+  TIMBER_GRADES,
+  TREATED_OPTIONS,
+  STUD_SPACINGS,
+  getValidFrameSizes,
+  getDefaultFrameSize
+} from "@/constants/wallFramingMaterials";
 
 export default function WallPropertyPanel({
   walls = [],
@@ -207,7 +214,9 @@ export default function WallPropertyPanel({
                 const input = await showPrompt("Enter custom wall thickness (mm) [Wall Thickness]:", String(currentThickness !== "multiple" ? currentThickness : 90));
                 if (input && !isNaN(parseInt(input, 10)) && parseInt(input, 10) > 0) {
                   const num = parseInt(input, 10);
-                  if (updateWallsProperty) updateWallsProperty(targetIds, "thickness", num);
+                  if (updateWallsProperty) {
+                    updateWallsProperty(targetIds, "thickness", num);
+                  }
                 }
               }
               return;
@@ -468,7 +477,6 @@ export default function WallPropertyPanel({
                     onClick={() => {
                       if (targetIds.length > 0 && updateWallsProperty) {
                         updateWallsProperty(targetIds, "include_insulation", opt.isInclude);
-                        updateWallsProperty(targetIds, "exclude_insulation", !opt.isInclude);
                       }
                     }}
                   >
@@ -476,6 +484,266 @@ export default function WallPropertyPanel({
                   </button>
                 );
               })}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── WALL FRAMING & TIMBER MATERIALS (EZEX INTEGRATION) ── */}
+      <div style={{ marginTop: 12, marginBottom: 10, padding: "10px 12px", background: "var(--bg-panel)", borderRadius: 6, border: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--blue-700)", display: "flex", alignItems: "center", gap: 6 }}>
+            🪵 WALL FRAMING (EZEX)
+          </span>
+          <span style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600 }}>Timber Specs</span>
+        </div>
+
+        {(() => {
+          const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
+          const targetWalls = (walls || []).filter((w) => targetIds.includes(w.id));
+          const primaryWall = targetWalls[0] || selectedWall;
+          const wallThick = primaryWall?.thickness || 90;
+          const validSizes = getValidFrameSizes(wallThick);
+
+          // 1. Stud Spacing
+          const spacingVals = new Set(targetWalls.map(w => String(w.frame_stud_spacing || "450")));
+          const currentSpacing = spacingVals.size > 1 ? "multiple" : (targetWalls[0]?.frame_stud_spacing ? String(targetWalls[0].frame_stud_spacing) : "450");
+
+          // 2. Timber Grade
+          const gradeVals = new Set(targetWalls.map(w => w.frame_timber_grade || "MGP10"));
+          const currentGrade = gradeVals.size > 1 ? "multiple" : (targetWalls[0]?.frame_timber_grade || "MGP10");
+
+          // 3. Frame Size
+          const sizeVals = new Set(targetWalls.map(w => w.frame_stud_size || getDefaultFrameSize(w.thickness || 90)));
+          const currentSize = sizeVals.size > 1 ? "multiple" : (targetWalls[0]?.frame_stud_size || getDefaultFrameSize(wallThick));
+
+          // 4. Stud Ply Count
+          const studPlyVals = new Set(targetWalls.map(w => Number(w.frame_stud_ply_count || 1)));
+          const currentStudPly = studPlyVals.size > 1 ? "multiple" : Number(targetWalls[0]?.frame_stud_ply_count || 1);
+
+          // 5. Plate Ply Count
+          const platePlyVals = new Set(targetWalls.map(w => Number(w.frame_plate_ply_count || 1)));
+          const currentPlatePly = platePlyVals.size > 1 ? "multiple" : Number(targetWalls[0]?.frame_plate_ply_count || 1);
+
+          // 6. Treated Option
+          const treatedVals = new Set(targetWalls.map(w => w.treated || "UNTREATED"));
+          const currentTreated = treatedVals.size > 1 ? "multiple" : (targetWalls[0]?.treated || "UNTREATED");
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Stud Spacing */}
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span className="panel-label" style={{ fontSize: 11 }}>Stud Spacing</span>
+                  <span style={{ fontSize: 10, color: "var(--text-dim)" }}>Center-to-Center</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
+                  {["450", "600"].map((sp) => {
+                    const isActive = currentSpacing === sp;
+                    return (
+                      <button
+                        key={sp}
+                        type="button"
+                        style={{
+                          padding: "5px 6px",
+                          fontSize: 11,
+                          fontWeight: isActive ? 700 : 500,
+                          background: isActive ? "var(--blue)" : "transparent",
+                          color: isActive ? "#ffffff" : "var(--text-dim)",
+                          border: isActive ? "1px solid var(--blue)" : "1px solid var(--border)",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                        onClick={() => {
+                          if (targetIds.length > 0 && updateWallsProperty) {
+                            updateWallsProperty(targetIds, "frame_stud_spacing", sp);
+                          }
+                        }}
+                      >
+                        {isActive ? `✓ ${sp} mm` : `${sp} mm`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!["450", "600"].includes(currentSpacing) && currentSpacing !== "multiple" && (
+                  <select
+                    className="panel-select"
+                    style={{ fontSize: 11, height: 26, padding: "2px 6px", marginBottom: 2 }}
+                    value={currentSpacing}
+                    onChange={(e) => {
+                      if (targetIds.length > 0 && updateWallsProperty) {
+                        updateWallsProperty(targetIds, "frame_stud_spacing", e.target.value);
+                      }
+                    }}
+                  >
+                    {STUD_SPACINGS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <select
+                    className="panel-select"
+                    style={{ fontSize: 10, height: 20, padding: "0 4px", width: "auto", border: "none", background: "transparent", color: "var(--blue)", cursor: "pointer" }}
+                    value={["450", "600"].includes(currentSpacing) ? "more" : currentSpacing}
+                    onChange={(e) => {
+                      if (e.target.value !== "more" && targetIds.length > 0 && updateWallsProperty) {
+                        updateWallsProperty(targetIds, "frame_stud_spacing", e.target.value);
+                      }
+                    }}
+                  >
+                    <option value="more" disabled>Other spacings...</option>
+                    {STUD_SPACINGS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Timber Grade */}
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <span className="panel-label" style={{ fontSize: 11 }}>Timber Grade</span>
+                <select
+                  className="panel-select"
+                  style={{ fontSize: 11, height: 28 }}
+                  value={currentGrade}
+                  onChange={(e) => {
+                    if (targetIds.length > 0 && updateWallsProperty) {
+                      updateWallsProperty(targetIds, "frame_timber_grade", e.target.value);
+                    }
+                  }}
+                >
+                  {currentGrade === "multiple" && <option value="multiple" disabled>(Multiple Grades)</option>}
+                  {TIMBER_GRADES.map(tg => (
+                    <option key={tg.value} value={tg.value}>{tg.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Frame Size (Matched with Wall Thickness) */}
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                  <span className="panel-label" style={{ fontSize: 11 }}>Frame Section Size</span>
+                  <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{wallThick}mm wall</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(validSizes.length, 3)}, 1fr)`, gap: 4 }}>
+                  {validSizes.map((sz) => {
+                    const isActive = currentSize === sz;
+                    return (
+                      <button
+                        key={sz}
+                        type="button"
+                        style={{
+                          padding: "5px 4px",
+                          fontSize: 11,
+                          fontWeight: isActive ? 700 : 500,
+                          background: isActive ? "var(--blue)" : "transparent",
+                          color: isActive ? "#ffffff" : "var(--text-dim)",
+                          border: isActive ? "1px solid var(--blue)" : "1px solid var(--border)",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                        onClick={() => {
+                          if (targetIds.length > 0 && updateWallsProperty) {
+                            updateWallsProperty(targetIds, "frame_stud_size", sz);
+                          }
+                        }}
+                      >
+                        {isActive ? `✓ ${sz}` : sz}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Ply Counts (Stud & Plate) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div>
+                  <span className="panel-label" style={{ fontSize: 10.5, marginBottom: 3, display: "block" }}>Stud Ply</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                    {[1, 2].map((ply) => {
+                      const isActive = currentStudPly === ply;
+                      return (
+                        <button
+                          key={ply}
+                          type="button"
+                          style={{
+                            padding: "4px 2px",
+                            fontSize: 10.5,
+                            fontWeight: isActive ? 700 : 500,
+                            background: isActive ? (ply === 2 ? "#ea580c" : "var(--blue)") : "transparent",
+                            color: isActive ? "#ffffff" : "var(--text-dim)",
+                            border: isActive ? "1px solid transparent" : "1px solid var(--border)",
+                            borderRadius: 4,
+                            cursor: "pointer"
+                          }}
+                          onClick={() => {
+                            if (targetIds.length > 0 && updateWallsProperty) {
+                              updateWallsProperty(targetIds, "frame_stud_ply_count", ply);
+                            }
+                          }}
+                        >
+                          {ply === 1 ? "1-Ply" : "2-Ply"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="panel-label" style={{ fontSize: 10.5, marginBottom: 3, display: "block" }}>Plate Ply</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                    {[1, 2].map((ply) => {
+                      const isActive = currentPlatePly === ply;
+                      return (
+                        <button
+                          key={ply}
+                          type="button"
+                          style={{
+                            padding: "4px 2px",
+                            fontSize: 10.5,
+                            fontWeight: isActive ? 700 : 500,
+                            background: isActive ? (ply === 2 ? "#ea580c" : "var(--blue)") : "transparent",
+                            color: isActive ? "#ffffff" : "var(--text-dim)",
+                            border: isActive ? "1px solid transparent" : "1px solid var(--border)",
+                            borderRadius: 4,
+                            cursor: "pointer"
+                          }}
+                          onClick={() => {
+                            if (targetIds.length > 0 && updateWallsProperty) {
+                              updateWallsProperty(targetIds, "frame_plate_ply_count", ply);
+                            }
+                          }}
+                        >
+                          {ply === 1 ? "1-Ply" : "2-Ply"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Treatment Option */}
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <span className="panel-label" style={{ fontSize: 11 }}>Treatment</span>
+                <select
+                  className="panel-select"
+                  style={{ fontSize: 11, height: 28 }}
+                  value={currentTreated}
+                  onChange={(e) => {
+                    if (targetIds.length > 0 && updateWallsProperty) {
+                      updateWallsProperty(targetIds, "treated", e.target.value);
+                    }
+                  }}
+                >
+                  {currentTreated === "multiple" && <option value="multiple" disabled>(Multiple Treatments)</option>}
+                  {TREATED_OPTIONS.map(to => (
+                    <option key={to.value} value={to.value}>{to.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           );
         })()}
@@ -495,7 +763,6 @@ export default function WallPropertyPanel({
               value={selectedWall?.surface?.sideA?.finishType || selectedWall?.finishTypeSideA || "none"}
               onChange={(e) => {
                 const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideA", e.target.value);
                 updateWallsProperty && updateWallsProperty(targetIds, "surface.sideA.finishType", e.target.value);
               }}
             >
@@ -574,7 +841,6 @@ export default function WallPropertyPanel({
               value={selectedWall?.surface?.sideB?.finishType || selectedWall?.finishTypeSideB || "none"}
               onChange={(e) => {
                 const targetIds = selectedWallIds.length > 0 ? selectedWallIds : [selectedWall.id];
-                updateWallsProperty && updateWallsProperty(targetIds, "finishTypeSideB", e.target.value);
                 updateWallsProperty && updateWallsProperty(targetIds, "surface.sideB.finishType", e.target.value);
               }}
             >

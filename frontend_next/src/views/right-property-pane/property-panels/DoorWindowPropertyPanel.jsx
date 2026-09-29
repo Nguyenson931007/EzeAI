@@ -6,7 +6,9 @@ import {
   resolveDoorTypeId,
   getDoorTypeOptions,
   MATERIAL_OPTIONS,
-  FIRE_RATING_OPTIONS
+  FIRE_RATING_OPTIONS,
+  findStackedLowerDoor,
+  findStackedUpperWindow
 } from "@/models/DoorTypeRegistry";
 import { getDoorWindowDisplayWidthMm } from "../UIComponents";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -284,6 +286,33 @@ export default function DoorWindowPropertyPanel({
           : "")
       : (activeDoor.height_mm || activeDoor.height || 1200);
 
+    const getWinH2 = (d) => (d.height2_mm !== undefined && d.height2_mm !== null) ? Number(d.height2_mm) : Number(d.height_mm || d.height || 1200);
+    const effectiveWindowHeight2Mm = isMulti
+      ? (selectedDoors.every((d) => getWinH2(d) === getWinH2(activeDoor))
+          ? getWinH2(activeDoor)
+          : "")
+      : getWinH2(activeDoor);
+
+    const isRakedWindow = Number(effectiveWindowHeight2Mm) !== Number(effectiveWindowHeightMm) && Boolean(effectiveWindowHeight2Mm);
+
+    const stackedLowerDoor = findStackedLowerDoor(activeDoor, doors, walls);
+    const isStacked = Boolean(stackedLowerDoor);
+    const stackedLowerHeight = isStacked
+      ? Number(stackedLowerDoor.height_mm || stackedLowerDoor.height || 2040)
+      : null;
+
+    const handleFlipSlope = () => {
+      const h1 = Number(activeDoor.height_mm || activeDoor.height || 1200);
+      const h2 = Number(activeDoor.height2_mm !== undefined ? activeDoor.height2_mm : h1);
+      handleApplyProperty({
+        height_mm: h2,
+        height: h2,
+        heightMm: h2,
+        height2_mm: h1,
+        is_raked: h1 !== h2,
+      });
+    };
+
     return (
       <>
         {/* Multi-selection Banner */}
@@ -396,6 +425,34 @@ export default function DoorWindowPropertyPanel({
           </div>
         )}
 
+        {/* Auto-Stacked Status Banner */}
+        {isStacked && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "8px 12px",
+              borderRadius: "8px",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              marginBottom: "12px",
+              fontSize: "12px",
+              color: "#166534"
+            }}
+          >
+            <span style={{ fontSize: "16px" }}>🧱</span>
+            <div style={{ lineHeight: "1.4" }}>
+              <div style={{ fontWeight: 700 }}>
+                Auto-Stacked Over {stackedLowerDoor.doorName || stackedLowerDoor.door_name || "Lower Door"}
+              </div>
+              <div style={{ color: "#15803d", fontSize: "11px" }}>
+                Base Sill Elevation: <strong>{stackedLowerHeight} mm</strong> (starts at top of door)
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="panel-field">
           <span className="panel-label">Window Name</span>
           <input
@@ -494,8 +551,9 @@ export default function DoorWindowPropertyPanel({
           </div>
         </div>
 
+        {/* Height 1 / Left (mm) */}
         <div className="panel-field">
-          <span className="panel-label">Height (mm)</span>
+          <span className="panel-label">Height 1 / Left (mm)</span>
           <div style={{ display: "flex", gap: "8px" }}>
             <input
               type="number"
@@ -528,8 +586,71 @@ export default function DoorWindowPropertyPanel({
               <option value={1500}>1500</option>
               <option value={1800}>1800</option>
               <option value={2100}>2100</option>
+              <option value={2400}>2400</option>
             </select>
           </div>
+        </div>
+
+        {/* Height 2 / Right (mm) */}
+        <div className="panel-field">
+          <span className="panel-label">Height 2 / Right (mm)</span>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <input
+              type="number"
+              className="panel-input"
+              style={{ flex: 1 }}
+              placeholder={isMulti && !effectiveWindowHeight2Mm ? "(Multiple values)" : ""}
+              value={effectiveWindowHeight2Mm}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (!isNaN(val) && val > 0) {
+                  handleApplyProperty({ height2_mm: val, is_raked: val !== Number(effectiveWindowHeightMm) });
+                }
+              }}
+            />
+            <select
+              className="panel-select"
+              style={{ width: "100px" }}
+              value={effectiveWindowHeight2Mm || ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const val = Number(e.target.value);
+                  handleApplyProperty({ height2_mm: val, is_raked: val !== Number(effectiveWindowHeightMm) });
+                }
+              }}
+            >
+              <option value="">Presets</option>
+              <option value={600}>600</option>
+              <option value={900}>900</option>
+              <option value={1200}>1200</option>
+              <option value={1500}>1500</option>
+              <option value={1800}>1800</option>
+              <option value={2100}>2100</option>
+              <option value={2400}>2400</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Raked Slope Action & Badge */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 4 }}>
+          {isRakedWindow ? (
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", padding: "2px 8px", borderRadius: "12px" }}>
+              📐 Raked Window (Trapezoid)
+            </span>
+          ) : (
+            <span style={{ fontSize: "11px", color: "#64748b" }}>
+              Rectangular Window
+            </span>
+          )}
+          <button
+            type="button"
+            className="rp-action-btn rp-action-btn--secondary"
+            style={{ width: "auto", padding: "4px 10px", fontSize: "11px", display: "inline-flex", alignItems: "center", gap: 4 }}
+            onClick={handleFlipSlope}
+            title="Flip Left and Right Heights"
+          >
+            ⇄ Flip Slope
+          </button>
         </div>
 
         <div style={{ marginTop: 12 }}>
@@ -584,8 +705,38 @@ export default function DoorWindowPropertyPanel({
         : "")
     : (activeDoor.height_mm || activeDoor.height || 2040);
 
+  const stackedUpperWin = findStackedUpperWindow(activeDoor, doors, walls);
+  const hasStackedUpperWindow = Boolean(stackedUpperWin);
+
   return (
     <>
+      {/* Upper Window Stacked Status */}
+      {hasStackedUpperWindow && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 12px",
+            borderRadius: "8px",
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            marginBottom: "12px",
+            fontSize: "12px",
+            color: "#1e40af"
+          }}
+        >
+          <span style={{ fontSize: "16px" }}>🪟</span>
+          <div style={{ lineHeight: "1.4" }}>
+            <div style={{ fontWeight: 700 }}>
+              Window Stacked Above: {stackedUpperWin.doorName || stackedUpperWin.door_name || "Window"}
+            </div>
+            <div style={{ color: "#2563eb", fontSize: "11px" }}>
+              Window starts at top header ({activeDoor.height_mm || activeDoor.height || 2040} mm)
+            </div>
+          </div>
+        </div>
+      )}
       {/* Multi-selection Banner */}
       {isMulti && (
         <div

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   DOOR_TYPE_REGISTRY,
   FIRE_RATING_OPTIONS,
+  findStackedLowerDoor,
 } from '@/models/DoorTypeRegistry';
 
 import { mergeCollinearWalls } from '@/utils/geometry';
@@ -10,6 +11,7 @@ import { mergeCollinearWalls } from '@/utils/geometry';
 
 const WINDOW_TYPE_OPTIONS = [
   { value: 'win_standard', label: 'Standard Window' },
+  { value: 'win_raked', label: 'Raked Window (Trapezoid)' },
   { value: 'win_custom', label: 'Custom Window' },
 ];
 
@@ -59,6 +61,7 @@ export default function WindowEditDialog({
   onSave,
   onClose,
   walls = [],
+  doors = [],
   realScale = 1.0
 }) {
   const overlayRef = useRef(null);
@@ -79,6 +82,7 @@ export default function WindowEditDialog({
   const [distanceValue, setDistanceValue] = useState(0);
   const [sillHeight, setSillHeight] = useState(900);
   const [heightMm, setHeightMm] = useState(1200);
+  const [height2Mm, setHeight2Mm] = useState(1200);
   const [widthMm, setWidthMm] = useState(1200);
   const [applyToAll, setApplyToAll] = useState(false);
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
@@ -219,11 +223,15 @@ export default function WindowEditDialog({
       effW = calcMm;
     }
 
-    setSillHeight(door.sillHeight || door.sill_height || 900);
-    setHeightMm(door.height_mm || 1200);
+    const stackedLower = findStackedLowerDoor(door, doors, walls);
+    const defaultSill = stackedLower ? Number(stackedLower.height_mm || stackedLower.height || 2040) : 900;
+    setSillHeight(door.sillHeight || door.sill_height || defaultSill);
+    const initH1 = door.height_mm || 1200;
+    setHeightMm(initH1);
+    setHeight2Mm((door.height2_mm !== undefined && door.height2_mm !== null) ? door.height2_mm : initH1);
     setWidthMm(effW || 1200);
     setApplyToAll(false);
-  }, [door, walls, realScale]);
+  }, [door, walls, doors, realScale]);
 
   if (!visible || !door) return null;
 
@@ -247,8 +255,9 @@ export default function WindowEditDialog({
   const handleSave = () => {
     const parentWall = getParentWall();
     const parsedHeight = Math.max(200, Math.min(3000, parseInt(heightMm) || 1200));
+    const parsedHeight2 = Math.max(200, Math.min(3000, parseInt(height2Mm) || parsedHeight));
     const parsedWidth = Math.max(200, parseInt(widthMm) || 1200);
-    const parsedSill = Math.max(0, Math.min(2500, parseInt(sillHeight) || 900));
+    const parsedSill = Math.max(0, Math.min(3500, parseInt(sillHeight) || 900));
 
     const updated = {
       ...door,
@@ -269,7 +278,9 @@ export default function WindowEditDialog({
       sillHeight: parsedSill,
       sill_height: parsedSill,
       height_mm: parsedHeight,
+      height2_mm: parsedHeight2,
       height: parsedHeight,
+      is_raked: parsedHeight !== parsedHeight2,
       width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
@@ -497,7 +508,7 @@ export default function WindowEditDialog({
               <input
                 type="number"
                 min="0"
-                max="2500"
+                max="3500"
                 value={sillHeight}
                 onChange={(e) => setSillHeight(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}
@@ -508,10 +519,10 @@ export default function WindowEditDialog({
             </div>
           </div>
 
-          {/* Height */}
+          {/* Height 1 / Left */}
           <div style={rowStyle}>
             <span style={labelStyle}>
-              Height <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm, min. 200, max. 3000)</span>
+              Height 1 / Left <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm)</span>
               <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
             </span>
             <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
@@ -526,6 +537,46 @@ export default function WindowEditDialog({
               <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
                 {heightDisplay}
               </span>
+            </div>
+          </div>
+
+          {/* Height 2 / Right */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>
+              Height 2 / Right <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm)</span>
+              <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
+            </span>
+            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
+              <input
+                type="number"
+                min="200"
+                max="3000"
+                value={height2Mm}
+                onChange={(e) => setHeight2Mm(e.target.value)}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const temp = heightMm;
+                  setHeightMm(height2Mm);
+                  setHeight2Mm(temp);
+                }}
+                style={{
+                  padding: '6px 10px',
+                  background: '#f1f5f9',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#1e293b',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Flip Left and Right Heights"
+              >
+                ⇄ Flip Slope
+              </button>
             </div>
           </div>
 
