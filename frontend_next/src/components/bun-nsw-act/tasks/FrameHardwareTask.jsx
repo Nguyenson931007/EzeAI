@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import { ApiService } from "@/models/api.service";
-import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS } from "@/constants/procurementFormParity";
+import { FRAME_WALL_HEIGHTS, FRAME_HARDWARE_EXTRA_FIELDS, BUN_VIC_FRAME_HARDWARE_EXTRA_FIELDS, isBunVicCustomer } from "@/constants/procurementFormParity";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
@@ -10,13 +10,27 @@ import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalize
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { EnteredDataCard, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
+import {
+  EnteredDataCard,
+  TaskCard,
+  TaskEmptyRow,
+  TaskFieldGrid,
+  TaskRowNumber,
+  TaskSectionHeader,
+  TaskSummaryFooter,
+  TaskSummaryTable,
+} from "./TaskUi";
 
 const parseFrameExtras = (value) => {
   try {
     if (value && typeof value === "object") return value;
     return value ? JSON.parse(value) : {};
   } catch { return {}; }
+};
+
+const parseFrameNumber = (value, fallback = 0) => {
+  const parsed = Number.parseFloat(String(value ?? "").replace(",", ".").replace(/[^\d.+-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 export default function FrameHardwareTask({
@@ -61,6 +75,9 @@ export default function FrameHardwareTask({
   } = useAppModel();
 
   const pages = (pagesProp && pagesProp.length > 0) ? pagesProp : pagesCtx;
+  const activeCustomerShortName = getActiveClientShortName();
+  const isBunVic = isBunVicCustomer(activeCustomerShortName);
+  const frameExtraFields = isBunVic ? BUN_VIC_FRAME_HARDWARE_EXTRA_FIELDS : FRAME_HARDWARE_EXTRA_FIELDS;
   const wallsByPage = (wallsByPageProp && Object.keys(wallsByPageProp).length > 0) ? wallsByPageProp : wallsByPageCtx;
   const scalesByPage = (scalesByPageProp && Object.keys(scalesByPageProp).length > 0) ? scalesByPageProp : scalesByPageCtx;
   const realScale = realScaleProp || realScaleCtx;
@@ -99,6 +116,7 @@ export default function FrameHardwareTask({
   const [slabWallHeight, setSlabWallHeight] = useState("Select...");
   const [slabWallLength, setSlabWallLength] = useState("");
   const [slabSpacing, setSlabSpacing] = useState("900");
+  const [slabInputError, setSlabInputError] = useState("");
   const [slabRodSize, setSlabRodSize] = useState("M12");
   const currentFloorLevel = useCurrentTaskFloorLevel(formData);
   const [slabWallClass, setSlabWallClass] = useState("exterior_wall");
@@ -205,7 +223,9 @@ export default function FrameHardwareTask({
         if (lenMm <= 0) return;
 
         const rawFloor = String(w.floor_type || w.floorType || w.base_construction || "").toLowerCase();
-        const isSlab = rawFloor.includes("slab") || rawFloor.includes("concrete");
+        // Current BUN-VIC ProcurementApp Frame Hardware is slab-only.
+        // Keep NSW/QLD behaviour unchanged.
+        const isSlab = isBunVic || rawFloor.includes("slab") || rawFloor.includes("concrete");
         const floorType = isSlab ? "Slab" : "Timber";
         const hMm = Number(w.height_mm || w.height || 2400);
         const wallClass = qInfo.wallClass;
@@ -247,7 +267,7 @@ export default function FrameHardwareTask({
       }
       return a.heightMm - b.heightMm;
     });
-  }, [pages, wallsByPage, scalesByPage, realScale, architecturalPageIndices, floorLevelByPage]);
+  }, [pages, wallsByPage, scalesByPage, realScale, architecturalPageIndices, floorLevelByPage, isBunVic]);
 
   // ── Tự động đồng bộ các thay đổi từ properties / AI Canvas vào bảng Entered walls ──
   useEffect(() => {
@@ -316,6 +336,10 @@ export default function FrameHardwareTask({
   // ── Danh sách tường chỉ gồm External Wall & Internal Load Bearing Wall (chuẩn phẳng như Hình 3) ──
   const qualifiedWalls = useMemo(() => {
     return (entries || []).filter(w => {
+      if (isBunVic) {
+        const rawAbove = String(w.theWallAbove || w.baseType || "").toUpperCase();
+        if (rawAbove.includes("TIMBER")) return false;
+      }
       const cls = w.wallClass || w.wall_class || w.class_name;
       if (!cls) return true;
       const c = String(cls).toLowerCase().trim();
@@ -339,7 +363,7 @@ export default function FrameHardwareTask({
         __sourcePageIndex: sourcePageIndex,
       };
     });
-  }, [entries, wallPageById, floorLevelByPage]);
+  }, [entries, wallPageById, floorLevelByPage, isBunVic]);
 
   // Level sort order + display name + grouping now live in
   // "@/utils/floorLevelDisplay" and are shared by every Entered-items task
@@ -462,9 +486,16 @@ export default function FrameHardwareTask({
   };
 
   const handleAddSlabWall = () => {
-    const lenMm = parseFloat(slabWallLength) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 18500);
+    const enteredLength = parseFrameNumber(slabWallLength);
+    const enteredSpacing = parseFrameNumber(slabSpacing);
+    if (isBunVic && (enteredLength <= 0 || enteredSpacing <= 0)) {
+      setSlabInputError("Enter Wall Length and Spacing greater than 0.");
+      return;
+    }
+
+    const lenMm = enteredLength || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 18500);
     const hMm = slabWallHeight !== "Select..." ? parseInt(slabWallHeight, 10) : 2440;
-    const spacingMm = parseInt(slabSpacing, 10) || 900;
+    const spacingMm = enteredSpacing || 900;
     const demand = (lenMm / spacingMm).toFixed(2);
     const rodCount = Math.ceil(lenMm / spacingMm) || 1;
     const rodLength = hMm <= 2440 ? 2700 : (hMm <= 2740 ? 3000 : 3600);
@@ -488,6 +519,7 @@ export default function FrameHardwareTask({
     if (onSetEntries) {
       onSetEntries(prev => [...(prev || []), newEntry]);
     }
+    setSlabInputError("");
     setSlabWallLength("");
     setTimeout(() => {
       tableRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -636,9 +668,9 @@ export default function FrameHardwareTask({
         const rawAbove = w.theWallAbove || "";
         const isTimber = rawAbove.toUpperCase().includes("TIMBER") || w.baseType === "Timber Floor" || w.baseType === "Timber";
         const floorType = isTimber ? "Timber" : "Slab";
-        const heightMm = parseInt(String(w.height || "2700").replace(/mm/gi, "").trim(), 10) || 2700;
-        const lengthMm = parseInt(String(w.length || "0").replace(/mm/gi, "").trim(), 10) || 0;
-        const spacingMm = parseInt(String(w.spacing || "900").replace(/mm/gi, "").trim(), 10) || 900;
+        const heightMm = parseFrameNumber(w.height, 2700);
+        const lengthMm = parseFrameNumber(w.length);
+        const spacingMm = parseFrameNumber(w.spacing, 900);
         const rodSize = w.rodSize || "M12";
         const floorLevel = (w.floorLevel || w.floor_level || "GF").trim().toUpperCase();
 
@@ -648,7 +680,7 @@ export default function FrameHardwareTask({
           wall_length: lengthMm,
           spacing: spacingMm,
           rod_size: rodSize,
-          short_name: getActiveClientShortName(),
+          short_name: activeCustomerShortName,
           floor_level: floorLevel
         };
       });
@@ -662,6 +694,12 @@ export default function FrameHardwareTask({
         user_update: currentUserUpdate,
         jobs: [{
           id_job_hw: jobId || "default",
+          ...(isBunVic ? {
+            // Procurement keeps this workbook-only value outside its slab-wall
+            // shape. The EzeFloor API stores it as a non-wall metadata row in
+            // the existing FrameWork version so no new table is needed.
+            upper_floors: parseFrameNumber(parseFrameExtras(formData?.frame_hardware_extras).upperFloors),
+          } : {}),
           walls: wallsList
         }]
       };
@@ -810,6 +848,32 @@ export default function FrameHardwareTask({
         title="Click to select · Double-click to edit"
       >
         <td style={{ fontWeight: 700, width: "24px" }}><TaskRowNumber index={rowIdx} row={w} /></td>
+        {isBunVic ? (
+          <>
+            <td>
+              {isRowEditing ? (
+                <input inputMode="decimal" value={editRowData.length || ""} onChange={(event) => setEditRowData((prev) => ({ ...prev, length: event.target.value }))} style={controlStyle} />
+              ) : (w.length || "—")}
+            </td>
+            <td>
+              {isRowEditing ? (
+                <input inputMode="decimal" value={editRowData.spacing || "900"} onChange={(event) => setEditRowData((prev) => ({ ...prev, spacing: event.target.value }))} style={controlStyle} />
+              ) : (w.spacing || "—")}
+            </td>
+            <td style={{ fontWeight: 700 }}>
+              {(() => {
+                const length = parseFrameNumber(w.length);
+                const spacing = parseFrameNumber(w.spacing, 900);
+                const tiedowns = spacing > 0 ? length / spacing : 0;
+                return tiedowns > 0 ? Number(tiedowns.toFixed(2)).toString() : "0";
+              })()}
+            </td>
+            <td style={{ fontWeight: 700 }}>
+              {normalizeFloorLevelCode(w.floorLevel || w.floor_level || currentFloorLevel || "GF") || "GF"}
+            </td>
+          </>
+        ) : (
+          <>
         <td>
           <span style={{
             background: isTimber ? "#fef3c7" : "#fee2e2",
@@ -890,6 +954,8 @@ export default function FrameHardwareTask({
             </select>
           ) : <strong style={{ color: "#1e3a5f" }}>{rodSizeVal || "—"}</strong>}
         </td>
+          </>
+        )}
         <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
           {isRowEditing ? (
             <>
@@ -913,6 +979,128 @@ export default function FrameHardwareTask({
       </tr>
     );
   };
+
+  if (isBunVic) {
+    const vicExtras = parseFrameExtras(formData?.frame_hardware_extras);
+    const updateVicExtra = (key, value) => {
+      if (!/^\d*(?:[.,]\d*)?$/.test(value)) return;
+      const next = { ...vicExtras, [key]: value };
+      onChange?.("frame_hardware", "frame_hardware_extras", JSON.stringify(next));
+    };
+    const vicExtraFields = frameExtraFields.filter(([key]) => key !== "upperFloors");
+
+    return (
+      <div className="proc-task-content frame-hardware-vic-task">
+        <TaskCard>
+          <TaskSectionHeader title="1. Walls on slab & additional hardware" />
+          <TaskFieldGrid columns={4} className="frame-hardware-vic-primary-fields">
+              <label className="task-ui-field">
+                <span className="task-ui-field-label">Wall Length <span className="task-field-unit">mm</span></span>
+                <input
+                  className="task-ui-control task-ui-input frame-hardware-vic-required"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
+                  value={slabWallLength}
+                  onChange={(e) => /^\d*(?:[.,]\d*)?$/.test(e.target.value) && setSlabWallLength(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddSlabWall()}
+                />
+              </label>
+              <label className="task-ui-field">
+                <span className="task-ui-field-label">Spacing <span className="task-field-unit">mm</span></span>
+                <input
+                  className="task-ui-control task-ui-input frame-hardware-vic-required"
+                  type="text"
+                  inputMode="decimal"
+                  value={slabSpacing}
+                  onChange={(e) => /^\d*(?:[.,]\d*)?$/.test(e.target.value) && setSlabSpacing(e.target.value)}
+                  onBlur={() => parseFrameNumber(slabSpacing) <= 0 && setSlabSpacing("900")}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddSlabWall()}
+                />
+              </label>
+              <label className="task-ui-field">
+                <span className="task-ui-field-label">Upper Floor (number of timber floors)</span>
+                <input
+                  className="task-ui-control task-ui-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={vicExtras.upperFloors ?? "0"}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => updateVicExtra("upperFloors", e.target.value)}
+                />
+              </label>
+              <button
+                className="frame-hardware-vic-add"
+                type="button"
+                onClick={handleAddSlabWall}
+              >
+                + Add wall
+              </button>
+          </TaskFieldGrid>
+          {slabInputError ? <div className="frame-hardware-vic-error">{slabInputError}</div> : null}
+
+            <TaskFieldGrid columns={5} className="frame-hardware-vic-extra-fields">
+              {vicExtraFields.map(([key, label]) => (
+                <label className="task-ui-field" key={key}>
+                  <span className="task-ui-field-label">{label}</span>
+                  <input
+                    className="task-ui-control task-ui-input"
+                    type="text"
+                    inputMode="decimal"
+                    value={vicExtras[key] ?? "0"}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => updateVicExtra(key, e.target.value)}
+                  />
+                </label>
+              ))}
+            </TaskFieldGrid>
+        </TaskCard>
+
+        <EnteredDataCard
+          title={`2. Entered walls (${qualifiedWalls.length})`}
+          isOpen={isSection2Open}
+          onToggle={() => setIsSection2Open((open) => !open)}
+          onAutoFill={handleAutoFillAI}
+          onClear={onClearData}
+          onSave={handleSaveToDatabase}
+          saveDisabled={isSaving || qualifiedWalls.length === 0}
+          saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+          footer={(
+            <TaskSummaryFooter>
+              {qualifiedWalls.length} slab wall{qualifiedWalls.length === 1 ? "" : "s"} ready to save to FrameWork
+            </TaskSummaryFooter>
+          )}
+        >
+          <TaskSummaryTable minWidth="720px" compact>
+            <thead>
+              <tr>
+                <th style={{ width: "24px" }}>#</th>
+                <th>Wall Length</th>
+                <th>Spacing</th>
+                <th>Tiedowns</th>
+                <th>Floor Level</th>
+                <th style={{ textAlign: "right", width: "45px" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedWallsByLevel.map(({ level, walls }) => (
+                <React.Fragment key={level}>
+                  <FloorLevelGroupRow level={level} colSpan={6} count={walls.length} unitLabel="wall" />
+                  {walls.map((wall) => {
+                    const globalIndex = qualifiedWalls.findIndex((item) => item.id === wall.id);
+                    return renderWallRow(wall, globalIndex >= 0 ? globalIndex : 0);
+                  })}
+                </React.Fragment>
+              ))}
+              {qualifiedWalls.length === 0 ? (
+                <TaskEmptyRow colSpan={6}>No walls entered. Add a wall above or use Auto Fill.</TaskEmptyRow>
+              ) : null}
+            </tbody>
+          </TaskSummaryTable>
+        </EnteredDataCard>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -972,6 +1160,7 @@ export default function FrameHardwareTask({
               </div>
               {isSlabOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+                  {!isBunVic && (<>
                   {/* Wall Height */}
                   <div style={{ flex: "1 1 120px" }}>
                     <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
@@ -986,6 +1175,7 @@ export default function FrameHardwareTask({
                       ))}
                     </select>
                   </div>
+                  </>)}
 
                   {/* Wall Length */}
                   <div style={{ flex: "1.4 1 150px" }}>
@@ -1032,6 +1222,7 @@ export default function FrameHardwareTask({
                     />
                   </div>
 
+                  {!isBunVic && (<>
                   {/* Rod Size */}
                   <div style={{ flex: "1 1 90px" }}>
                     <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Rod Size</span>
@@ -1045,7 +1236,9 @@ export default function FrameHardwareTask({
                       <option value="M16">M16</option>
                     </select>
                   </div>
+                  </>)}
 
+                  {!isBunVic && (<>
                   {/* Wall Type */}
                   <div style={{ flex: "1.2 1 130px" }}>
                     <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Type</span>
@@ -1060,6 +1253,7 @@ export default function FrameHardwareTask({
                       ))}
                     </select>
                   </div>
+                  </>)}
 
                   {/* Add Button */}
                   <button
@@ -1083,6 +1277,9 @@ export default function FrameHardwareTask({
               )}
             </div>
 
+            {/* Current ProcurementApp BUN-VIC Frame Hardware is slab-only. */}
+            {!isBunVic && (
+            <>
             {/* SECTION: ON TIMBER FLOOR */}
             <div style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden" }}>
               <div
@@ -1218,6 +1415,8 @@ export default function FrameHardwareTask({
                 </div>
               )}
             </div>
+            </>
+            )}
 
           </div>
         )}
@@ -1233,7 +1432,7 @@ export default function FrameHardwareTask({
         </div>
         {isExtrasOpen && (
           <div style={{ padding: "10px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "8px" }}>
-            {FRAME_HARDWARE_EXTRA_FIELDS.map(([key, label]) => {
+            {frameExtraFields.map(([key, label]) => {
               const extras = parseFrameExtras(formData?.frame_hardware_extras);
               return <label key={key} style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                 <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>{label}</span>
@@ -1271,19 +1470,19 @@ export default function FrameHardwareTask({
                 <thead>
                   <tr style={{ background: "#1e3a5f", color: "#ffffff", textAlign: "left" }}>
                     <th style={{ padding: "6px 8px", width: "24px" }}>#</th>
-                    <th style={{ padding: "6px 8px" }}>The Wall Above</th>
-                    <th style={{ padding: "6px 8px" }}>Wall Type</th>
-                    <th style={{ padding: "6px 8px" }}>Wall Height</th>
+                    {!isBunVic && <th style={{ padding: "6px 8px" }}>The Wall Above</th>}
+                    {!isBunVic && <th style={{ padding: "6px 8px" }}>Wall Type</th>}
+                    {!isBunVic && <th style={{ padding: "6px 8px" }}>Wall Height</th>}
                     <th style={{ padding: "6px 8px" }}>Wall Length</th>
                     <th style={{ padding: "6px 8px" }}>Tiedown Spacing</th>
-                    <th style={{ padding: "6px 8px" }}>Rod size</th>
+                    {!isBunVic && <th style={{ padding: "6px 8px" }}>Rod size</th>}
                     <th style={{ padding: "6px 8px", textAlign: "right", width: "45px" }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {groupedWallsByLevel.map(({ level, walls }) => (
                     <React.Fragment key={level}>
-                      <FloorLevelGroupRow level={level} colSpan={8} count={walls.length} unitLabel="wall" />
+                      <FloorLevelGroupRow level={level} colSpan={isBunVic ? 4 : 8} count={walls.length} unitLabel="wall" />
                       {walls.map((w) => {
                         const globalIdx = qualifiedWalls.findIndex(qw => qw.id === w.id);
                         return renderWallRow(w, globalIdx >= 0 ? globalIdx : 0);
@@ -1291,7 +1490,7 @@ export default function FrameHardwareTask({
                     </React.Fragment>
                   ))}
                   {qualifiedWalls.length === 0 && (
-                    <TaskEmptyRow colSpan={8}>
+                    <TaskEmptyRow colSpan={isBunVic ? 4 : 8}>
                       No walls entered. Enter wall specifications above or click Auto Fill (AI).
                     </TaskEmptyRow>
                   )}

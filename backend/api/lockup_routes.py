@@ -40,7 +40,7 @@ class LockoutItemSchema(BaseModel):
     weatherguard: Optional[Union[str, bool, int]] = Field("No", description="External door Weatherguard flag")
     dbl_rebated: Optional[Union[str, bool, int]] = Field("No", description="External door double-rebated jamb flag")
     door_stop: Optional[str] = Field(None, description="Chặn cửa door_stop (Cushion, DS2 with Riser...)")
-    internal_type: Optional[str] = Field(None, description="Internal type (HF, HO...)")
+    internal_type: Optional[str] = Field(None, description="Internal type (HF/HO for NSW/QLD, HL/HO for VIC)")
     color: Optional[str] = Field(None, description="Màu sắc color (CHR, SCH...)")
     default_qty: Optional[Union[float, int]] = Field(1.0, description="Số lượng default_qty")
     short_name: Optional[str] = Field("BUN-NSW-ACT", description="Tên viết tắt khách hàng / module")
@@ -173,6 +173,19 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
     # response.  The frontend owns the same static workbook fallbacks used by
     # ProcurementApp when a configured option group is genuinely empty.
 
+    customer_key = str(customer_id or "").strip().upper()
+    is_bun_vic = customer_key == "BUN-VIC"
+
+    # Keep the customer-specific form semantics in sync with ProcurementApp.
+    # Product/catalog lists above remain DB-backed; only workbook-style selector
+    # fallbacks live here.
+    internal_hung = (
+        ["LH", "RH", "LH LO", "RH LO", "DBL", "Set of THREE", "Set of FOUR", "Set of SIX", "Set of EIGHT"]
+        if is_bun_vic
+        else ["RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"]
+    )
+    internal_hole = ["HO", "HL"] if is_bun_vic else ["HF", "HO"]
+
     res_data = {
         "internal": prehung_int,
         "external": external_types,
@@ -182,9 +195,9 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
         "jamb_size_internal": jamb_int,
         "external_hung": ["Hung A", "Hung B", "Hung CG", "Hung DG", "Hung G", "Pivot Door"],
         "external_type": ["Type A", "Type B", "Type CG", "Type DG", "Type G", "Pivot Frame A", "Pivot Frame B", "Steel Frame"],
-        "internal_hung": ["RH", "LH", "RH LO", "LH LO", "DBL DOOR SET", "SET of THREE", "SET of FOUR", "SET of SIX", "Set of EIGHT"],
+        "internal_hung": internal_hung,
         "internal_type": ["Steel Frame", "Ezy Jamb"],
-        "internal_hole": ["HF", "HO"],
+        "internal_hole": internal_hole,
         "internal_finish": ["CHR", "SCH"],
         "door_stop": ["Cushion", "DS2 with Riser"],
     }
@@ -507,6 +520,7 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
 
 class DoorCalcPayload(BaseModel):
     doors: List[Any] = Field(default_factory=list, description="Danh sách các cửa từ Canvas")
+    customer_id: Optional[str] = Field("BUN-NSW-ACT", description="Customer module used for LockUp form parity")
 
 
 @router.post("/calculate")
@@ -521,6 +535,8 @@ async def calculate_lockout(payload: DoorCalcPayload):
     """
     import re
     doors = payload.doors or []
+    customer_key = str(payload.customer_id or "BUN-NSW-ACT").strip().upper()
+    is_bun_vic = customer_key == "BUN-VIC"
     grouped = {}
 
     for idx, d in enumerate(doors):
@@ -619,7 +635,25 @@ async def calculate_lockout(payload: DoorCalcPayload):
             ""
         ).strip().lower()
 
-        if "pivot" in hinge_side:
+        if is_bun_vic and not is_ext:
+            # VIC internal schedules use the workbook handing vocabulary directly.
+            raw_hung = str(d.get("hung") or d.get("handing") or "").strip()
+            upper_hung = raw_hung.upper()
+            if "DOUBLE" in upper_hung or upper_hung in {"DBL", "DBL DOOR SET"}:
+                hung_val = "DBL"
+            elif upper_hung in {"SET OF THREE", "SET OF FOUR", "SET OF SIX", "SET OF EIGHT"}:
+                hung_val = "Set of " + upper_hung.removeprefix("SET OF ").title()
+            elif "RH LO" in upper_hung:
+                hung_val = "RH LO"
+            elif "LH LO" in upper_hung:
+                hung_val = "LH LO"
+            elif "RIGHT" in hinge_side or upper_hung in {"RH", "HUNG A"}:
+                hung_val = "RH"
+            elif "LEFT" in hinge_side or upper_hung in {"LH", "HUNG B"}:
+                hung_val = "LH"
+            else:
+                hung_val = raw_hung or "RH"
+        elif "pivot" in hinge_side:
             hung_val = "Pivot Door"
         elif "double" in hinge_side:
             hung_val = "Double Door Set"
@@ -661,7 +695,7 @@ async def calculate_lockout(payload: DoorCalcPayload):
                 "hung": hung_val,
                 "type": clean_type,
                 "door_stop": d.get("door_stop") or ("DS2 with Riser" if is_ext else "Cushion"),
-                "internal_type": d.get("internal_type") or (None if is_ext else "HF"),
+                "internal_type": d.get("internal_type") or (None if is_ext else ("HL" if is_bun_vic else "HF")),
                 "color": d.get("color") or (None if is_ext else "CHR"),
                 "default_qty": 1
             }

@@ -35,6 +35,103 @@ export const LOCKUP_LOOSE_JAMBS = [
   "PINE DAR FJ PENCIL ROUND CLEAR++92X18MM 5.4M CLEAR 4 EDGE",
 ];
 
+
+// BUN VIC diverges from NSW/ACT in the current ProcurementApp workbook/forms.
+// Keep these values isolated so shared EzeFloor task components can switch
+// behaviour without making VIC inherit NSW-only validation lists.
+export const BUN_VIC_LOCKUP_PARITY = Object.freeze({
+  widths: ["520", "620", "720", "770", "820", "870", "920", "1020", "1200", "Spec"],
+  thicknesses: ["35", "40", "38"],
+  externalThicknesses: ["35", "40"],
+  internalJambOrWall: ["70", "90"],
+  internalHung: ["LH", "RH", "LH LO", "RH LO", "DBL", "Set of THREE", "Set of FOUR", "Set of SIX", "Set of EIGHT"],
+  internalHoles: ["HO", "HL"],
+  looseJambs: [
+    "Steel Frame",
+    "MDF DAR PRIMED++110X18MM 5.4M LOOSE JAMB",
+    "MDF DAR PRIMED++92X18MM 5.4M LOOSE JAMB",
+  ],
+});
+
+export const BUN_VIC_FIXOUT_PARITY = Object.freeze({
+  widths: ["320", "370", "420", "460", "520", "570", "620", "720", "770", "820", "870", "920", "1020", "1200", "spec"],
+  cavityHeights: ["2040", "2340", "2150", "spec"],
+  cavityWidths: ["620", "720", "770", "820", "870", "920", "1020", "1200", "1000", "spec"],
+  handing: ["", "LH", "RH", "LH LO", "RH LO", "DBL", "Set of THREE", "Set of FOUR", "Set of SIX", "Set of EIGHT"],
+  holes: ["", "HO", "HL"],
+});
+
+export const isBunVicCustomer = (customerId = "") =>
+  String(customerId || "").trim().toUpperCase() === "BUN-VIC";
+
+export function getLockupParity(customerId = "") {
+  if (!isBunVicCustomer(customerId)) {
+    return {
+      heights: LOCKUP_HEIGHTS,
+      widths: LOCKUP_WIDTHS,
+      thicknesses: LOCKUP_THICKNESSES,
+      externalThicknesses: LOCKUP_THICKNESSES,
+      internalJambOrWall: [],
+      externalHung: LOCKUP_HUNG,
+      internalHung: LOCKUP_INTERNAL_HUNG,
+      externalTypes: LOCKUP_TYPES,
+      internalTypes: LOCKUP_INTERNAL_TYPES,
+      internalHoles: LOCKUP_INTERNAL_HOLES,
+      internalFinishes: LOCKUP_INTERNAL_FINISHES,
+      looseJambs: LOCKUP_LOOSE_JAMBS,
+      doorStops: LOCKUP_DOOR_STOPS,
+    };
+  }
+  return {
+    heights: LOCKUP_HEIGHTS,
+    widths: BUN_VIC_LOCKUP_PARITY.widths,
+    thicknesses: BUN_VIC_LOCKUP_PARITY.thicknesses,
+    externalThicknesses: BUN_VIC_LOCKUP_PARITY.externalThicknesses,
+    internalJambOrWall: BUN_VIC_LOCKUP_PARITY.internalJambOrWall,
+    externalHung: LOCKUP_HUNG,
+    internalHung: BUN_VIC_LOCKUP_PARITY.internalHung,
+    externalTypes: LOCKUP_TYPES,
+    internalTypes: LOCKUP_INTERNAL_TYPES,
+    internalHoles: BUN_VIC_LOCKUP_PARITY.internalHoles,
+    internalFinishes: LOCKUP_INTERNAL_FINISHES,
+    looseJambs: BUN_VIC_LOCKUP_PARITY.looseJambs,
+    doorStops: LOCKUP_DOOR_STOPS,
+  };
+}
+
+export function getFixoutParity(customerId = "") {
+  if (!isBunVicCustomer(customerId)) {
+    return {
+      height: FIXOUT_HEIGHTS,
+      width: FIXOUT_WIDTHS,
+      cavityHeight: FIXOUT_CAVITY_HEIGHTS,
+      cavityWidth: FIXOUT_CAVITY_WIDTHS,
+      wallWidth: FIXOUT_WALL_WIDTHS,
+      thicks: FIXOUT_THICKNESSES,
+      frame: ["None", ...FIXOUT_FRAME_TYPES],
+      liftOff: FIXOUT_LIFT_OFF.map((value) => value || "None"),
+      handing: FIXOUT_HANDING.map((value) => value || "None"),
+      hole: FIXOUT_HOLES.map((value) => value || "None"),
+      finish: FIXOUT_FINISHES.map((value) => value || "None"),
+      stop: FIXOUT_DOOR_STOPS,
+    };
+  }
+  return {
+    height: FIXOUT_HEIGHTS,
+    width: BUN_VIC_FIXOUT_PARITY.widths,
+    cavityHeight: BUN_VIC_FIXOUT_PARITY.cavityHeights,
+    cavityWidth: BUN_VIC_FIXOUT_PARITY.cavityWidths,
+    wallWidth: FIXOUT_WALL_WIDTHS,
+    thicks: FIXOUT_THICKNESSES,
+    frame: ["None", ...FIXOUT_FRAME_TYPES],
+    liftOff: FIXOUT_LIFT_OFF.map((value) => value || "None"),
+    handing: BUN_VIC_FIXOUT_PARITY.handing.map((value) => value || "None"),
+    hole: BUN_VIC_FIXOUT_PARITY.holes.map((value) => value || "None"),
+    finish: FIXOUT_FINISHES.map((value) => value || "None"),
+    stop: FIXOUT_DOOR_STOPS,
+  };
+}
+
 export const FIXOUT_HEIGHTS = ["2040", "2340", "spec"];
 export const FIXOUT_WIDTHS = ["320", "370", "420", "460", "520", "570", "620", "720", "770", "820", "870", "920", "970", "1020", "1200", "spec"];
 export const FIXOUT_CAVITY_HEIGHTS = ["2040", "2340", "2150", "2450", "spec"];
@@ -351,6 +448,19 @@ export const FRAME_HARDWARE_EXTRA_FIELDS = Object.freeze([
   ["extra3000", "Extra 3000 Rod"],
   ["extra3600", "Extra 3600 Rod"],
   ["extraNW", "Extra nuts & washers"],
+  ["braceBoard", "Brace boards"],
+  ["jamb140", "140x30 Garage jamb"],
+  ["jamb160", "160x30 Garage jamb"],
+]);
+
+// Current ProcurementApp BUN-VIC Frame Hardware is slab-only.  These are the
+// only manual extras still present on the VIC workbook form.  `upperFloors`
+// is kept in the same JSON payload because it is an Excel input (L10), not an
+// entered wall attribute.
+export const BUN_VIC_FRAME_HARDWARE_EXTRA_FIELDS = Object.freeze([
+  ["upperFloors", "Upper floors"],
+  ["extraAnchor", "Extra Anchor"],
+  ["extraWasher", "Extra Washer"],
   ["braceBoard", "Brace boards"],
   ["jamb140", "140x30 Garage jamb"],
   ["jamb160", "160x30 Garage jamb"],

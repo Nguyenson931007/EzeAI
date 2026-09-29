@@ -20,6 +20,8 @@ import {
   LOCKUP_INTERNAL_HOLES,
   LOCKUP_INTERNAL_FINISHES,
   LOCKUP_LOOSE_JAMBS,
+  getLockupParity,
+  isBunVicCustomer,
   PREHUNG_DOOR_NAMES,
   LOOSE_JAMB_DOOR_NAMES,
 } from "@/constants/procurementFormParity";
@@ -308,6 +310,9 @@ export default function LockupTask({
   } = useAppModel();
 
   const activeCustomerShortName = getActiveClientShortName();
+  const isBunVic = isBunVicCustomer(activeCustomerShortName);
+  const lockupParity = useMemo(() => getLockupParity(activeCustomerShortName), [activeCustomerShortName]);
+  const defaultInternalHole = isBunVic ? "HL" : "HF";
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
@@ -360,26 +365,27 @@ export default function LockupTask({
   const [isLooseIntCollapsed, setIsLooseIntCollapsed] = useState(false);
   const [isCard2Collapsed, setIsCard2Collapsed] = useState(false);
 
-  // Exact static validations from ProcurementApp LockupForm.tsx / lockupOptions.ts.
-  const DOOR_HEIGHT_OPTIONS = LOCKUP_HEIGHTS;
-  const DOOR_WIDTH_OPTIONS = LOCKUP_WIDTHS;
-  const DOOR_THICK_OPTIONS = LOCKUP_THICKNESSES;
+  // Current ProcurementApp parity. VIC has its own validation lists (HO/HL,
+  // DBL, 70/90 internal jamb-wall, and no 970 width).
+  const DOOR_HEIGHT_OPTIONS = lockupParity.heights;
+  const DOOR_WIDTH_OPTIONS = lockupParity.widths;
+  const DOOR_THICK_OPTIONS = lockupParity.thicknesses;
+  const EXTERNAL_DOOR_THICK_OPTIONS = lockupParity.externalThicknesses;
   const DOOR_MODE_OPTIONS = ["Prehung", "Loose"];
   const WEATHERGUARD_OPTIONS = ["No", "Yes"];
   const DBL_REBATED_OPTIONS = ["No", "Yes"];
-  const DOOR_STOP_OPTIONS = LOCKUP_DOOR_STOPS;
+  const DOOR_STOP_OPTIONS = lockupParity.doorStops;
 
-  const EXTERNAL_HUNG_OPTIONS = LOCKUP_HUNG;
-  const INTERNAL_HUNG_OPTIONS = LOCKUP_INTERNAL_HUNG;
-  const EXTERNAL_TYPE_OPTIONS = LOCKUP_TYPES;
-  const INTERNAL_TYPE_OPTIONS = ["-", ...LOCKUP_INTERNAL_TYPES];
-  const INTERNAL_HOLE_OPTIONS = LOCKUP_INTERNAL_HOLES;
-  const COLOR_OPTIONS = LOCKUP_INTERNAL_FINISHES;
+  const EXTERNAL_HUNG_OPTIONS = lockupParity.externalHung;
+  const INTERNAL_HUNG_OPTIONS = lockupParity.internalHung;
+  const EXTERNAL_TYPE_OPTIONS = lockupParity.externalTypes;
+  const INTERNAL_TYPE_OPTIONS = ["-", ...lockupParity.internalTypes];
+  const INTERNAL_HOLE_OPTIONS = lockupParity.internalHoles;
+  const COLOR_OPTIONS = lockupParity.internalFinishes;
+  const INTERNAL_JAMB_OR_WALL_OPTIONS = lockupParity.internalJambOrWall;
 
-  // Procurement's loose-jamb list is the authoritative local fallback. The DB
-  // endpoint can still override these per customer when catalog_options exists.
-  const JAMB_SIZE_EXTERNAL_OPTIONS = LOCKUP_LOOSE_JAMBS;
-  const JAMB_SIZE_INTERNAL_OPTIONS = LOCKUP_LOOSE_JAMBS;
+  const JAMB_SIZE_EXTERNAL_OPTIONS = lockupParity.looseJambs;
+  const JAMB_SIZE_INTERNAL_OPTIONS = lockupParity.looseJambs;
 
   const normalizeDoorStop = (val) => {
     if (!val) return "Cushion";
@@ -485,7 +491,7 @@ export default function LockupTask({
       type: isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-")),
       weatherguard: isExt ? (row.weatherguard || row.Weatherguard || "No") : "-",
       dbl_rebated: isExt ? (row.dbl_rebated || row.DBLRebated || "No") : "-",
-      internal_type: isExt ? "-" : (row.internal_type || row.hfHo || "HF"),
+      internal_type: isExt ? "-" : (isBunVic && (row.internal_type || row.hfHo) === "HF" ? "HL" : (row.internal_type || row.hfHo || defaultInternalHole)),
       color: isExt ? "-" : ((row.color && row.color !== "Primed White") ? row.color : "CHR"),
       door_stop: normalizeDoorStop(row.door_stop || row.stop),
       default_qty: row.default_qty || row.qty || 1,
@@ -587,8 +593,8 @@ export default function LockupTask({
         type: isCadDoorType(savedData.type) ? (isExt ? "Type A" : "-") : (savedData.type || "-"),
         weatherguard: isExt ? (savedData.weatherguard || "No") : "-",
         dbl_rebated: isExt ? (savedData.dbl_rebated || "No") : "-",
-        hfHo: isExt ? "-" : (savedData.internal_type || "HF"),
-        internal_type: isExt ? "-" : (savedData.internal_type || "HF"),
+        hfHo: isExt ? "-" : (savedData.internal_type || defaultInternalHole),
+        internal_type: isExt ? "-" : (savedData.internal_type || defaultInternalHole),
         color: isExt ? "-" : (savedData.color || "CHR"),
         stop: savedData.door_stop,
         door_stop: savedData.door_stop,
@@ -897,11 +903,11 @@ export default function LockupTask({
   const [preIntThick, setPreIntThick] = useState("35");
   const [preIntJambWall, setPreIntJambWall] = useState("");
   const [preIntQty, setPreIntQty] = useState("1");
-  const [preIntJambSize, setPreIntJambSize] = useState("112×19mm 5.4m Loose Jamb");
+  const [preIntJambSize, setPreIntJambSize] = useState(isBunVic ? "" : "112×19mm 5.4m Loose Jamb");
   const [preIntHung, setPreIntHung] = useState("RH");
   const [preIntType, setPreIntType] = useState("-");
   const [preIntStop, setPreIntStop] = useState("Cushion");
-  const [preIntInternalType, setPreIntInternalType] = useState("HF");
+  const [preIntInternalType, setPreIntInternalType] = useState(isBunVic ? "HL" : "HF");
   const [preIntColor, setPreIntColor] = useState("CHR");
 
   // Loose Jamb - External Door State
@@ -927,11 +933,11 @@ export default function LockupTask({
   const [looseIntThick, setLooseIntThick] = useState("38");
   const [looseIntJambWall, setLooseIntJambWall] = useState("");
   const [looseIntQty, setLooseIntQty] = useState("1");
-  const [looseIntJambSize, setLooseIntJambSize] = useState("112×19mm 5.4m Loose Jamb");
+  const [looseIntJambSize, setLooseIntJambSize] = useState(isBunVic ? "" : "112×19mm 5.4m Loose Jamb");
   const [looseIntHung, setLooseIntHung] = useState("RH");
   const [looseIntType, setLooseIntType] = useState("-");
   const [looseIntStop, setLooseIntStop] = useState("Cushion");
-  const [looseIntInternalType, setLooseIntInternalType] = useState("HF");
+  const [looseIntInternalType, setLooseIntInternalType] = useState(isBunVic ? "HL" : "HF");
   const [looseIntColor, setLooseIntColor] = useState("CHR");
 
   const [isSection1Open, setIsSection1Open] = useState(false);
@@ -1011,7 +1017,7 @@ export default function LockupTask({
       weatherguard: "No",
       dbl_rebated: "No",
       door_stop: "Cushion",
-      internal_type: "HF",
+      internal_type: defaultInternalHole,
       color: "CHR",
       default_qty: 1
     };
@@ -1123,7 +1129,7 @@ export default function LockupTask({
           weatherguard: d.weatherguard || d.Weatherguard || (isExt ? "No" : "No"),
           dbl_rebated: d.dbl_rebated || d.DBLRebated || "No",
           door_stop: isExt ? "DS2 with Riser" : "Cushion",
-          internal_type: isExt ? null : "HF",
+          internal_type: isExt ? null : defaultInternalHole,
           color: isExt ? null : "CHR",
           default_qty: 1
         };
@@ -1132,7 +1138,7 @@ export default function LockupTask({
       // Call backend API calculateLockout (same as LockoutJobsModal)
       let resRows = [];
       try {
-        const res = await ApiService.calculateLockout({ doors: enrichedDoors });
+        const res = await ApiService.calculateLockout({ doors: enrichedDoors, customer_id: activeCustomerShortName });
         if (res.success && res.rows && res.rows.length > 0) {
           resRows = res.rows;
         }
@@ -1202,7 +1208,7 @@ export default function LockupTask({
           weatherguard: isExt ? (r.weatherguard || r.Weatherguard || origDoor.weatherguard || origDoor.Weatherguard || "No") : "-",
           dbl_rebated: isExt ? (r.dbl_rebated || r.DBLRebated || origDoor.dbl_rebated || origDoor.DBLRebated || "No") : "-",
           door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
-          internal_type: isExt ? "-" : (r.internal_type !== undefined && r.internal_type !== null ? r.internal_type : "HF"),
+          internal_type: isExt ? "-" : (isBunVic && r.internal_type === "HF" ? "HL" : (r.internal_type !== undefined && r.internal_type !== null ? r.internal_type : defaultInternalHole)),
           color: isExt ? "-" : (r.color !== undefined && r.color !== null ? r.color : "CHR"),
           default_qty: r.default_qty || origDoor.default_qty || 1,
           autofill_source: "drawing"
@@ -1245,7 +1251,7 @@ export default function LockupTask({
           weatherguard: r.weatherguard || r.Weatherguard || "No",
           dbl_rebated: r.dbl_rebated || r.DBLRebated || "No",
           door_stop: r.door_stop || "Cushion",
-          internal_type: r.internal_type || "HF",
+          internal_type: isBunVic && r.internal_type === "HF" ? "HL" : (r.internal_type || defaultInternalHole),
           color: r.color || "CHR",
           default_qty: r.default_qty || 1
         }));
@@ -1588,7 +1594,7 @@ export default function LockupTask({
                   <div style={{ flex: "0.6 1 55px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
                     <select value={preExtThick} onChange={(e) => setPreExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -1763,13 +1769,25 @@ export default function LockupTask({
 
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    <input
-                      type="text"
-                      placeholder="Enter jamb or wall"
-                      value={preIntJambWall}
-                      onChange={(e) => setPreIntJambWall(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                    />
+                    {isBunVic ? (
+                      <select
+                        value={String(preIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
+                        onChange={(e) => setPreIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
+                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      >
+                        <option value="">-</option>
+                        <option value="">-</option>
+                        {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Enter jamb or wall"
+                        value={preIntJambWall}
+                        onChange={(e) => setPreIntJambWall(e.target.value)}
+                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      />
+                    )}
                   </div>
 
                   <div style={{ flex: "0.5 1 45px" }}>
@@ -1954,7 +1972,7 @@ export default function LockupTask({
                   <div style={{ flex: "0.6 1 55px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
                     <select value={looseExtThick} onChange={(e) => setLooseExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
 
@@ -2129,13 +2147,25 @@ export default function LockupTask({
 
                   <div style={{ flex: "1.2 1 110px" }}>
                     <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    <input
-                      type="text"
-                      placeholder="Enter jamb or wall"
-                      value={looseIntJambWall}
-                      onChange={(e) => setLooseIntJambWall(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                    />
+                    {isBunVic ? (
+                      <select
+                        value={String(looseIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
+                        onChange={(e) => setLooseIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
+                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      >
+                        <option value="">-</option>
+                        <option value="">-</option>
+                        {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Enter jamb or wall"
+                        value={looseIntJambWall}
+                        onChange={(e) => setLooseIntJambWall(e.target.value)}
+                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                      />
+                    )}
                   </div>
 
                   <div style={{ flex: "0.5 1 45px" }}>
@@ -2335,7 +2365,7 @@ export default function LockupTask({
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Jamb Size</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Hung</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Type</th>
-                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>HF/HO</th>
+                    <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>{isBunVic ? "HO/HL" : "HF/HO"}</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Color</th>
                     <th style={{ padding: "8px 8px", borderBottom: "2px solid #334155" }}>Stop</th>
                     <th style={{ padding: "8px 8px", textAlign: "center", borderBottom: "2px solid #334155" }}>Qty</th>
@@ -2433,7 +2463,7 @@ export default function LockupTask({
                     const typeDisplay = isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-"));
                     const weatherguardDisplay = isExt ? (row.weatherguard || row.Weatherguard || "No") : "-";
                     const dblRebatedDisplay = isExt ? (row.dbl_rebated || row.DBLRebated || "No") : "-";
-                    const hfHoDisplay = isExt ? "-" : (row.hfHo || row.internal_type || "HF");
+                    const hfHoDisplay = isExt ? "-" : (row.hfHo || row.internal_type || defaultInternalHole);
                     const colorDisplay = isExt ? "-" : ((row.color && row.color !== "Primed White") ? row.color : "CHR");
                     const stopDisplay = normalizeDoorStop(row.stop || row.door_stop);
                     const qtyDisplay = row.qty || row.default_qty || 1;
@@ -2587,7 +2617,7 @@ export default function LockupTask({
                                   type: ext ? "Type A" : "-",
                                   weatherguard: ext ? "No" : "-",
                                   dbl_rebated: ext ? "No" : "-",
-                                  internal_type: ext ? "-" : "HF",
+                                  internal_type: ext ? "-" : defaultInternalHole,
                                   color: ext ? "-" : "CHR",
                                   door_stop: ext ? "DS2 with Riser" : "Cushion"
                                 });
@@ -2698,7 +2728,7 @@ export default function LockupTask({
                               onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
                               style={{ ...inlineControlStyle, width: "72px" }}
                             >
-                              {mergeOptions(DOOR_THICK_OPTIONS.filter((v) => v !== "Spec"), String(editRow.thickness || "").replace("mm", "")).map((opt) => (
+                              {mergeOptions((editIsExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS).filter((v) => v !== "Spec"), String(editRow.thickness || "").replace("mm", "")).map((opt) => (
                                 opt ? <option key={opt} value={opt}>{opt}</option> : null
                               ))}
                             </select>
@@ -2707,11 +2737,22 @@ export default function LockupTask({
 
                         <td data-edit-field="jamb_or_wall" data-cell-editing={isCellEditing("jamb_or_wall") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
                           {isCellEditing("jamb_or_wall") ? (
-                            <input
-                              value={editRow.jamb_or_wall || ""}
-                              onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "118px" }}
-                            />
+                            isBunVic && !editIsExt ? (
+                              <select
+                                value={String(editRow.jamb_or_wall || "").replace(/mm\s*Wall/gi, "").trim()}
+                                onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value ? `${e.target.value}mm Wall` : "" })}
+                                style={{ ...inlineControlStyle, width: "118px" }}
+                              >
+                                <option value="">-</option>
+                                {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            ) : (
+                              <input
+                                value={editRow.jamb_or_wall || ""}
+                                onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "118px" }}
+                              />
+                            )
                           ) : jambWallDisplay}
                         </td>
 
@@ -2760,7 +2801,7 @@ export default function LockupTask({
                         <td data-edit-field="internal_type" data-cell-editing={isCellEditing("internal_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
                           {isCellEditing("internal_type") && !editIsExt ? (
                             <select
-                              value={editRow.internal_type || "HF"}
+                              value={editRow.internal_type || defaultInternalHole}
                               onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
                               style={{ ...inlineControlStyle, width: "68px" }}
                             >

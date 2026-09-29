@@ -271,6 +271,63 @@ tr.task-floor-level-row td {
   font-weight: 700;
 }
 
+/* BUN-VIC Frame Hardware uses the shared task cards/fields so it keeps the
+   same spacing, title bars and responsive behaviour as the other HW tasks. */
+.frame-hardware-vic-primary-fields {
+  grid-template-columns: minmax(180px, 1.25fr) minmax(140px, .9fr) minmax(190px, 1fr) auto;
+  align-items: end;
+}
+
+.frame-hardware-vic-extra-fields {
+  border-top: 1px solid #e2e8f0;
+}
+
+.frame-hardware-vic-required {
+  border-color: #fde047;
+  background: #fffbeb;
+}
+
+.frame-hardware-vic-add {
+  box-sizing: border-box;
+  height: 31px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 5px;
+  background: #0f2744;
+  color: #fff;
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.frame-hardware-vic-add:hover {
+  background: #1e3a5f;
+}
+
+.frame-hardware-vic-error {
+  margin: -2px 10px 9px;
+  color: #b91c1c;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+  .frame-hardware-vic-primary-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .frame-hardware-vic-primary-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .frame-hardware-vic-add {
+    width: 100%;
+  }
+}
+
 
 /* Fixout summary: keep the final "entered/generated" area readable inside the
    narrow right property pane. It is a read-only summary, not a second input form. */

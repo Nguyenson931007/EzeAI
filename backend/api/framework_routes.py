@@ -22,6 +22,8 @@ logger = logging.getLogger("ezefloor.framework")
 
 router = APIRouter(prefix="/api/framework")
 
+_BUN_VIC_UPPER_FLOORS_MARKER = "BUN-VIC UPPER FLOORS"
+
 
 def _parse_decimal(val: Any, default: Optional[float] = None) -> Optional[float]:
     """Chuyển đổi an toàn chuỗi (VD: 'M12', '900 mm', 2700) sang số float/decimal cho MSSQL."""
@@ -70,6 +72,11 @@ class WallItemSchema(BaseModel):
 
 class JobSaveSchema(BaseModel):
     id_job_hw: Any = Field(..., description="ID / Mã HW Job (tghw.id)")
+    upper_floors: Optional[Union[float, int]] = Field(
+        None,
+        ge=0,
+        description="BUN-VIC workbook Upper Floor count; stored as FrameWork metadata",
+    )
     walls: List[WallItemSchema] = Field(default_factory=list, description="Danh sách các mốc tường bóc tách")
 
 
@@ -119,6 +126,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
             LEFT JOIN [ProcurementApp].[dbo].[FrameWork] fw
                 ON tghw.id = fw.IDJob_HW
                AND ISNULL(fw.IsOldData, 0) = 0
+               AND ISNULL(fw.TheWallAbove, '') <> 'BUN-VIC UPPER FLOORS'
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -329,9 +337,41 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                 )
                 inserted_walls_count += 1
 
+            # Procurement's VIC workbook treats Upper Floor as a workbook-only
+            # value, while the shared FrameWork table has no dedicated column.
+            # Keep it in the same version transaction as a deliberately
+            # non-wall row (WallLength=0). Procurement's wall import already
+            # requires positive height + length, so this row is never mistaken
+            # for a slab wall and no schema/table change is required.
+            upper_floors_saved = job.upper_floors is not None
+            if upper_floors_saved:
+                short_name_val = next(
+                    (
+                        str(wall.short_name).strip()
+                        for wall in job.walls
+                        if wall.short_name and str(wall.short_name).strip()
+                    ),
+                    "BUN-VIC",
+                )
+                cursor.execute(
+                    sql_insert_new,
+                    (
+                        job_hw_id,
+                        _parse_decimal(job.upper_floors, default=0),
+                        0,
+                        _BUN_VIC_UPPER_FLOORS_MARKER,
+                        0,
+                        "N/A",
+                        short_name_val,
+                        "META",
+                        user_update,
+                    ),
+                )
+
             saved_summary.append({
                 "id_job_hw": job_hw_id,
-                "walls_inserted": inserted_walls_count
+                "walls_inserted": inserted_walls_count,
+                "upper_floors_saved": upper_floors_saved,
             })
 
         # Commit Transaction khi tất cả các bước thành công!
