@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from PIL import Image, ImageDraw
 
-from services.azure_openai_client import azure_chat_completion, extract_chat_text
+from services.openai_client import extract_response_text, get_openai_model, openai_response
 
 
 def _distance(a, b):
@@ -104,13 +104,15 @@ def review_raw_candidates_with_openai(
     page_context: Dict[str, Any] | None = None,
     model: str | None = None,
 ) -> Dict[str, Any]:
-    deployment = (model or os.getenv("AZURE_OPENAI_DEPLOYMENT", "")).strip() or None
-    timeout_sec = int(os.getenv("AZURE_OPENAI_WALL_TIMEOUT_SEC", "180"))
-    max_candidates = int(os.getenv("AZURE_OPENAI_WALL_MAX_RAW_CANDIDATES", "160"))
-    image_max_side = int(os.getenv("AZURE_OPENAI_WALL_IMAGE_MAX_SIDE", "1400"))
-    image_quality = int(os.getenv("AZURE_OPENAI_WALL_IMAGE_QUALITY", "78"))
-    current_limit = int(os.getenv("AZURE_OPENAI_WALL_MAX_CURRENT_WALLS", "80"))
-    max_output_tokens = int(os.getenv("AZURE_OPENAI_WALL_MAX_OUTPUT_TOKENS", "5000"))
+    model_name = get_openai_model()
+    if model and model.strip() and model.strip() != model_name:
+        raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
+    timeout_sec = int(os.getenv("OPENAI_WALL_TIMEOUT_SEC", os.getenv("OPENAI_TIMEOUT_SEC", "180")))
+    max_candidates = int(os.getenv("OPENAI_WALL_MAX_RAW_CANDIDATES", "160"))
+    image_max_side = int(os.getenv("OPENAI_WALL_IMAGE_MAX_SIDE", "1400"))
+    image_quality = int(os.getenv("OPENAI_WALL_IMAGE_QUALITY", "78"))
+    current_limit = int(os.getenv("OPENAI_WALL_MAX_CURRENT_WALLS", "80"))
+    max_output_tokens = int(os.getenv("OPENAI_WALL_MAX_OUTPUT_TOKENS", os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "5000")))
 
     original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     ow, oh = original.size
@@ -150,9 +152,65 @@ def review_raw_candidates_with_openai(
     if len(page_context_text) > 3500:
         page_context_text = page_context_text[:3500] + "..."
 
-    prompt = f"""You are the architectural reasoning stage in EzeFloor wall extraction.
+    batch_size = max(10, int(os.getenv("OPENAI_WALL_BATCH_SIZE", "40")))
+
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "ezefloor_wall_review",
+            "strict": True,
+            "schema": _schema(),
+        },
+    }
+
+    def _parse_batch(raw: Dict[str, Any], batch_index: int) -> Dict[str, Any]:
+        status = str(raw.get("status") or "")
+        if status and status != "completed":
+            details = raw.get("incomplete_details") or raw.get("error") or {}
+            raise RuntimeError(
+                f"OpenAI wall review batch {batch_index} did not complete: "
+                f"status={status}, details={json.dumps(details, ensure_ascii=False)[:800]}"
+            )
+        try:
+            text = extract_response_text(raw).strip()
+        except Exception as exc:
+            raise RuntimeError(
+                f"OpenAI wall review batch {batch_index} returned no usable output text; "
+                f"status={status or 'unknown'}"
+            ) from exc
+
+        # Structured Outputs should already be pure JSON. This small fallback makes
+        # the parser tolerant of accidental markdown fences without accepting prose.
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+            if text.lower().startswith("json\n"):
+                text = text[5:].lstrip()
+        try:
+            parsed = json.loads(text)
+        except Exception as exc:
+            preview = text[:1000].replace("\n", " ")
+            raise RuntimeError(
+                f"OpenAI returned invalid structured wall response in batch {batch_index}. "
+                f"Output preview: {preview!r}"
+            ) from exc
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("selections"), list):
+            raise RuntimeError(
+                f"OpenAI wall review batch {batch_index} returned JSON without a selections array"
+            )
+        return parsed
+
+    parsed_selections: List[Dict[str, Any]] = []
+    total_batches = max(1, math.ceil(len(compact) / batch_size))
+    for batch_index, offset in enumerate(range(0, len(compact), batch_size), start=1):
+        batch = compact[offset: offset + batch_size]
+        prompt = f"""You are the architectural reasoning stage in EzeFloor wall extraction.
 The BLUE overlay lines are wall candidates produced by EzeFloor Local AI. Use them as the geometry source and review/classify/select them from the drawing.
-You MUST NOT invent coordinates or new wall segments. Select only candidate IDs from the supplied list.
+You MUST NOT invent coordinates or new wall segments. Select only candidate IDs from the supplied list for THIS BATCH.
 
 Rules:
 - YOLO/local geometry is the primary detector; you are a support/review layer.
@@ -163,59 +221,51 @@ Rules:
 - Exterior = building envelope; interior = internal partition. Touching the envelope alone does NOT make a wall exterior.
 - Local class/confidence is only a hint. Correct it when visual/topological evidence disagrees.
 - If uncertain, reject the candidate rather than hallucinate.
-- Return a COMPLETE selection of valid candidate IDs, not merely the mistakes.
+- Return a COMPLETE selection of valid candidate IDs from THIS BATCH, not merely the mistakes.
 - Keep output compact: candidate_id + class_name + confidence only.
 
+BATCH={batch_index}/{total_batches}
 RAW_CANDIDATES_FORMAT=[id,local_class,local_confidence,sx,sy,ex,ey]
-RAW_CANDIDATES={json.dumps(compact, separators=(',', ':'))}
+RAW_CANDIDATES={json.dumps(batch, separators=(',', ':'))}
 CURRENT_CANVAS_WALLS_FORMAT=[class,sx,sy,ex,ey]
 CURRENT_CANVAS_WALLS={json.dumps(current_context, separators=(',', ':'))}
 PAGE_CONTEXT={page_context_text}
 """
 
-    messages = [
-        {
-            "role": "system",
-            "content": "You are the EzeFloor architectural wall-review support model. Local YOLO geometry is primary; never invent wall geometry.",
-        },
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        # Overlay already contains the original drawing, so a second
-                        # high-detail image only doubles image-token usage.
-                        "url": f"data:image/jpeg;base64,{_encode_jpeg(overlay, image_max_side, image_quality)}",
-                        "detail": "high",
+        messages = [
+            {
+                "role": "system",
+                "content": "You are the EzeFloor architectural wall-review support model. Local YOLO geometry is primary; never invent wall geometry.",
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{_encode_jpeg(overlay, image_max_side, image_quality)}",
+                            "detail": "high",
+                        },
                     },
-                },
-            ],
-        },
-    ]
-    response_format = {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "ezefloor_wall_review",
-            "strict": True,
-            "schema": _schema(),
-        },
-    }
+                ],
+            },
+        ]
 
-    raw = azure_chat_completion(
-        messages=messages,
-        response_format=response_format,
-        temperature=0.05,
-        timeout_sec=timeout_sec,
-        deployment=deployment,
-        max_tokens=max_output_tokens,
-    )
+        # Keep each response small enough that strict JSON cannot be truncated.
+        # The global max is still honored, but each batch gets a sane lower bound.
+        batch_max_tokens = min(max_output_tokens, max(1800, 120 * len(batch)))
+        raw = openai_response(
+            messages=messages,
+            response_format=response_format,
+            temperature=0.05,
+            timeout_sec=timeout_sec,
+            max_tokens=batch_max_tokens,
+        )
+        parsed = _parse_batch(raw, batch_index)
+        parsed_selections.extend(parsed.get("selections") or [])
 
-    try:
-        parsed = json.loads(extract_chat_text(raw))
-    except Exception as exc:
-        raise RuntimeError("Azure OpenAI returned invalid structured wall response") from exc
+    parsed = {"selections": parsed_selections}
 
     thicknesses = wall_thicknesses or {"ext": 90, "int": 70, "part": 70}
     px_per_mm = (1.0 / float(real_scale)) if real_scale and float(real_scale) > 0 else 1.0
@@ -237,22 +287,22 @@ PAGE_CONTEXT={page_context_text}
         p1 = [float(cl[0][0]), float(cl[0][1])]
         p2 = [float(cl[1][0]), float(cl[1][1])]
         walls.append({
-            "id": f"azure_openai_{cid}",
+            "id": f"openai_{cid}",
             "candidate_id": cid,
             "class_name": cls,
             "centerline": [p1, p2],
             "polygon": _line_polygon(p1, p2, tpx),
             "confidence": float(item.get("confidence", src.get("confidence", 0.5))),
             "reason": "",
-            "source": "azure_openai_raw_candidate_review",
+            "source": "openai_raw_candidate_review",
             "local_class_name": src.get("class_name"),
             "local_confidence": src.get("confidence"),
         })
 
     return {
         "status": "success",
-        "provider": "azure_openai",
-        "deployment": deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
+        "provider": "openai",
+        "model": model_name,
         "width": ow,
         "height": oh,
         "local_candidate_count": len(raw_candidates),

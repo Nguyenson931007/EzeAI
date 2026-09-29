@@ -961,7 +961,7 @@ export const useAIController = (
       let isCacheHit = false;
 
       if (provider === "openai") {
-        setCacheStatus("EzeFloor Local AI + GPT-4o are reviewing walls...");
+        setCacheStatus("EzeFloor Local AI + GPT Luna are reviewing walls...");
         setRoiProgress(20);
 
         // Send the current canvas as an additional prior. Coordinates stored on
@@ -1025,16 +1025,16 @@ export const useAIController = (
           };
         }).filter(w => Array.isArray(w.centerline) && w.centerline.length === 2);
 
-        // GPT-4o is an explicit replacement flow. Ask once before destroying the
+        // GPT Luna is an explicit replacement flow. Ask once before destroying the
         // current page's geometry so the local-AI/manual result can be kept.
         const currentCount = existingWallsSnapshot.length;
         const localPriorCount = Number(result?.local_candidate_count || 0);
-        const summaryLine = result?.summary ? `\n\nGPT-4o: ${result.summary}` : "";
+        const summaryLine = result?.summary ? `\n\nGPT Luna: ${result.summary}` : "";
         const applyOpenAI = typeof window === "undefined"
           ? true
           : window.confirm(
               `EzeFloor Local AI produced ${localPriorCount} candidate wall(s).\n` +
-              `GPT-4o reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
+              `GPT Luna reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
               `Replace the current ${currentCount} wall(s) on this page?` +
               summaryLine
             );
@@ -1045,9 +1045,9 @@ export const useAIController = (
             ...prev,
             [currentPage]: recalculateAllWallsPolygons(uniqueDetectedWalls)
           }));
-          setCacheStatus(`GPT-4o applied ${uniqueDetectedWalls.length} walls`);
+          setCacheStatus(`GPT Luna applied ${uniqueDetectedWalls.length} walls`);
         } else {
-          setCacheStatus(`GPT-4o result discarded (${detectedWalls.length} walls)`);
+          setCacheStatus(`GPT Luna result discarded (${detectedWalls.length} walls)`);
         }
         setRoiProgress(100);
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);

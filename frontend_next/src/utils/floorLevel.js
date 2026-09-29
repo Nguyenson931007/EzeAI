@@ -32,16 +32,41 @@ export function normalizeFloorLevelCode(value, fallback = "GF") {
   return code?.[1] || fallback;
 }
 
+const isSpecialWorkspacePage = (page) => Boolean(
+  page?.isFloorCeilingWorkspace
+  || page?.source === "floor_ceiling_workspace"
+  || page?.source === "floor_ceiling_page"
+  || page?.isWorkspace
+);
+
+/**
+ * Architectural pages are the building levels shown in the left LEVEL rail.
+ *
+ * Older IndexedDB sessions can contain a real design page with a stale
+ * `category` copied from the PDF-tools task that was active when it was saved.
+ * Treat an explicit `source: design` as authoritative. If an old session has
+ * no strict architectural page at all, recover the first ordinary non-PDF-tools
+ * page as GF instead of leaving a visible plan with an empty LEVEL rail.
+ */
 export function getArchitecturalPageIndices(pages = []) {
-  return (pages || [])
-    .map((page, pageIndex) => ({ page, pageIndex }))
-    .filter(({ page }) => !page?.category
-      && page?.source !== "pdf_tools"
-      && !page?.isFloorCeilingWorkspace
-      && page?.source !== "floor_ceiling_workspace"
-      && page?.source !== "floor_ceiling_page"
-      && !page?.isWorkspace)
+  const indexed = (pages || []).map((page, pageIndex) => ({ page, pageIndex }));
+
+  const strict = indexed
+    .filter(({ page }) => !isSpecialWorkspacePage(page))
+    .filter(({ page }) => page?.source === "design" || (!page?.category && page?.source !== "pdf_tools"))
     .map(({ pageIndex }) => pageIndex);
+
+  if (strict.length > 0) return strict;
+
+  // Backward-compatibility for legacy/restored sessions whose only plan page
+  // has stale category metadata. Never promote a known PDF-tools/workspace page.
+  const recovered = indexed.find(({ page }) => (
+    !isSpecialWorkspacePage(page)
+    && page?.source !== "pdf_tools"
+    && Boolean(page?.image || page?.fileName || page?.pageNumber)
+  ));
+
+  return recovered ? [recovered.pageIndex] : [];
 }
 
 /**

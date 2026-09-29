@@ -957,7 +957,7 @@ async def openai_rebuild_walls(
     page_context: Optional[str] = Form(None),
     username: str = Depends(validate_session)
 ):
-    """GPT-4o reviews the existing Local AI wall candidates as a support layer."""
+    """GPT Luna reviews the existing Local AI wall candidates as a support layer."""
     import json as _json
     from services.wall_segment_service import WallSegmentService
     from services.openai_wall_service import review_raw_candidates_with_openai

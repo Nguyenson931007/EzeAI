@@ -15,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 from PIL import Image
 
-from services.azure_openai_client import azure_chat_completion, extract_chat_text
+from services.openai_client import extract_response_text, get_openai_model, openai_response
 
 DEFAULT_ALLOWED_ACTIONS = {
     "add_row",
@@ -270,8 +270,10 @@ def run_openai_agent(
     image_bytes: Optional[bytes] = None,
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
-    deployment = (model or os.getenv("AZURE_OPENAI_DEPLOYMENT", "")).strip() or None
-    timeout_sec = int(os.getenv("AZURE_OPENAI_AGENT_TIMEOUT_SEC", "180"))
+    model_name = get_openai_model()
+    if model and model.strip() and model.strip() != model_name:
+        raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
+    timeout_sec = int(os.getenv("OPENAI_AGENT_TIMEOUT_SEC", os.getenv("OPENAI_TIMEOUT_SEC", "180")))
 
     context = {
         "task_key": task_key,
@@ -299,7 +301,7 @@ def run_openai_agent(
             },
         })
 
-    raw = azure_chat_completion(
+    raw = openai_response(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -307,17 +309,16 @@ def run_openai_agent(
         response_format={"type": "json_object"},
         temperature=0.05,
         timeout_sec=timeout_sec,
-        deployment=deployment,
     )
 
     try:
-        parsed = json.loads(extract_chat_text(raw))
+        parsed = json.loads(extract_response_text(raw))
     except Exception as exc:
-        raise RuntimeError("Azure OpenAI returned invalid JSON agent response") from exc
+        raise RuntimeError("OpenAI returned invalid JSON agent response") from exc
 
     parsed = validate_agent_actions(parsed, task_schema)
-    parsed["provider"] = "azure_openai"
-    parsed["deployment"] = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
+    parsed["provider"] = "openai"
+    parsed["model"] = model_name
     parsed["task_key"] = task_key
     parsed["execution"] = "proposal_only"
     return parsed

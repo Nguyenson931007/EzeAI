@@ -65,7 +65,7 @@ class WallItemSchema(BaseModel):
     spacing: Optional[Union[float, int]] = Field(None, description="Khoảng cách bulong mm (VD: 900)")
     rod_size: Optional[str] = Field(None, description="Kích cỡ bulong (VD: M12, M16)")
     short_name: Optional[str] = Field(None, description="Mã viết tắt client (VD: BNSW-ACT)")
-    floor_level: Optional[str] = Field(None, description="Mã tầng (VD: GF, FF, SF, TF)")
+    floor_level: Optional[str] = Field("GF", description="Mã tầng (VD: GF, FF, SF, TF); mặc định GF")
 
 
 class JobSaveSchema(BaseModel):
@@ -312,7 +312,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                 spacing_val = _parse_decimal(wall.spacing, default=900)
                 rod_size_val = _parse_rod_size(wall.rod_size, default="M12")
                 short_name_val = wall.short_name if wall.short_name else "BUN-NSW-ACT"
-                floor_level_val = (wall.floor_level or "").strip() if wall.floor_level else None
+                floor_level_val = str(wall.floor_level or "GF").strip().upper() or "GF"
                 cursor.execute(
                     sql_insert_new,
                     (
@@ -381,7 +381,7 @@ async def save_framework_wall_single(payload: dict, request: Request = None):
     spacing = payload.get("spacing", 900)
     rod_size = payload.get("rod_size", "M12")
     short_name = payload.get("short_name", "BUN-NSW-ACT")
-    floor_level = payload.get("floor_level", None)
+    floor_level = str(payload.get("floor_level") or payload.get("floorLevel") or "GF").strip().upper() or "GF"
     user_update = payload.get("user_update") or (request.headers.get("x-username") if request else None) or "admin"
 
     formatted_payload = SaveJobsPayloadSchema(

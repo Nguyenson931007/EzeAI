@@ -2,7 +2,7 @@
 import React from "react";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
-import { buildArchitecturalFloorLevelMap } from "@/utils/floorLevel";
+import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices } from "@/utils/floorLevel";
 
 export default function LeftRailView({
   interactionMode,
@@ -43,12 +43,20 @@ export default function LeftRailView({
   const activeCurrentPage = currentPage !== undefined ? currentPage : (appModel.currentPage || 0);
   const activeRoomsByPage = roomsByPage || appModel.roomsByPage || {};
 
-  // Lấy danh sách các tầng kiến trúc (Architectural floor levels - tách biệt hoàn toàn với PDF Tools / Add Pages và Floor & Ceiling Page)
-  const architecturalPages = currentPages
-    .map((p, originalIndex) => ({ ...p, originalIndex }))
-    .filter((p) => !p?.category && p?.source !== "pdf_tools" && !p?.isFloorCeilingWorkspace && p?.source !== "floor_ceiling_workspace" && p?.source !== "floor_ceiling_page" && !p?.isWorkspace);
-
-  const displayLevels = architecturalPages;
+  // One shared page -> level rule for the rail and every task table.
+  // This also recovers legacy IndexedDB sessions where a real plan page has a
+  // stale task `category`, which previously made the LEVEL rail appear empty.
+  const architecturalPageIndices = React.useMemo(
+    () => getArchitecturalPageIndices(currentPages),
+    [currentPages],
+  );
+  const displayLevels = React.useMemo(
+    () => architecturalPageIndices.map((originalIndex) => ({
+      ...(currentPages[originalIndex] || {}),
+      originalIndex,
+    })),
+    [architecturalPageIndices, currentPages],
+  );
   // The level rail and every task table must resolve page -> floor code from
   // exactly the same map; otherwise the rail can show GF/FF while a task
   // silently groups both pages under GF.

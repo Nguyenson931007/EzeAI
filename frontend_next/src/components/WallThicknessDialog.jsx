@@ -304,7 +304,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onOpenAIConfir
           <button
             type="button"
             onClick={handleOpenAIConfirm}
-            title="GPT-4o support review using the OpenAI API"
+            title="GPT Luna support review using the OpenAI API"
             style={{
               flex: 1.5, padding: '10px 12px', fontSize: 12, fontWeight: 700,
               background: 'linear-gradient(135deg, #111827 0%, #374151 100%)',
@@ -312,7 +312,7 @@ export default function WallThicknessDialog({ visible, onConfirm, onOpenAIConfir
               cursor: 'pointer'
             }}
           >
-            GPT-4o
+            GPT Luna
           </button>
         </div>
       </div>

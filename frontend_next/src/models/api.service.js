@@ -1254,6 +1254,54 @@ export const ApiService = {
     });
     return handleResponse(res);
   },
+  async reviewPlanWithAI({
+    file,
+    pageIndex = 0,
+    realScale = 1.0,
+    wallConfidence = 0.001,
+    openingConfidence = 0.02,
+    runLocalDetection = true,
+    localAiData = null,
+    knownFormSchemas = null,
+    pageContext = null,
+    model = null,
+  }) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("page_index", String(pageIndex));
+    fd.append("real_scale", String(realScale));
+    fd.append("wall_confidence", String(wallConfidence));
+    fd.append("opening_confidence", String(openingConfidence));
+    fd.append("run_local_detection", runLocalDetection ? "true" : "false");
+    if (localAiData != null) fd.append("local_ai_data", JSON.stringify(localAiData));
+    if (knownFormSchemas != null) fd.append("known_form_schemas", JSON.stringify(knownFormSchemas));
+    if (pageContext != null) fd.append("page_context", JSON.stringify(pageContext));
+    if (model) fd.append("model", model);
+    const res = await fetch(`${BASE_URL}/api/ai/plan/review`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+    });
+    return handleResponse(res);
+  },
+
+  async savePlanAiFeedback({ file, finalData, pageIndex = 0, sourceJob = null, addToYoloDataset = true }) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("final_data", JSON.stringify(finalData || {}));
+    fd.append("page_index", String(pageIndex));
+    fd.append("add_to_yolo_dataset", addToYoloDataset ? "true" : "false");
+    if (sourceJob) fd.append("source_job", sourceJob);
+    const res = await fetch(`${BASE_URL}/api/ai/plan/feedback`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+    });
+    return handleResponse(res);
+  },
+
   async getLockoutDoorTypes(customerId = "BUN-NSW-ACT") {
     const res = await fetch(`${BASE_URL}/api/lockout/door-types?customer_id=${encodeURIComponent(customerId)}`, {
       headers: getHeaders(null),

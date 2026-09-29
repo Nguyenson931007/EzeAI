@@ -47,6 +47,7 @@ from api.shelving_routes import router as shelving_router
 from api.fow_plumbing_routes import router as fow_plumbing_router
 from api.power_truss_routes import router as power_truss_router
 from api.agent_routes import router as agent_router
+from api.plan_ai_routes import router as plan_ai_router
 from services.roof_v3 import router as roof_v3_router
 from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
 from app.limiter import limiter
@@ -185,6 +186,7 @@ app.include_router(shelving_router, tags=["Shelving-router"])
 app.include_router(fow_plumbing_router, tags=["FOWPlumbing-router"])
 app.include_router(power_truss_router, tags=["PowerTrussBraces-router"])
 app.include_router(agent_router, tags=["AI-agent"])
+app.include_router(plan_ai_router, tags=["AI-plan"])
 app.include_router(roof_v3_router)
 
 
