@@ -961,7 +961,7 @@ export const useAIController = (
       let isCacheHit = false;
 
       if (provider === "openai") {
-        setCacheStatus("EzeFloor Local AI + GPT Luna are reviewing walls...");
+        setCacheStatus("YOLO baseline + GPT Luna regional wall audit...");
         setRoiProgress(20);
 
         // Send the current canvas as an additional prior. Coordinates stored on
@@ -988,8 +988,7 @@ export const useAIController = (
           roi: roiRect || null,
           current_wall_count: existingWallsForOpenAI.length,
           door_count: doorsForContext.length,
-          room_count: roomsForContext.length,
-          instruction: "Use EzeFloor local wall logic as prior, verify/correct it from the drawing, and return one complete corrected wall graph."
+          room_count: roomsForContext.length
         };
 
         const result = await ApiService.rebuildWallsWithOpenAI(
@@ -1025,16 +1024,26 @@ export const useAIController = (
           };
         }).filter(w => Array.isArray(w.centerline) && w.centerline.length === 2);
 
-        // GPT Luna is an explicit replacement flow. Ask once before destroying the
-        // current page's geometry so the local-AI/manual result can be kept.
+        // Luna audits sparse, region-level changes against the YOLO baseline. The
+        // backend applies only edits that survive an independent confirmation pass.
         const currentCount = existingWallsSnapshot.length;
-        const localPriorCount = Number(result?.local_candidate_count || 0);
+        const localPriorCount = Number(result?.stable_yolo_auto_kept_count || 0);
+        const proposedCount = Number(result?.proposed_change_count || 0);
+        const approvedCount = Number(result?.approved_change_count || 0);
+        const deletedCount = Number(result?.deleted_yolo_count || 0);
+        const addedCount = Number(result?.added_candidate_count || 0);
+        const regionCount = Number(result?.audit_region_count || 0);
+        const auditErrorCount = Number(result?.audit_error_count || 0);
+        const failSafeLine = auditErrorCount > 0
+          ? `\n${auditErrorCount} region/confirmation error(s) were skipped; YOLO was preserved there.`
+          : "";
         const summaryLine = result?.summary ? `\n\nGPT Luna: ${result.summary}` : "";
         const applyOpenAI = typeof window === "undefined"
           ? true
           : window.confirm(
-              `EzeFloor Local AI produced ${localPriorCount} candidate wall(s).\n` +
-              `GPT Luna reasoned over the drawing + those candidates and returned ${detectedWalls.length} corrected wall(s).\n\n` +
+              `Audited ${localPriorCount} YOLO wall(s) across ${regionCount} local region(s).\n` +
+              `Approved ${approvedCount}/${proposedCount} change(s): ${addedCount} add/replace candidate(s), ${deletedCount} YOLO removal(s).\n` +
+              `Final result: ${detectedWalls.length} wall(s).` + failSafeLine + `\n\n` +
               `Replace the current ${currentCount} wall(s) on this page?` +
               summaryLine
             );

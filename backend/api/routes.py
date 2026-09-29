@@ -960,7 +960,7 @@ async def openai_rebuild_walls(
     """GPT Luna reviews the existing Local AI wall candidates as a support layer."""
     import json as _json
     from services.wall_segment_service import WallSegmentService
-    from services.openai_wall_service import review_raw_candidates_with_openai
+    from services.openai_wall_service import audit_yolo_walls_with_openai
 
     content = await file.read()
     wall_thicknesses = {
@@ -980,18 +980,31 @@ async def openai_rebuild_walls(
             wall_thicknesses=wall_thicknesses,
         )
         result = await run_in_threadpool(
-            review_raw_candidates_with_openai,
+            audit_yolo_walls_with_openai,
             image_bytes=content,
-            raw_candidates=local_result.get("walls") or [],
+            raw_candidates=local_result.get("review_candidates") or local_result.get("walls") or [],
             real_scale=real_scale or 1.0,
             wall_thicknesses=wall_thicknesses,
             existing_walls=current,
             page_context=context,
         )
         logger.info(
-            "OpenAI wall review: %s local -> %s selected",
-            result.get("raw_candidate_count"), result.get("count")
+            "OpenAI regional wall audit: %s candidates -> %s walls | %s/%s approved changes | EzeFloor topology: %s exterior / %s interior",
+            result.get("raw_candidate_count"),
+            result.get("count"),
+            result.get("approved_change_count", 0),
+            result.get("proposed_change_count", 0),
+            result.get("exterior_count", 0),
+            result.get("interior_count", 0),
         )
+        if result.get("topology_error"):
+            logger.warning("Post-GPT EzeFloor wall topology reclassification failed: %s", result.get("topology_error"))
+        if result.get("audit_error_count"):
+            logger.warning(
+                "OpenAI regional wall audit completed fail-safe with %s skipped region/confirmation error(s): %s",
+                result.get("audit_error_count"),
+                result.get("audit_errors"),
+            )
         return result
     except RuntimeError as exc:
         logger.error("OpenAI raw-candidate review failed: %s", exc)
@@ -2817,9 +2830,6 @@ async def export_room_labels(data: ExportRoomLabelsRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
 
 
 

@@ -2705,6 +2705,12 @@ def _filter_outdoor_whiskers(walls: List[dict], img_w: int, img_h: int) -> List[
     removed = 0
 
     for idx, w in enumerate(walls):
+        # A Local-AI wall that Luna already reviewed must not disappear because
+        # an incomplete room graph makes flood-fill see "outside" on both sides.
+        # This is common around door openings and short ENS/WIR wet-area returns.
+        if w.get("candidate_stage") == "local_final":
+            kept.append(w)
+            continue
         c = w.get("centerline")
         if not c or len(c) != 2:
             kept.append(w)
@@ -2859,6 +2865,85 @@ def _rebuild_wall_geometry(walls: List[dict], real_scale: float = 1.0, wall_thic
         nw["geometry_source"] = "centerline+thickness"
         result.append(nw)
     return result
+
+
+def _axis_coverage(candidate: dict, reference: dict, lane_tolerance: float = 4.0) -> float:
+    """Return how much of ``candidate`` is represented by a collinear reference.
+
+    The OpenAI review pool contains both the stable local result and earlier,
+    higher-recall detections. This helper prevents duplicate IDs for the same
+    physical run while admitting a raw run that fills a material gap.
+    """
+    ca = candidate.get("centerline") or []
+    cb = reference.get("centerline") or []
+    if len(ca) != 2 or len(cb) != 2:
+        return 0.0
+    ax, ay = map(float, ca[0]); bx, by = map(float, ca[1])
+    cx, cy = map(float, cb[0]); dx, dy = map(float, cb[1])
+    vx, vy = bx - ax, by - ay
+    wx, wy = dx - cx, dy - cy
+    length = math.hypot(vx, vy)
+    ref_length = math.hypot(wx, wy)
+    if length < 3.0 or ref_length < 3.0:
+        return 0.0
+    ux, uy = vx / length, vy / length
+    rux, ruy = wx / ref_length, wy / ref_length
+    if abs(ux * rux + uy * ruy) < 0.985:
+        return 0.0
+    perp_c = abs((cx - ax) * (-uy) + (cy - ay) * ux)
+    perp_d = abs((dx - ax) * (-uy) + (dy - ay) * ux)
+    if min(perp_c, perp_d) > lane_tolerance:
+        return 0.0
+    t1 = (cx - ax) * ux + (cy - ay) * uy
+    t2 = (dx - ax) * ux + (dy - ay) * uy
+    lo, hi = sorted((t1, t2))
+    overlap = max(0.0, min(length, hi) - max(0.0, lo))
+    return overlap / length
+
+
+def _build_wall_review_candidates(
+    img_np,
+    final_walls: List[dict],
+    raw_yolo_walls: List[dict],
+    max_visual_recovery: int = 80,
+) -> List[dict]:
+    """Build a high-recall, provenance-labelled pool for GPT wall QA."""
+    pool: List[dict] = []
+
+    for idx, wall in enumerate(final_walls or [], start=1):
+        item = dict(wall)
+        item["id"] = f"F{idx:03d}"
+        item["candidate_stage"] = "local_final"
+        pool.append(item)
+
+    raw_fillers: List[dict] = []
+    for wall in raw_yolo_walls or []:
+        if any(_axis_coverage(wall, stable) >= 0.78 for stable in (final_walls or [])):
+            continue
+        item = dict(wall)
+        item["candidate_stage"] = "raw_yolo_gap"
+        raw_fillers.append(item)
+
+    # The recovery function has its own wall-band and graph-contact gates. Seed
+    # it with every known run so isolated dimensions/text cannot enter the pool.
+    recovery_seed = [dict(w) for w in (final_walls or [])] + [dict(w) for w in (raw_yolo_walls or [])]
+    recovered = _recover_missing_orthogonal_wall_bands(
+        img_np,
+        recovery_seed,
+        max_new=max(0, int(max_visual_recovery)),
+    )
+    visual_fillers = [dict(w) for w in recovered if w.get("source_model") == "visual_recovery"]
+    for item in visual_fillers:
+        item["candidate_stage"] = "visual_wall_band"
+
+    for idx, item in enumerate(raw_fillers, start=1):
+        item["id"] = f"R{idx:03d}"
+        pool.append(item)
+    for idx, item in enumerate(visual_fillers, start=1):
+        item["id"] = f"V{idx:03d}"
+        pool.append(item)
+
+    return pool
 
 
 class WallSegmentService:
@@ -3199,7 +3284,15 @@ class WallSegmentService:
             "filename": filename,
             "width": img_w,
             "height": img_h,
-            "walls": filtered_walls
+            "walls": filtered_walls,
+            # GPT review needs a high-recall pool, not only the already-pruned
+            # final YOLO result. Provenance lets the prompt trust stable local
+            # geometry first while still recovering dropped or missed runs.
+            "review_candidates": _build_wall_review_candidates(
+                img_np,
+                filtered_walls,
+                raw_yolo_walls,
+            ),
         }
 
         if prior_config.get("enabled") or prior_config.get("debug"):

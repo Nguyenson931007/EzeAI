@@ -113,9 +113,11 @@ const nextConfig = {
     keepAlive: true,
   },
 
-  // Increase proxy timeout for rewrites to 5 minutes (300s) and increase body limit to 150MB
+  // Luna reviews wall candidates in several sequential batches. Real floor plans can
+  // take more than five minutes, so keep the rewrite alive long enough for the
+  // backend to return instead of converting a successful late response into a 500.
   experimental: {
-    proxyTimeout: 300_000,
+    proxyTimeout: 900_000,
     proxyClientMaxBodySize: '150mb',
     serverActions: {
       bodySizeLimit: '150mb',

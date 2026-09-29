@@ -116,6 +116,7 @@ def openai_response(
     timeout_sec: Optional[int] = None,
     model: Optional[str] = None,
     max_tokens: Optional[int] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Any]:
     api_key = _required_env("OPENAI_API_KEY")
     model_name = get_openai_model()
@@ -130,6 +131,19 @@ def openai_response(
         "model": model_name,
         "input": _responses_input(messages),
     }
+
+    # GPT-5.6 defaults to medium reasoning. For EzeFloor's extraction/review
+    # calls that can consume most of max_output_tokens before the structured
+    # JSON is emitted. Default to no hidden reasoning unless a call explicitly
+    # asks for more.
+    effort = (reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT", "none")).strip().lower()
+    allowed_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
+    if effort not in allowed_efforts:
+        raise RuntimeError(
+            f"Invalid OPENAI reasoning effort {effort!r}; expected one of {sorted(allowed_efforts)}"
+        )
+    payload["reasoning"] = {"effort": effort}
+
     fmt = _text_format(response_format)
     if fmt:
         payload["text"] = {"format": fmt}
