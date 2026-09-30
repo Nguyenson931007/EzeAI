@@ -3108,7 +3108,7 @@ export default function ThreeDView({
                   transition: "all 0.15s"
                 }}
               >
-                ↔️ Lật Trái/Phải
+                ↔️ Flip Left/Right
               </button>
               <button
                 onClick={() => handleUpdate({ swing_direction: swingDir === "inward" ? "outward" : "inward", swing: swingDir === "inward" ? "outward" : "inward" })}
@@ -3125,7 +3125,7 @@ export default function ThreeDView({
                   transition: "all 0.15s"
                 }}
               >
-                ↕️ Lật Trong/Ngoài
+                ↕️ Flip Inward/Outward
               </button>
             </div>
 

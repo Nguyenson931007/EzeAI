@@ -63,7 +63,7 @@ const UserManagement = ({ onLoadJob }) => {
           return;
         }
       }
-      
+
       // If it's a task from TaskList without local CAD drawing yet:
       sessionStorage.setItem("pendingEmsJob", JSON.stringify(job));
       localStorage.setItem("pendingEmsJob", JSON.stringify(job));
@@ -160,7 +160,7 @@ const UserManagement = ({ onLoadJob }) => {
       showAlert('No report data to export.');
       return;
     }
-    const headers = ['ID', 'Tên Job (Project)', 'Nhân Viên (User)', 'Email', 'Khách Hàng (Client)', 'Builder', 'Created Date', 'Completed Date', 'Trạng Thái', 'Tiến Độ (%)', 'Diện Tích (m2)', 'Số Phòng'];
+    const headers = ['ID', 'Project', 'User', 'Email', 'Client', 'Builder', 'Created Date', 'Completed Date', 'Status', 'Progress (%)', 'Area (m2)', 'Room Count'];
     const rows = reportData.items.map(it => [
       it.id,
       `"${(it.project_name || '').replace(/"/g, '""')}"`,
@@ -169,8 +169,8 @@ const UserManagement = ({ onLoadJob }) => {
       `"${(it.client || '').replace(/"/g, '""')}"`,
       `"${(it.builder || '').replace(/"/g, '""')}"`,
       `"${it.created_at || ''}"`,
-      `"${it.completed_at || (it.is_completed ? it.created_at : 'Đang thực hiện')}"`,
-      it.is_completed ? 'Hoàn thành' : 'Đang thực hiện',
+      `"${it.completed_at || (it.is_completed ? it.created_at : 'In Progress')}"`,
+      it.is_completed ? 'Completed' : 'In Progress',
       `${it.progress || 0}%`,
       it.total_area || 0,
       it.room_count || 0
@@ -200,7 +200,7 @@ const UserManagement = ({ onLoadJob }) => {
       } else {
         res = await ApiService.signup(formData);
       }
-      
+
       if (res.message || res.status === "success") {
         await showAlert(editingUser ? 'User updated!' : 'User created!');
         setEditingUser(null);
@@ -235,9 +235,9 @@ const UserManagement = ({ onLoadJob }) => {
       const userStr = localStorage.getItem("user");
       const headers = {};
       if (userStr) {
-         const u = JSON.parse(userStr);
-         headers["X-Username"] = u.username;
-         headers["X-Session-Token"] = u.session_token;
+        const u = JSON.parse(userStr);
+        headers["X-Username"] = u.username;
+        headers["X-Session-Token"] = u.session_token;
       }
       const res = await fetch(`${BASE_URL}/users/${userId}`, { method: 'DELETE', headers });
       if (res.ok) fetchUsers();
@@ -265,8 +265,8 @@ const UserManagement = ({ onLoadJob }) => {
   };
 
   const safeUsers = Array.isArray(users) ? users : [];
-  const filteredUsers = safeUsers.filter(u => 
-    (u?.username || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredUsers = safeUsers.filter(u =>
+    (u?.username || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
     (u?.email || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -299,7 +299,7 @@ const UserManagement = ({ onLoadJob }) => {
           <h2>Admin Control Center</h2>
           <p>Manage users, access permissions, and real-time project progress reporting.</p>
         </div>
-        
+
         {/* Top Tab Bar */}
         <div style={{ display: 'flex', gap: '8px', background: '#e2e8f0', padding: '4px', borderRadius: '10px' }}>
           <button
@@ -355,9 +355,9 @@ const UserManagement = ({ onLoadJob }) => {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
             <div className="admin-search-box">
               <span className="search-icon">🔍</span>
-              <input 
-                type="text" 
-                placeholder="Search users by name or email..." 
+              <input
+                type="text"
+                placeholder="Search users by name or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -520,7 +520,7 @@ const UserManagement = ({ onLoadJob }) => {
                             <td>
                               <div className="row-actions">
                                 <button onClick={async () => { await fetch(`${BASE_URL}/users/${user.id}/approve`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); }} className="btn-approve">Approve</button>
-                                <button onClick={async () => { if(await showConfirm('Reject?')) { await fetch(`${BASE_URL}/users/${user.id}/reject`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); } }} className="btn-reject">Reject</button>
+                                <button onClick={async () => { if (await showConfirm('Reject?')) { await fetch(`${BASE_URL}/users/${user.id}/reject`, { method: 'POST', headers: { "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token } }); fetchUsers(); } }} className="btn-reject">Reject</button>
                               </div>
                             </td>
                           </tr>
@@ -566,7 +566,7 @@ const UserManagement = ({ onLoadJob }) => {
                             </td>
                             <td><span className={`badge badge-${user.role}`}>{user.role}</span></td>
                             <td>
-                              <button 
+                              <button
                                 onClick={async () => { await fetch(`${BASE_URL}/users/${user.id}`, { method: 'PUT', headers: { "Content-Type": "application/json", "X-Username": JSON.parse(localStorage.getItem("user")).username, "X-Session-Token": JSON.parse(localStorage.getItem("user")).session_token }, body: JSON.stringify({ is_active: user.is_active === 1 ? 0 : 1 }) }); fetchUsers(); }}
                                 className={`status-toggle ${user.is_active === 1 ? 'active' : 'inactive'}`}
                               >
@@ -580,10 +580,10 @@ const UserManagement = ({ onLoadJob }) => {
                             </td>
                             <td>
                               <div className="row-actions">
-                                <button 
-                                  onClick={() => { setSelectedUserForProfile(user); setProfileModalMode('view'); }} 
-                                  className="btn-icon" 
-                                  title="View & Edit Full Profile (Xem & Chỉnh sửa hồ sơ)" 
+                                <button
+                                  onClick={() => { setSelectedUserForProfile(user); setProfileModalMode('view'); }}
+                                  className="btn-icon"
+                                  title="View & Edit Full Profile (Xem & Chỉnh sửa hồ sơ)"
                                   style={{ background: '#0284c7', color: '#ffffff', border: 'none' }}
                                 >
                                   👤
@@ -849,7 +849,7 @@ const UserManagement = ({ onLoadJob }) => {
                       return (
                         <tr key={`report_item_${it.id || idx}_${idx}`}>
                           <td style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>#{it.id}</td>
-                          
+
                           {/* Project Name with Link */}
                           <td>
                             <button
@@ -987,10 +987,10 @@ const UserManagement = ({ onLoadJob }) => {
             <div className="modal-body">
               <div className="form-group">
                 <label>Enter New Password for User</label>
-                <input 
-                  type="password" 
-                  value={newPassword} 
-                  onChange={(e) => setNewPassword(e.target.value)} 
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="New strong password"
                   autoFocus
                 />
@@ -1069,7 +1069,8 @@ const UserManagement = ({ onLoadJob }) => {
         }}
       />
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .admin-container { padding: 28px; color: #1e293b; background: #f8fafc; height: calc(100vh - 86px); overflow-y: auto; flex: 1; position: relative; }
         .jobs-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 40px; }
         .jobs-modal { background: #ffffff; width: 100%; max-width: 900px; max-height: 80vh; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15); color: #1e293b; }

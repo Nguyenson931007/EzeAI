@@ -66,7 +66,7 @@ export function requireProcurementJobId(context = {}) {
   const id = resolveProcurementJobId(context);
   if (!id) {
     throw new Error(
-      "Không xác định được Task HW ID của Job. Hãy mở Job từ Task HW/Procurement rồi Save lại."
+      "Can not read Task HW ID from that job. Please open Job from Task HW/Procurement and Save again."
     );
   }
   return id;

@@ -217,7 +217,7 @@ export default function App() {
         sessionStorage.removeItem("floor_ceiling_workspace");
         sessionStorage.removeItem("fc_workspace_state");
         localStorage.removeItem("floor_ceiling_workspace");
-      } catch (_) {}
+      } catch (_) { }
     };
     window.addEventListener("ezefloor:clear_floor_ceiling_scan", clearFloorCeilingCache);
     return () => window.removeEventListener("ezefloor:clear_floor_ceiling_scan", clearFloorCeilingCache);
@@ -226,7 +226,7 @@ export default function App() {
   const [image, setImage] = useState(null);
   const [showPDF, setShowPDF] = useState(true);
   const [ssoLoading, setSsoLoading] = useState(false);
-  const [ssoStatusText, setSsoStatusText] = useState("Đang đồng bộ đăng nhập SSO & Tải dự án...");
+  const [ssoStatusText, setSsoStatusText] = useState("Sync up with SSO login & Load Project...");
 
   // === SEARCH STATE (Smart Search & Auto Count) ===
   const [searchResults, setSearchResults] = useState([]);
@@ -610,18 +610,18 @@ export default function App() {
   const loadEmsJob = useCallback(async (idJobEms, force = false) => {
     if (!idJobEms) return;
     if (!force && (isLoadingEmsRef.current || lastLoadedEmsIdRef.current === idJobEms)) {
-      console.log("[SSO] Bỏ qua gọi lặp loadEmsJob cho:", idJobEms);
+      console.log("[SSO] Skip calling loadEmsJob for:", idJobEms);
       return;
     }
 
     try {
       isLoadingEmsRef.current = true;
       lastLoadedEmsIdRef.current = idJobEms;
-      console.log("[SSO] Đang nạp thông tin Job từ TaskList theo EMS ID:", idJobEms);
+      console.log("[SSO] Loading Job information from TaskList by EMS ID:", idJobEms);
       const emsResult = await ApiService.getJobByEmsId(idJobEms);
       if (emsResult?.status === "success" && emsResult.data) {
         const jobInfo = emsResult.data;
-        console.log("[SSO] Thông tin Job nhận được:", jobInfo);
+        console.log("[SSO] Job information received:", jobInfo);
 
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng (bỏ data bản vẽ nặng để không vượt 5MB quota)
         try {
@@ -639,7 +639,7 @@ export default function App() {
           sessionStorage.setItem("pendingEmsJob", metaStr);
           try { localStorage.setItem("pendingEmsJob", metaStr); } catch (_) { }
         } catch (storageErr) {
-          console.warn("[SSO] Không thể lưu pendingEmsJob vào Storage:", storageErr);
+          console.warn("[SSO] Failed to save pendingEmsJob to Storage:", storageErr);
         }
 
         // Use the exact TaskList "Sheets to work" selection returned by the
@@ -678,11 +678,11 @@ export default function App() {
               savedProjectName = jobInfo.local_job.project_name || targetProjectName;
             }
           } catch (err) {
-            console.warn("[SSO] Không thể tải dữ liệu bản vẽ từ local_job.id:", err);
+            console.warn("[SSO] Failed to load drawing data from local_job.id:", err);
           }
         }
 
-        // Nếu chưa có data, thử tra cứu đối chiếu trực tiếp với CSDL SQLite bằng tên job_number
+        // If no data, try to look up directly with SQLite by job_number
         if (!savedJobData && targetProjectName) {
           try {
             const findRes = await ApiService.findJob(targetProjectName);
@@ -692,22 +692,22 @@ export default function App() {
               savedProjectName = findRes.project_name || targetProjectName;
             }
           } catch (findErr) {
-            console.warn("[SSO] Tra cứu SQLite theo tên dự án thất bại:", findErr);
+            console.warn("[SSO] SQLite lookup by project name failed:", findErr);
           }
         }
 
         // 2. Nạp dữ liệu hoặc mở trang trắng mới tinh
         if (savedJobData) {
-          console.log("[SSO] Tìm thấy bản vẽ đã lưu trong SQLite cho Job:", savedProjectName, "Đang nạp lên canvas...");
+          console.log("[SSO] Found saved drawing data in SQLite for Job:", savedProjectName, "Loading to canvas...");
           const parsedData = typeof savedJobData === "string"
             ? JSON.parse(savedJobData)
             : savedJobData;
           handleLoadJobRef.current(parsedData, savedProjectName, savedJobId);
         } else {
-          // Nếu là job mới chưa có bản vẽ trên EzeFloor (không có trên SQLite) -> Mở trang new trắng
-          console.log("[SSO] Job chưa có bản vẽ trong SQLite. Reset sạch workspace mở trang trắng mới:", targetProjectName);
+          // If the job is new and has no drawing in EzeFloor (not in SQLite) -> Open a new white page
+          console.log("[SSO] Job has no drawing in SQLite. Reset workspace and open a new white page:", targetProjectName);
 
-          // 2a. Đặt flag skip restore để tránh useEffect đọc lại cache cũ
+          // 2a. Set skip restore flag to avoid reading old cache in useEffect
           try {
             sessionStorage.setItem("ezefloor_skip_restore", "1");
           } catch (_) { }
@@ -754,7 +754,7 @@ export default function App() {
         setActiveTabRef.current("Home");
       }
     } catch (emsErr) {
-      console.warn("[SSO] Không thể nạp Job từ TaskList:", emsErr);
+      console.warn("[SSO] Failed to load Job from TaskList:", emsErr);
     } finally {
       isLoadingEmsRef.current = false;
     }
@@ -805,7 +805,7 @@ export default function App() {
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
 
-      console.log("[SSO] Đang xác thực user từ URL params:", { urlToken, urlUser });
+      console.log("[SSO] Verifying user from URL params:", { urlToken, urlUser });
       ApiService.tasklistSSO({ token: urlToken || "direct_url", username: urlUser })
         .then(res => res.json())
         .then(data => {
@@ -827,11 +827,11 @@ export default function App() {
               localStorage.setItem("tasklist_token", urlToken);
               localStorage.setItem("ems_token", urlToken);
             }
-            console.log("[SSO] URL Login thành công với:", userData.username);
+            console.log("[SSO] URL Login successful with:", userData.username);
             if (idJobEms) loadEmsJob(idJobEms);
           }
         })
-        .catch(err => console.warn("[SSO] Lỗi URL SSO:", err));
+        .catch(err => console.warn("[SSO] URL SSO error:", err));
       return;
     }
 
@@ -869,7 +869,7 @@ export default function App() {
         const savedSession = await loadWorkspaceState("active_session");
 
         if (savedSession && savedSession.pages && savedSession.pages.length > 0) {
-          console.log("[Restore] Khôi phục toàn bộ bản vẽ từ IndexedDB:", savedSession.currentProjectName, savedSession.pages.length, "trang");
+          console.log("[Restore] Restore full drawing from IndexedDB:", savedSession.currentProjectName, savedSession.pages.length, "trang");
           setPages(savedSession.pages);
           if (savedSession.roomsByPage) setRoomsByPage(savedSession.roomsByPage);
           if (savedSession.wallsByPage) setWallsByPage(savedSession.wallsByPage);
@@ -920,7 +920,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.warn("[Restore] Không thể khôi phục phiên làm việc:", err);
+        console.warn("[Restore] Failed to restore workspace:", err);
       } finally {
         isRestoringSessionRef.current = false;
       }
@@ -1131,7 +1131,7 @@ export default function App() {
       postMessageHandledRef.current = true;
 
       try {
-        console.log("[SSO] Đang xác thực SSO token từ TaskList...", event.data);
+        console.log("[SSO] Verifying SSO token from TaskList...", event.data);
         const extractedUser = event.data.username ||
           event.data.UserID ||
           event.data.user_id ||
@@ -1145,19 +1145,19 @@ export default function App() {
         const response = await ApiService.tasklistSSO(ssoPayload);
         if (!response.ok) {
           const errText = await response.text();
-          console.warn("[SSO] TaskList SSO thất bại:", response.status, errText);
+          console.warn("[SSO] TaskList SSO failed:", response.status, errText);
           postMessageHandledRef.current = false;
           return;
         }
 
         const data = await response.json();
         if (data.status !== "success") {
-          console.error("[SSO] Phản hồi SSO không hợp lệ:", data);
+          console.error("[SSO] Invalid SSO response:", data);
           postMessageHandledRef.current = false;
           return;
         }
 
-        const finalUsername = data.username || extractedUser || "Liam";
+        const finalUsername = data.username || extractedUser;
         const rawToken = event.data.token || "";
         const userData = {
           username: finalUsername,
@@ -1176,7 +1176,7 @@ export default function App() {
           localStorage.setItem("tasklist_token", rawToken);
           localStorage.setItem("ems_token", rawToken);
         }
-        console.log("[SSO] Đăng nhập thành công với tài khoản:", userData.username);
+        console.log("[SSO] Login success with account:", userData.username);
 
         const idJobEms = new URLSearchParams(window.location.search).get("job");
         if (idJobEms) {
@@ -1185,7 +1185,7 @@ export default function App() {
           loadEmsJob(idJobEms);
         }
       } catch (err) {
-        console.error("[SSO] Lỗi trong quá trình xử lý SSO:", err);
+        console.error("[SSO] Error during SSO processing:", err);
         postMessageHandledRef.current = false;
       }
     };
@@ -1369,14 +1369,14 @@ export default function App() {
       // an aggregate task row (e.g. all external insulation walls) should read as an
       // overview instead of shrinking the plan to an arbitrary fixed scale.
       const presets = {
-        opening:    { fill: 0.56, minFit: 1.25, maxFit: 12.0, hardMax: 5.5 },
-        wall:       { fill: 0.90, minFit: 1.08, maxFit: 8.0,  hardMax: 4.0 },
-        room:       { fill: 0.78, minFit: 1.04, maxFit: 4.5,  hardMax: 3.0 },
-        detail:     { fill: 0.80, minFit: 1.05, maxFit: 6.0,  hardMax: 4.0 },
+        opening: { fill: 0.56, minFit: 1.25, maxFit: 12.0, hardMax: 5.5 },
+        wall: { fill: 0.90, minFit: 1.08, maxFit: 8.0, hardMax: 4.0 },
+        room: { fill: 0.78, minFit: 1.04, maxFit: 4.5, hardMax: 3.0 },
+        detail: { fill: 0.80, minFit: 1.05, maxFit: 6.0, hardMax: 4.0 },
         "wall-group": { fill: 0.90, minFit: 1.00, maxFit: 2.8, hardMax: 2.2 },
         "area-group": { fill: 0.84, minFit: 0.98, maxFit: 2.4, hardMax: 2.0 },
-        group:      { fill: 0.86, minFit: 1.00, maxFit: 2.6,  hardMax: 2.2 },
-        overview:   { fill: 0.94, minFit: 0.96, maxFit: 1.65, hardMax: 1.6 },
+        group: { fill: 0.86, minFit: 1.00, maxFit: 2.6, hardMax: 2.2 },
+        overview: { fill: 0.94, minFit: 0.96, maxFit: 1.65, hardMax: 1.6 },
       };
       const preset = presets[profile] || presets.detail;
 
@@ -1557,7 +1557,7 @@ export default function App() {
       for (const item of selectedData) {
         const alreadyInSameCat = otherPdfToolsPages.some(
           exist => exist.category === item.category &&
-                   ((item.pageNumber && exist.pageNumber === item.pageNumber) || (exist.image && exist.image === item.image))
+            ((item.pageNumber && exist.pageNumber === item.pageNumber) || (exist.image && exist.image === item.image))
         );
         if (!alreadyInSameCat) {
           toAdd.push(item);
@@ -1662,7 +1662,7 @@ export default function App() {
         sessionStorage.removeItem("floor_ceiling_workspace");
         sessionStorage.removeItem("fc_workspace_state");
         localStorage.removeItem("floor_ceiling_workspace");
-      } catch (_) {}
+      } catch (_) { }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan", {
           detail: { pageIndex: pageIndexToDelete, pageId: deletedPage?.id }
@@ -1721,7 +1721,7 @@ export default function App() {
   function validateRooms() {
     for (let r of rooms) {
       if (getClassId(r.type) === -1) {
-        alert(`Room "${r.room_name}" có loại phòng không hợp lệ.`);
+        alert(`Room "${r.room_name}" have invalid room type.`);
         return false;
       }
     }
@@ -1960,7 +1960,7 @@ export default function App() {
                   <span>▦ 2D Floorplan</span>
                   <button
                     onClick={() => handleSetWorkspaceMode(workspaceMode === "2d" ? "split" : "2d")}
-                    title={workspaceMode === "2d" ? "Quay lại chế độ xem song song (Split View)" : "Phóng to toàn màn hình 2D (Maximize 2D)"}
+                    title={workspaceMode === "2d" ? "Return to split view (Split View)" : "Maximize 2D (Maximize 2D)"}
                   >
                     {workspaceMode === "2d" ? "◫" : "⛶"}
                   </button>
@@ -2165,7 +2165,7 @@ export default function App() {
                 className={`cad-split-divider ${isDraggingSplit ? "dragging" : ""}`}
                 onMouseDown={handleSplitMouseDown}
                 onDoubleClick={() => setSplitRatio(70)}
-                title="Kéo sang trái/phải để điều chỉnh tỉ lệ (Nhấp đúp để reset về 70/30)"
+                title="Drag left/right to adjust the ratio (Double-click to reset to 70/30)"
               />
             )}
 
@@ -2187,7 +2187,7 @@ export default function App() {
                       handlePopout3D();
                       handleSetWorkspaceMode("2d");
                     }}
-                    title="Pop out 3D Studio into a separate window and switch to 2D only (Mở 3D ra cửa sổ riêng và chuyển về 2D)"
+                    title="Pop out 3D Studio into a separate window and switch to 2D only"
                     style={{
                       padding: "2px 7px",
                       borderRadius: "4px",
@@ -2206,7 +2206,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => handleSetWorkspaceMode("2d")}
-                    title="Close 3D panel (Đóng 3D)"
+                    title="Close 3D panel"
                   >
                     ✕
                   </button>
@@ -2224,8 +2224,8 @@ export default function App() {
                   currentPage={
                     (pages[currentPage]?.category || pages[currentPage]?.source === "pdf_tools" || pages[currentPage]?.is_pdf_tool)
                       ? (pages.findIndex(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool) >= 0
-                          ? pages.findIndex(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool)
-                          : 0)
+                        ? pages.findIndex(p => !p.category && p.source !== "pdf_tools" && !p.is_pdf_tool)
+                        : 0)
                       : currentPage
                   }
                   realScale={realScale}

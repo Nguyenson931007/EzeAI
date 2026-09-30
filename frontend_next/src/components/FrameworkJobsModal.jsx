@@ -187,9 +187,9 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
     const pageIndices = new Set(
       validArchIndices.length > 0
         ? [
-            ...validArchIndices,
-            ...wallPageIndices.filter((idx) => validArchIndices.includes(idx)),
-          ]
+          ...validArchIndices,
+          ...wallPageIndices.filter((idx) => validArchIndices.includes(idx)),
+        ]
         : wallPageIndices
     );
 
@@ -355,10 +355,10 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         setEditedData({});
         setIsAccumulatedView(false);
       } else {
-        setError(res.detail || "Không thể tải danh sách Jobs từ MSSQL.");
+        setError(res.detail || "Can not load Jobs List from MSSQL.");
       }
     } catch (e) {
-      setError(e.message || "Lỗi kết nối đến máy chủ API backend.");
+      setError(e.message || "Can not connect to API backend.");
     } finally {
       setLoading(false);
     }
@@ -744,7 +744,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         return true;
       }
     } catch (e) {
-      console.error("Lỗi khi lưu dòng FrameWork:", e);
+      console.error("Error when saving FrameWork:", e);
     } finally {
       setSavingKey(null);
     }
@@ -791,7 +791,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
         await loadJobsList();
       }
     } catch (e) {
-      console.error("Lỗi khi lưu đồng loạt (Save All Jobs):", e);
+      console.error("Error when saving All Jobs:", e);
     } finally {
       setIsSavingAll(false);
       setTimeout(() => setSavedKeys(new Set()), 3000);
@@ -1020,7 +1020,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     </div>
                     <button
                       onClick={applyAILengthsToAll}
-                      title="Bấm để tự động cộng dồn khối lượng tường Tầng 2 / Bản vẽ mới vào khối lượng đã lưu trong Database"
+                      title="Click to auto-calculate and fill the wall lengths of the new floor/drawing into the stored Database"
                       style={{
                         background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
                         border: "none", color: "#fff", borderRadius: 6,
