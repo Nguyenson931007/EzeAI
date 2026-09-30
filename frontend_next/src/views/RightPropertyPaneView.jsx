@@ -4884,34 +4884,6 @@ export default function RightPropertyPaneView({
     });
   }, [cadMetrics, effectiveDoorsByPage, roomsByPageProp, rooms]);
 
-  const hasMeaningfulFormData = React.useCallback((value) => {
-    if (!value || typeof value !== "object") return false;
-    return Object.values(value).some((item) => {
-      if (Array.isArray(item)) return item.length > 0;
-      if (item && typeof item === "object") return hasMeaningfulFormData(item);
-      const text = String(item ?? "").trim();
-      return text !== "" && text !== "0" && text !== "false" && text !== "[]";
-    });
-  }, []);
-
-  const moduleHasData = {
-    frame_hardware: (frameWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.frame_hardware),
-    flooring_decking: (flooringEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.flooring_decking),
-    hebel_flooring: (hebelFlooringEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.hebel_flooring),
-    insulation: (insulationWallEntries || []).length > 0 || (insulationAreaEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.insulation),
-    eaves_soffit: (eavesEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.eaves_soffit),
-    cladding: (claddingWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.cladding),
-    lock_up: (lockupEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.lock_up) || hasMeaningfulFormData(moduleFormData?.lockup),
-    windows: (windowEntries || []).length > 0,
-    shelving: (shelvingEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.shelving),
-    timber_posts: (timberPostEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.timber_posts),
-    power_truss_braces: (powerTrussEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.power_truss_braces),
-    fixout: (fixoutDoorEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.fixout),
-    fow_plumbing: (fowPlumbingEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.fow_plumbing),
-    final_fit: hasMeaningfulFormData(moduleFormData?.final_fit),
-    hardies_fire_walls: (hardiesFireWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.hardies_fire_walls),
-  };
-
   return (
     <div
       className="cad-panel"
@@ -5532,7 +5504,6 @@ export default function RightPropertyPaneView({
         customerModuleIds={customerModuleIds}
         flooringTaskFloors={flooringTaskFloors}
         onFlooringTaskFloorsChange={persistFlooringTaskFloors}
-        moduleHasData={moduleHasData}
       />
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}

@@ -683,6 +683,44 @@ export const EXTRA_MODULE_TABS = [
 
 export const ALL_MODULE_IDS = EXTRA_MODULE_TABS.map(m => m.id);
 export const LOCAL_ONLY_MODULE_IDS = EXTRA_MODULE_TABS.filter((m) => m.localOnly).map((m) => m.id);
+
+// Product-readiness order shared by every job/customer. This is intentionally
+// static: it describes which task modules are already implemented and usable,
+// not whether the current plan happens to contain rows for that task.
+const TASK_READINESS_ORDER = [
+  "frame_hardware",
+  "flooring_decking",
+  "insulation",
+  "cladding",
+  "lock_up",
+  "windows",
+  "fixout",
+  "final_fit",
+  "eaves_soffit",
+  "timber_posts",
+  "fow_plumbing",
+  "hardies_fire_walls",
+  "shelving",
+  "power_truss_braces",
+  "hebel_flooring",
+  "doors_furniture",
+  "sheet_schedule",
+];
+const TASK_READINESS_ORDER_INDEX = new Map(TASK_READINESS_ORDER.map((id, index) => [id, index]));
+
+export function sortTaskModulesByReadiness(modules = []) {
+  return modules
+    .map((mod, index) => ({ mod, index }))
+    .sort((a, b) => {
+      const aId = a.mod.baseId || a.mod.id;
+      const bId = b.mod.baseId || b.mod.id;
+      const aOrder = TASK_READINESS_ORDER_INDEX.get(aId) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = TASK_READINESS_ORDER_INDEX.get(bId) ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.index - b.index;
+    })
+    .map(({ mod }) => mod);
+}
 export const isLocalOnlyModuleId = (moduleId) => LOCAL_ONLY_MODULE_IDS.includes(moduleId);
 
 // ── Katherine (EZE0098) 13-Task Standard HW Contract ──

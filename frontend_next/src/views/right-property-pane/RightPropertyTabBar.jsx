@@ -1,5 +1,6 @@
 import React from "react";
 import ManageModulesPopup from "./ManageModulesPopup";
+import { sortTaskModulesByReadiness } from "./UIComponents";
 
 export default function RightPropertyTabBar({
   activePaneTab,
@@ -17,19 +18,12 @@ export default function RightPropertyTabBar({
   customerModuleTabs = [],
   customerModuleIds = [],
   flooringTaskFloors = ["GF"],
-  onFlooringTaskFloorsChange,
-  moduleHasData = {}
+  onFlooringTaskFloorsChange
 }) {
-  const visibleTaskTabs = (taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS)
-    .filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id))
-    .map((mod, index) => ({ mod, index }))
-    .sort((a, b) => {
-      const aHas = moduleHasData?.[a.mod.baseId || a.mod.id] ? 1 : 0;
-      const bHas = moduleHasData?.[b.mod.baseId || b.mod.id] ? 1 : 0;
-      if (aHas !== bHas) return bHas - aHas;
-      return a.index - b.index;
-    })
-    .map(({ mod }) => mod);
+  const visibleTaskTabs = sortTaskModulesByReadiness(
+    (taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS)
+      .filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id))
+  );
 
   return (
     <div className="rp-side-tab-bar">
@@ -161,7 +155,6 @@ export default function RightPropertyTabBar({
               onFlooringTaskFloorsChange={onFlooringTaskFloorsChange}
               activePaneTab={activePaneTab}
               setActivePaneTab={setActivePaneTab}
-              moduleHasData={moduleHasData}
             />
           </div>
         </>

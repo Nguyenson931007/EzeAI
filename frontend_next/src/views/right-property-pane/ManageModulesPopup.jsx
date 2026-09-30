@@ -1,5 +1,5 @@
 import React from "react";
-import { sanitizeModuleIds } from "./UIComponents";
+import { sanitizeModuleIds, sortTaskModulesByReadiness } from "./UIComponents";
 import {
   TASK_FLOOR_OPTIONS,
   floorCodeFromNumber,
@@ -21,8 +21,7 @@ export default function ManageModulesPopup({
   flooringTaskFloors = ["GF"],
   onFlooringTaskFloorsChange,
   activePaneTab,
-  setActivePaneTab,
-  moduleHasData = {}
+  setActivePaneTab
 }) {
   const normalizedFlooringFloors = normalizeTaskFloorCodes(flooringTaskFloors);
   const highestFloorNumber = Math.max(0, ...normalizedFlooringFloors.map((floor) => floorNumberFromCode(floor) ?? 0));
@@ -41,15 +40,7 @@ export default function ManageModulesPopup({
 
   if (!showAddModulePopup) return null;
 
-  const sortedCustomerModuleTabs = [...customerModuleTabs]
-    .map((mod, index) => ({ mod, index }))
-    .sort((a, b) => {
-      const aHas = moduleHasData?.[a.mod.id] ? 1 : 0;
-      const bHas = moduleHasData?.[b.mod.id] ? 1 : 0;
-      if (aHas !== bHas) return bHas - aHas;
-      return a.index - b.index;
-    })
-    .map(({ mod }) => mod);
+  const sortedCustomerModuleTabs = sortTaskModulesByReadiness(customerModuleTabs);
 
   return (
     <div
