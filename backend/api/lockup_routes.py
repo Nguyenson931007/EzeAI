@@ -672,17 +672,25 @@ async def calculate_lockout(payload: DoorCalcPayload):
         else:
             hung_val = "Hung A"
 
-        is_loose = d.get("mode") == "Loose" or "loose" in str(d.get("category", "")).lower()
+        mode_text = str(d.get("mode") or d.get("lockup_mode") or "").strip().lower()
+        category_text = str(d.get("category") or "").strip().lower()
+        cavity_source = " ".join(str(d.get(key) or "") for key in (
+            "mode", "lockup_mode", "category", "doorTypeId",
+            "penetration_type", "class", "type", "door_name", "doorName", "label"
+        )).lower()
+        is_cavity = "cavity" in cavity_source or "sliding" in cavity_source
+        is_loose = mode_text == "loose" or "loose" in category_text
+        resolved_mode = "Cavity" if is_cavity else ("Loose" if is_loose else ("Prehung" if is_ext else (d.get("mode") or "Loose")))
 
         cad_types = {"single", "sliding", "window", "double", "bifold", "pocket", "cavity", "door", "hinged", "french", "timber", "type a", "type cg"}
         raw_t = str(d.get("type") or "").strip().lower()
         clean_type = "-" if (not raw_t or raw_t in cad_types) else (d.get("type") or "-")
         location_val = "External" if is_ext else "Internal"
 
-        key = f"{d_label}_{selected_door_type}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}"
+        key = f"{d_label}_{selected_door_type}_{d_width}_{d_height}_{scope_val}_{jamb_or_wall_val}_{hung_val}_{resolved_mode}"
         if key not in grouped:
             grouped[key] = {
-                "mode": "Loose" if is_loose else ("Prehung" if is_ext else d.get("mode")),
+                "mode": resolved_mode,
                 "scope": scope_val,
                 "location": location_val,
                 "label": d_label,

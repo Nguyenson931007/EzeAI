@@ -475,6 +475,31 @@ const syncDoorRow = (taskId, row, door) => {
     if (label) next.door_label = label;
     if (height) next.height = String(Math.round(height));
     if (width) next.width = String(Math.round(width));
+
+    // Keep Fixout Category in sync with the edited plan penetration.
+    // Same rule as Lockup: cavity/sliding penetration => Cavity.
+    const fixoutCategorySource = [
+      door?.doorTypeId,
+      door?.door_type_id,
+      door?.penetration_type,
+      door?.class,
+      door?.class_name,
+      door?.type,
+      door?.door_name,
+      door?.doorName,
+      door?.label,
+      door?.mode,
+      door?.lockup_mode,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (/cavity|sliding|slider/.test(fixoutCategorySource)) {
+      next.category = "cavity";
+    } else {
+      const mode = lower(door?.mode || door?.category);
+      if (mode.includes("loose")) next.category = "loose-jamb";
+      else if (mode.includes("prehung")) next.category = "prehung";
+    }
+
     if (door?.door_type) next.door_type = door.door_type;
     if (door?.frame_type) next.door_frame = door.frame_type;
     if (door?.handing) next.handing = door.handing;
@@ -488,6 +513,16 @@ const syncDoorRow = (taskId, row, door) => {
       next.label = label;
       next.door_name = label;
     }
+
+    const lockupModeSource = [
+      door?.lockup_mode,
+      door?.mode,
+      door?.doorTypeId,
+      door?.penetration_type,
+      door?.class,
+      door?.type,
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (/cavity|sliding|slider/.test(lockupModeSource)) next.mode = "Cavity";
     if (height) next.height = String(Math.round(height));
     if (width) next.width = String(Math.round(width));
     if (door?.door_type) next.door_type = door.door_type;

@@ -12,6 +12,13 @@ import {
 import { mergeCollinearWalls } from '@/utils/geometry';
 const PENETRATION_TYPE_OPTIONS = getDoorTypeOptions();
 
+const getPenetrationTypeUiLabel = (option = {}) => {
+  const value = String(option.value || "").toLowerCase();
+  const label = String(option.label || "");
+  if (value === "int_cavity_slider" || /cavity\s+slider/i.test(label)) return "Cavity";
+  return label;
+};
+
 
 /**
  * DoorEditDialog — Modal dialog for editing door properties.
@@ -224,6 +231,18 @@ export default function DoorEditDialog({
     const parsedHeight = Math.max(300, Math.min(2420, parseInt(heightMm) || 1980));
     const parsedWidth = Math.max(300, parseInt(widthMm) || 760);
 
+    // Lockup uses only three categories/modes: Prehung, Loose and Cavity.
+    // Any cavity or sliding penetration is treated as Cavity.
+    const lockupModeSource = [
+      penetrationType,
+      doorDef?.renderClass,
+      doorDef?.doorType,
+      doorDef?.label
+    ].filter(Boolean).join(" ").toLowerCase();
+    const lockupMode = /cavity|sliding/.test(lockupModeSource)
+      ? "Cavity"
+      : (isExternal ? "Prehung" : "Loose");
+
     const updated = {
       ...door,
       doorTypeId: penetrationType,
@@ -240,6 +259,8 @@ export default function DoorEditDialog({
       height: parsedHeight,
       width_mm: parsedWidth,
       width_source: 'manual',
+      mode: lockupMode,
+      lockup_mode: lockupMode,
       parentWallId: parentWall?.id || door.parentWallId || null
     };
     onSave(updated, applyToAll);
@@ -349,7 +370,7 @@ export default function DoorEditDialog({
               style={{ ...selectStyle, flex: 1 }}
             >
               {PENETRATION_TYPE_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value}>{getPenetrationTypeUiLabel(o)}</option>
               ))}
             </select>
           </div>
@@ -360,7 +381,11 @@ export default function DoorEditDialog({
             <input
               type="text"
               readOnly
-              value={`${prefix} ${typeLabel.replace(' (Custom Size)', '')} - ${isExternal ? 'External' : 'Internal'}`}
+              value={`${prefix} ${
+                penetrationType === "int_cavity_slider"
+                  ? "Cavity"
+                  : typeLabel.replace(' (Custom Size)', '')
+              } - ${isExternal ? 'External' : 'Internal'}`}
               style={{ ...inputStyle, flex: 1, background: '#f3f4f6', color: '#6b7280', cursor: 'default' }}
             />
           </div>

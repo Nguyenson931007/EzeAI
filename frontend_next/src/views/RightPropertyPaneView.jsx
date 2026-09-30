@@ -176,6 +176,8 @@ const fixoutRowToLockup = (row = {}) => {
   const jambSize = row.jamb_size || ((frame && !/^(timber jamb|none|-|—)$/i.test(frame)) ? frame : "");
   return {
     ...row,
+    procurement_task: "lock_up",
+    procurementTask: "lock_up",
     id: row.id || `lock-route-${Date.now()}`,
     floorLevel: row.floorLevel || row.floor_level || "GF",
     mode: loose ? "Loose" : "Prehung",
@@ -205,6 +207,8 @@ const lockupRowToFixout = (row = {}) => {
   const wallValue = String(row.wall_width || row.jamb_or_wall || "").match(/\d+(?:\.\d+)?/)?.[0] || "";
   return {
     ...row,
+    procurement_task: "fixout",
+    procurementTask: "fixout",
     id: row.id || `fix-route-${Date.now()}`,
     floorLevel: row.floorLevel || row.floor_level || "GF",
     category,
@@ -1332,8 +1336,13 @@ export default function RightPropertyPaneView({
     const currentDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
     const currentRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
 
-    const allDoors = doorsByPageProp && Object.keys(doorsByPageProp).length
-      ? Object.entries(doorsByPageProp).flatMap(([pageKey, pageDoors]) => {
+    const liveDoorsByPage =
+      effectiveDoorsByPage && Object.keys(effectiveDoorsByPage).length
+        ? effectiveDoorsByPage
+        : doorsByPageProp;
+
+    const allDoors = liveDoorsByPage && Object.keys(liveDoorsByPage).length
+      ? Object.entries(liveDoorsByPage).flatMap(([pageKey, pageDoors]) => {
           const pIdx = Number(pageKey);
           return (pageDoors || []).map((door) => ({
             ...door,
@@ -3332,6 +3341,30 @@ export default function RightPropertyPaneView({
 
       const matchId = (id1, id2) => id1 !== undefined && id1 !== null && id2 !== undefined && id2 !== null && String(id1).trim() === String(id2).trim();
 
+      const getLockupMode = (door, isExt, override = {}) => {
+        const overrideCategory = String(override.category || "").trim().toLowerCase();
+        if (overrideCategory.includes("cavity")) return "Cavity";
+        if (overrideCategory.includes("loose")) return "Loose";
+        if (overrideCategory.includes("prehung")) return "Prehung";
+
+        const source = [
+          door?.lockup_mode,
+          door?.mode,
+          door?.doorTypeId,
+          door?.penetration_type,
+          door?.class,
+          door?.type,
+          door?.door_name,
+          door?.doorName,
+          door?.label
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        if (/cavity|sliding/.test(source)) return "Cavity";
+        if (String(door?.lockup_mode || door?.mode || "").toLowerCase().includes("loose")) return "Loose";
+        if (String(door?.lockup_mode || door?.mode || "").toLowerCase().includes("prehung")) return "Prehung";
+        return isExt ? "Prehung" : "Loose";
+      };
+
       const buildEntry = (d, idx) => {
         const override = customLockupOverrides[d.id] || {};
         const dLabel = (override.doorLabel || d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D-${idx + 1}`).trim();
@@ -3341,7 +3374,8 @@ export default function RightPropertyPaneView({
         const dWidth = getDoorWidthInMm(d, realScale, scaleValue);
         const dHeight = getDoorHeightInMm(d);
         const wallThick = d.wall_thickness || d.thickness_mm || 90;
-        const isLoose = override.category === "Loose Jamb" || (!isExt && d.mode === "Loose");
+        const lockupMode = getLockupMode(d, isExt, override);
+        const isLoose = lockupMode === "Loose";
 
         const dHinge = String(override.hung || d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
         const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
@@ -3351,7 +3385,8 @@ export default function RightPropertyPaneView({
         return {
           id: `lck-door-${d.id || Date.now()}-${idx}`,
           doorId: d.id,
-          mode: override.category || (isExt ? "Prehung" : "Loose"),
+          mode: lockupMode,
+          lockup_mode: lockupMode,
           scope: isExt ? "external" : "internal",
           location: isExt ? "External" : "Internal",
           label: dLabel,
@@ -3388,18 +3423,25 @@ export default function RightPropertyPaneView({
           const expectedScope = isExt ? "external" : "internal";
           const expectedLoc = isExt ? "External" : "Internal";
           const expectedModel = override.door_type || matchingDoor.door_type || matchingDoor.lockup_door_type || entry.door_type || "";
+          const expectedMode = getLockupMode(matchingDoor, isExt, override);
 
           const isScopeDiff = entry.scope !== expectedScope || entry.location !== expectedLoc;
           const isModelDiff = !override.door_type && matchingDoor.door_type && entry.door_type !== matchingDoor.door_type;
+          const isModeDiff = String(entry.mode || "").trim().toLowerCase() !== expectedMode.toLowerCase();
 
-          if (isScopeDiff || isModelDiff) {
+          if (isScopeDiff || isModelDiff || isModeDiff) {
             changed = true;
             return {
               ...entry,
+              mode: expectedMode,
+              lockup_mode: expectedMode,
               scope: expectedScope,
               location: expectedLoc,
               door_type: isModelDiff ? expectedModel : entry.door_type,
-              thickness: isExt ? 40 : 35,
+              thickness: expectedMode === "Loose" ? 38 : (isExt ? 40 : 35),
+              jamb_size: expectedMode === "Loose"
+                ? (entry.jamb_size || "112×19mm 5.4m Loose Jamb")
+                : null,
               label: dLabel || entry.label,
               door_name: dLabel || entry.door_name
             };
@@ -3496,7 +3538,19 @@ export default function RightPropertyPaneView({
       setLockupEntries((prev) => (prev || []).filter((candidate) => !sameDoorLink(candidate, row)));
       setFixoutDoorEntries((prev) => upsertDoorTaskRow(prev, moved));
     }
-  }, [pushTaskHistory, setDoorsByPageCtx, effectiveDoorsByPage]);
+
+    // Make the routing action visible immediately instead of making the row
+    // appear to vanish from the current table.
+    const targetPane = target === "lock_up" ? "lockup" : "fixout";
+    setEnabledModuleIds((prev) => prev.includes(targetPane) ? prev : [...prev, targetPane]);
+    setActivePaneTab(targetPane);
+  }, [
+    pushTaskHistory,
+    setDoorsByPageCtx,
+    effectiveDoorsByPage,
+    setEnabledModuleIds,
+    setActivePaneTab,
+  ]);
 
   const handleSetShelvingEntries = React.useCallback((actionOrEntries) => {
     setShelvingEntries(prev => {

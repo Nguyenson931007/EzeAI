@@ -143,7 +143,7 @@ const normalizeStopDisplay = (val) => {
 const capitalize = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : "None";
 const modeLabel = (mode) => {
   const m = String(mode || "").toLowerCase();
-  if (m === "cavity" || m.includes("cavity")) return "Cavity sliding";
+  if (m === "cavity" || m.includes("cavity") || m.includes("slid")) return "Cavity";
   if (m === "loose-jamb" || m === "loose" || m.includes("loose")) return "Loose Jamb";
   return "Prehung";
 };
@@ -1434,7 +1434,7 @@ export default function FixoutTask({
 
             <CategorySection
               mode="cavity"
-              title="Cavity Sliding Door"
+              title="Cavity"
               addLabel="+ Add door"
               entries={entries}
               onSetEntries={onSetEntries}
@@ -1488,14 +1488,14 @@ export default function FixoutTask({
               <th style={{ width: "38px", textAlign: "center" }}>#</th>
               <th style={{ width: "92px" }}>Label</th>
               <th style={{ width: "92px" }}>Task</th>
-              <th style={{ width: "105px" }}>Door Type</th>
+              <th style={{ width: "105px" }}>Category</th>
               <th style={{ width: "72px", textAlign: "center" }}>Height</th>
               <th style={{ width: "72px", textAlign: "center" }}>Width</th>
               <th style={{ width: "66px", textAlign: "center" }}>Thicks</th>
               <th style={{ width: "92px" }}>Jamb / wall</th>
               <th style={{ width: "108px" }}>Jamb Size</th>
               <th style={{ width: "92px" }}>Hung</th>
-              <th style={{ width: "150px" }}>Type</th>
+              <th style={{ width: "150px" }}>Door Type</th>
               <th style={{ width: "70px" }}>{isBunVic ? "HO/HL" : "HF/HO"}</th>
               <th style={{ width: "82px" }}>Color</th>
               <th style={{ width: "118px" }}>Stop</th>
@@ -1635,7 +1635,7 @@ export default function FixoutTask({
                       <td style={{ fontWeight: 600 }}>
                         {isRowEditing ? (
                           <select value={editCategory} onChange={(event) => setEditField("category", event.target.value)} style={controlStyle}>
-                            <option value="cavity">Cavity sliding</option>
+                            <option value="cavity">Cavity</option>
                             <option value="prehung">Prehung</option>
                             <option value="loose-jamb">Loose Jamb</option>
                           </select>

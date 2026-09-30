@@ -891,6 +891,47 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
         .task-module-enhanced table tbody button[aria-label^="Save" i] {
           display: none !important;
         }
+
+        /* Global task-table auto-fit rule.
+           Applies to every task/customer rendered through TaskModulesContainer.
+           Each column grows to the longest visible content instead of using fixed widths. */
+        .task-module-enhanced table {
+          width: max-content !important;
+          min-width: 100% !important;
+          max-width: none !important;
+          table-layout: auto !important;
+        }
+        .task-module-enhanced table th,
+        .task-module-enhanced table td {
+          width: auto !important;
+          min-width: max-content !important;
+          max-width: none !important;
+          white-space: nowrap !important;
+        }
+        .task-module-enhanced table select {
+          width: max-content !important;
+          min-width: max-content !important;
+          max-width: none !important;
+        }
+        .task-module-enhanced table input:not([type="checkbox"]):not([type="radio"]) {
+          width: auto !important;
+          min-width: 56px !important;
+          max-width: none !important;
+          field-sizing: content;
+        }
+        .task-module-enhanced table textarea {
+          width: max-content !important;
+          min-width: 120px !important;
+          max-width: none !important;
+        }
+        .task-module-enhanced .task-ui-table-scroll,
+        .task-module-enhanced .task-ui-entered-body,
+        .task-module-enhanced .task-ui-inline-entered-body,
+        .task-module-enhanced .task-ui-table-card,
+        .task-module-enhanced [style*="overflowX"],
+        .task-module-enhanced [style*="overflow-x"] {
+          overflow-x: auto !important;
+        }
         .task-module-enhanced button.task-ui-section-header-button {
           width: 100% !important;
           display: flex !important;

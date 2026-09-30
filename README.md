@@ -127,7 +127,6 @@ npm run dev
 Mở ứng dụng tại <http://127.0.0.1:3011/> hoặc <http://localhost:3011/>.
 
 ### 6. Chạy nhanh ở những lần sau
-
 Terminal 1 — backend:
 
 ```powershell
