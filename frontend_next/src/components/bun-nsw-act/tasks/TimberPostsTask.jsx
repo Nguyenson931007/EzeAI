@@ -326,7 +326,6 @@ export default function TimberPostsTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
-  const loadedJobRef = useRef(null);
 
   useEffect(() => {
     editingRowIdRef.current = editingRowId;
@@ -484,7 +483,9 @@ export default function TimberPostsTask({
             post: p.post || `${p.post_type || "MERBAU GL17 FJL POST"} ${p.post_size || "90×90 mm"} @ ${p.post_height || "2700mm"}`,
             qty: p.qty || 1,
             postOver: "timber",
-            galPostSupports: p.gal_post_supports !== undefined ? String(p.gal_post_supports) : "0"
+            galPostSupports: p.gal_post_supports !== undefined ? String(p.gal_post_supports) : "0",
+            source: "manual",
+            autofill_source: "manual"
           }));
 
           if (onSetEntries) {
@@ -524,17 +525,6 @@ export default function TimberPostsTask({
       }
     }
   };
-
-  // ── Auto-load saved posts from MSSQL on mount / job change ──
-  useEffect(() => {
-    const target = String(currentProjectName || currentJobId || activeJobNumber || "").trim().toLowerCase();
-    if (!target || target === "default" || target === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [currentProjectName, currentJobId, activeJobNumber, entries]);
 
   const getSelectedStockDescription = () => {
     if (postType === "Please Select" || !postType) {
@@ -853,6 +843,8 @@ export default function TimberPostsTask({
           <span>2. Entered timber posts ({(entries || []).length})</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("timber_posts")}
+            onAddData={() => handleReloadFromDb(true)}
+            addDataDisabled={isLoadingDb}
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}

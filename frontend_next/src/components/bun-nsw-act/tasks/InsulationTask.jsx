@@ -919,18 +919,8 @@ export default function InsulationTask({
     }
   };
 
-  // Auto Load Existing Saved Insulation
-  const hasLoadedSavedRef = useRef(false);
-
-  useEffect(() => {
-    hasLoadedSavedRef.current = false;
-  }, [activeJobNumber, currentProjectName, currentJobId]);
-
-  useEffect(() => {
-    async function loadExistingSavedInsulation() {
-      if (hasLoadedSavedRef.current) return;
-      if ((wallEntries && wallEntries.length > 0) || (areaEntries && areaEntries.length > 0)) return;
-      try {
+  const handleAddDataFromDb = async () => {
+    try {
         const res = await ApiService.fetchInsulationJobs();
         if (res && res.data) {
           const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
@@ -942,7 +932,6 @@ export default function InsulationTask({
           const validRows = matchedRows.filter(r => (r.wall_length && parseFloat(r.wall_length) > 0) || (r.total_area_raked && parseFloat(r.total_area_raked) > 0));
 
           if (validRows.length > 0) {
-            hasLoadedSavedRef.current = true;
             const loadedWalls = [];
             const loadedAreas = [];
 
@@ -971,7 +960,9 @@ export default function InsulationTask({
                   product: prod,
                   insulationArea: Number(insArea.toFixed(2)),
                   totalArea: Number(insArea.toFixed(2)),
-                  area: Number(insArea.toFixed(2))
+                  area: Number(insArea.toFixed(2)),
+                  source: "manual",
+                  autofill_source: "manual"
                 });
               } else {
                 loadedWalls.push({
@@ -985,7 +976,9 @@ export default function InsulationTask({
                   raked: rakedM2,
                   door: doorM2,
                   insulationArea: Number(insArea.toFixed(2)),
-                  totalArea: Number(insArea.toFixed(2))
+                  totalArea: Number(insArea.toFixed(2)),
+                  source: "manual",
+                  autofill_source: "manual"
                 });
               }
             });
@@ -994,12 +987,10 @@ export default function InsulationTask({
             if (loadedAreas.length > 0 && onSetAreaEntries) onSetAreaEntries(loadedAreas);
           }
         }
-      } catch (e) {
-        console.error("Auto load existing Insulation error:", e);
-      }
+    } catch (e) {
+      console.error("Add Insulation data from database error:", e);
     }
-    loadExistingSavedInsulation();
-  }, [activeJobNumber, currentProjectName, currentJobId, onSetWallEntries, onSetAreaEntries]);
+  };
 
   // Statistics
   const totalLengthM = useMemo(() => {
@@ -1760,6 +1751,7 @@ export default function InsulationTask({
           <span>3. ENTERED INSULATION WALLS ({(wallEntries || []).length})</span>
           <EnteredTaskActions
             onAutoFill={handleAutoFillAI}
+            onAddData={handleAddDataFromDb}
             onClear={onClearData}
             isOpen={isEnteredWallsOpen}
             onToggle={() => setIsEnteredWallsOpen((v) => !v)}

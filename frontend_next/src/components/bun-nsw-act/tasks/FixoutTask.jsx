@@ -1108,6 +1108,7 @@ export default function FixoutTask({
   const floorLevel = useCurrentTaskFloorLevel(formData);
   const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAddingData, setIsAddingData] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
@@ -1267,6 +1268,59 @@ export default function FixoutTask({
     };
   }, []);
 
+  const handleAddDataFromDb = async () => {
+    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
+    setIsAddingData(true);
+    try {
+      const res = await ApiService.fetchFixoutJobs(target);
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      const revealRows = rows
+        .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
+        .map((row, index) => ({
+          id: `reveal-db-${row.fixout_id || index}`,
+          type: String(row.door_type || "Window").toLowerCase().includes("window") ? "window" : "door",
+          label: row.door_label || "",
+          height: row.height || "",
+          width: row.width || "",
+          blockWork: String(row.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
+          floorLevel: row.floor_level || row.floorLevel || "GF",
+          source: "manual",
+          autofill_source: "manual",
+        }));
+      const doorRows = rows
+        .filter((row) => String(row?.category || "").toLowerCase() !== "reveal")
+        .filter((row) => !isWindowOpening(row) && (row.door_label || row.door_type || row.height || row.width))
+        .map((row, index) => ({
+          id: `fix-db-${row.fixout_id || index}`,
+          floorLevel: row.floor_level || row.floorLevel || "GF",
+          category: row.category || "cavity",
+          door_label: row.door_label || "",
+          door_type: row.door_type || "",
+          height: row.height || 2040,
+          width: row.width || 820,
+          thicks: row.thicks ? String(row.thicks) : "35",
+          wall_width: row.wall_width ? String(row.wall_width) : "90",
+          door_frame: row.door_frame || "Timber Jamb",
+          lift_off_pivot: row.lift_off_pivot || "",
+          handing: row.handing || "",
+          hole: isBunVic && row.hole === "HF" ? "HL" : (row.hole || ""),
+          finish: row.finish || "",
+          door_furniture: row.door_furniture || (row.category === "cavity" ? "CSD Passage Set" : "None"),
+          door_stop: row.door_stop || "None",
+          qty: row.qty || 1,
+          source: "manual",
+          autofill_source: "manual",
+        }));
+      if (onChange) onChange("fixout", "fixout_reveal_openings", JSON.stringify(revealRows));
+      if (onSetEntries) onSetEntries(doorRows);
+    } catch (error) {
+      console.error("Add Fixout data from database error:", error);
+    } finally {
+      setIsAddingData(false);
+    }
+  };
+
   const handleRemoveEntry = (id) => {
     if (onSetEntries) {
       onSetEntries((prev) => (prev || []).filter((e) => e.id !== id));
@@ -1364,6 +1418,8 @@ export default function FixoutTask({
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <TaskActionButtons
               onAutoFill={() => onAddDataAI?.("fixout")}
+              onAddData={handleAddDataFromDb}
+              addDataDisabled={isAddingData}
               onClear={onClearData}
               onSave={handleSave}
               saveDisabled={isSaving}

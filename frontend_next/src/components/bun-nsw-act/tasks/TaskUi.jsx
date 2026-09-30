@@ -55,9 +55,11 @@ export function TaskSectionHeader({
 
 export function TaskActionButtons({
   onAutoFill,
+  onAddData,
   onClear,
   onSave,
   autoFillDisabled = false,
+  addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
   autoFillLabel = "Auto Fill",
@@ -66,9 +68,11 @@ export function TaskActionButtons({
   return (
     <EnteredTaskActions
       onAutoFill={onAutoFill}
+      onAddData={onAddData}
       onClear={onClear}
       onSave={onSave}
       autoFillDisabled={autoFillDisabled}
+      addDataDisabled={addDataDisabled}
       saveDisabled={saveDisabled}
       saveStatus={saveStatus}
       autoFillLabel={autoFillLabel}
@@ -91,9 +95,11 @@ export function EnteredDataCard({
   isOpen,
   onToggle,
   onAutoFill,
+  onAddData,
   onClear,
   onSave,
   autoFillDisabled = false,
+  addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
   children,
@@ -109,11 +115,13 @@ export function EnteredDataCard({
         actions={(
           <EnteredTaskActions
             onAutoFill={onAutoFill}
+            onAddData={onAddData}
             onClear={onClear}
             onSave={onSave}
             isOpen={isOpen}
             onToggle={onToggle}
             autoFillDisabled={autoFillDisabled}
+            addDataDisabled={addDataDisabled}
             saveDisabled={saveDisabled}
             saveStatus={saveStatus}
           />
@@ -201,12 +209,15 @@ export function TaskField({
 
 export function isAiGeneratedTaskRow(row) {
   if (!row || typeof row !== "object") return false;
-  if (row.ai_generated === true || row.aiGenerated === true || row.generatedByAI === true) return true;
-
   const autoFillSource = String(row.autofill_source ?? row.autoFillSource ?? "").trim().toLowerCase();
+  const source = String(row.source ?? row.source_type ?? row.sourceType ?? "").trim().toLowerCase();
+  // Explicit manual provenance always wins, including rows recalled from SQL
+  // through Add data that may still carry legacy AI flags in saved payloads.
+  if (autoFillSource === "manual" || source === "manual") return false;
+
+  if (row.ai_generated === true || row.aiGenerated === true || row.generatedByAI === true) return true;
   if (autoFillSource && autoFillSource !== "manual") return true;
 
-  const source = String(row.source ?? row.source_type ?? row.sourceType ?? "").trim().toLowerCase();
   if (
     source === "floor_ceiling_sync" ||
     source === "floor_ceiling_ai" ||

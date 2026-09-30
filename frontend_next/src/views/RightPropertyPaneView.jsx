@@ -2825,102 +2825,6 @@ export default function RightPropertyPaneView({
     };
   }, [handleSetInsulationAreaEntries]);
 
-  // When on Insulation task: dynamic wall & area calculations based on canvas selection
-  // Skip auto-generation if insulationWallEntries already has entries (preserves AI-filled, entered, or calculated rows)
-  React.useEffect(() => {
-    if (activePaneTab === "insulation") {
-      // Do not silently repopulate after the user explicitly pressed Clear data.
-      if (manuallyClearedTasks?.insulation) return;
-      if (insulationWallEntries && insulationWallEntries.length > 0) return;
-
-      const curWalls = (wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []);
-      const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
-      const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
-
-      // 1. Plan-derived wall insulation rule:
-      //    Exterior walls are included by default (unless explicitly excluded).
-      //    Interior walls are included only when Include Insulation is ON.
-      const targetWalls = curWalls.filter(shouldIncludeWallInInsulation);
-
-      if (targetWalls.length > 0) {
-        const wallGroupsMap = {};
-
-        targetWalls.forEach(w => {
-          const override = customInsWallOverrides[w.id] || {};
-          let lenMm = 0;
-          if (override.length) {
-            lenMm = Math.round(Number(override.length));
-          } else if (w.length_m) {
-            lenMm = Math.round(w.length_m * 1000);
-          } else if (w.centerline && w.centerline.length === 2) {
-            const dx = w.centerline[1][0] - w.centerline[0][0];
-            const dy = w.centerline[1][1] - w.centerline[0][1];
-            const px = Math.hypot(dx, dy);
-            lenMm = effScale < 0.5 ? Math.round(px * effScale * 1000) : Math.round(px * effScale);
-          }
-          if (lenMm <= 0) return;
-
-          const wCls = typeof getWallClass === "function" ? getWallClass(w) : (w.class_name || w.wall_type || "interior_wall");
-          const isExt = wCls === "exterior_wall";
-          const isParty = String(wCls).includes("partition") || String(wCls).includes("party") || wCls === "part";
-          const type = override.type || (isExt ? "Ext wall" : (isParty ? "Partywall" : "Int wall"));
-          const rValue = override.rValue || (isExt ? "R2.5" : "R2.0");
-          const h = Number(override.height || w.height_mm || w.height || 2400);
-          const prodCode = override.productCode || (isExt ? "0810602" : "0810608");
-          const prodName = override.product || override.productName || (isExt
-            ? "0810602 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.5HP 90X430 PK12"
-            : "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20");
-
-          const groupKey = `${type}_${rValue}_${h}_${prodCode}`;
-          if (!wallGroupsMap[groupKey]) {
-            wallGroupsMap[groupKey] = {
-              type,
-              rValue,
-              height: h,
-              productCode: prodCode,
-              product: prodName,
-              totalLenMm: 0,
-              count: 0,
-              wallIds: []
-            };
-          }
-          wallGroupsMap[groupKey].totalLenMm += lenMm;
-          wallGroupsMap[groupKey].count += 1;
-          wallGroupsMap[groupKey].wallIds.push(w.id);
-        });
-
-        const newWallEntries = [];
-        Object.entries(wallGroupsMap).forEach(([key, g]) => {
-          const areaM2 = Number(((g.height / 1000) * (g.totalLenMm / 1000)).toFixed(2));
-          newWallEntries.push({
-            id: g.count === 1 && g.wallIds.length === 1 ? `ins-w-single-${g.wallIds[0]}` : `ins-w-grp-${key}`,
-            wallId: g.count === 1 && g.wallIds.length === 1 ? g.wallIds[0] : undefined,
-            wallIds: g.wallIds,
-            type: g.type,
-            height: g.height,
-            length: g.totalLenMm,
-            rValue: g.rValue,
-            product: g.product,
-            productCode: g.productCode,
-            raked: 0,
-            door: 0,
-            insulationArea: areaM2,
-            netArea: areaM2,
-            autofill_source: "drawing",
-          });
-        });
-
-        if (newWallEntries.length > 0) {
-          setInsulationWallEntries(newWallEntries);
-        }
-      }
-
-      // Floor / Ceiling insulation is intentionally NOT inferred from room polygons here.
-      // It must come from the dedicated Floor & Ceiling workspace so its user
-      // toggles (Timber Floor / Ceiling below roof) remain the source of truth.
-    }
-  }, [activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides, manuallyClearedTasks]);
-
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
   const [insWallLength, setInsWallLength] = React.useState("");
@@ -3397,6 +3301,10 @@ export default function RightPropertyPaneView({
     if (activePaneTab === "lockup" || activePaneTab === "lock_up") {
       // Do not silently rebuild rows immediately after an explicit Clear data.
       if (manuallyClearedTasksRef.current?.lock_up || manuallyClearedTasks?.lock_up) return;
+      // Opening a task must never populate it. Plan-derived rows are created
+      // only by the explicit Auto Fill action; this effect only keeps rows that
+      // already exist in sync with their linked plan doors.
+      if (!lockupEntries || lockupEntries.length === 0) return;
 
       const curDoors = (doorsByPageProp && doorsByPageProp[currentPage]) ? doorsByPageProp[currentPage] : (doors || []);
       const curRoutingWalls = ((wallsByPageProp && wallsByPageProp[currentPage]) ? wallsByPageProp[currentPage] : (walls || []))
@@ -3938,6 +3846,15 @@ export default function RightPropertyPaneView({
       const isManuallyCleared = Boolean(manuallyClearedTasksRef.current?.[clearKey]);
       if (isManuallyCleared && !planChanged) return;
       setter((previousRows) => {
+        // Opening a task or changing the plan must not create task data by
+        // itself. Database/manual rows stay untouched; only rows explicitly
+        // created by Auto Fill continue following their linked plan objects.
+        if (!Array.isArray(previousRows) || previousRows.length === 0) return previousRows;
+        const hasPlanRows = previousRows.some((row) => {
+          const source = String(row?.autofill_source || row?.source || "").toLowerCase();
+          return source.includes("drawing") || source === "ai_generated";
+        });
+        if (!hasPlanRows) return previousRows;
         const legacyLinked = taskId === "insulation"
           ? linkLegacyInsulationRows(previousRows, generatedByTask[taskId])
           : previousRows;
@@ -3999,6 +3916,8 @@ export default function RightPropertyPaneView({
           const parsed = currentFixout.fixout_reveal_openings ? JSON.parse(currentFixout.fixout_reveal_openings) : [];
           currentRevealRows = Array.isArray(parsed) ? parsed : [];
         } catch (_) {}
+        const hasPlanWindowRows = currentRevealRows.some((row) => row?.source === "window_autofill");
+        if (!hasPlanWindowRows) return prev;
         const manualRevealRows = currentRevealRows.filter((row) => row?.source !== "window_autofill");
         const nextJson = JSON.stringify([...manualRevealRows, ...liveWindowRevealRows]);
         if (currentFixout.fixout_reveal_openings === nextJson) return prev;
@@ -4015,7 +3934,11 @@ export default function RightPropertyPaneView({
     // Keep the internal derived list for summary/selection compatibility, but
     // there is no longer a standalone Window task tab.
     if (!manuallyClearedTasksRef.current?.windows || planChanged) {
-      setWindowEntries(generatedByTask.windows);
+      setWindowEntries((previousRows) => {
+        const hasPlanWindowRows = (Array.isArray(previousRows) ? previousRows : [])
+          .some((row) => row?.source === "window_autofill" || row?.autofill_source === "drawing");
+        return hasPlanWindowRows ? generatedByTask.windows : previousRows;
+      });
     }
     reconcileRows("shelving", setShelvingEntries);
     reconcileRows("hardies_fire_walls", setHardiesFireWallEntries);

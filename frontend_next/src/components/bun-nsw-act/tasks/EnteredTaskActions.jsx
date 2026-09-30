@@ -3,14 +3,17 @@ import { createPortal } from "react-dom";
 
 export default function EnteredTaskActions({
   onAutoFill,
+  onAddData,
   onClear,
   onSave,
   isOpen,
   onToggle,
   autoFillDisabled = false,
+  addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
   autoFillLabel = "Auto Fill",
+  addDataLabel = "Add data",
   saveLabel = "Save"
 }) {
   const [portalHost, setPortalHost] = useState(null);
@@ -26,7 +29,7 @@ export default function EnteredTaskActions({
     return () => window.removeEventListener("ezefloor:task-action-slot-ready", resolveHost);
   }, []);
 
-  const actionButtons = (onAutoFill || onClear || onSave) ? (
+  const actionButtons = (onAutoFill || onAddData || onClear || onSave) ? (
     <div
       className="entered-task-actions"
       style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", marginLeft: "auto" }}
@@ -56,6 +59,34 @@ export default function EnteredTaskActions({
           title="Auto Fill"
         >
           ⚡ {autoFillLabel}
+        </button>
+      )}
+
+      {onAddData && (
+        <button
+          className="entered-task-action entered-task-action--add-data"
+          type="button"
+          style={{
+            background: "#f8fafc",
+            border: "1px solid #94a3b8",
+            color: "#334155",
+            fontSize: "10.5px",
+            fontWeight: 700,
+            padding: "3px 10px",
+            minHeight: "28px",
+            borderRadius: "5px",
+            cursor: addDataDisabled ? "not-allowed" : "pointer",
+            opacity: addDataDisabled ? 0.65 : 1,
+            whiteSpace: "nowrap"
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddData();
+          }}
+          disabled={addDataDisabled}
+          title="Add saved data from database"
+        >
+          {addDataLabel}
         </button>
       )}
 

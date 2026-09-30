@@ -271,7 +271,6 @@ export default function ShelvingTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
-  const loadedJobRef = useRef(null);
 
   const totalCount = (entries || []).length;
 
@@ -384,6 +383,8 @@ export default function ShelvingTask({
             type: r.type || "Robe",
             size: normalizeShelvingSize(r.size),
             qty: r.qty != null ? Number(r.qty) : 1,
+            source: "manual",
+            autofill_source: "manual",
           }));
 
         if (loaded.length > 0 && onSetEntries) {
@@ -419,17 +420,6 @@ export default function ShelvingTask({
       }
     }
   };
-
-  // ── Auto-load saved Shelving entries from DB on mount/job change ──
-  useEffect(() => {
-    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, currentProjectName, currentJobId, entries]);
 
   const handleAdd = () => {
     const q = parseInt(qtyDraft, 10) || 1;
@@ -610,6 +600,8 @@ export default function ShelvingTask({
         isOpen={isSection2Open}
         onToggle={() => setIsSection2Open((v) => !v)}
         onAutoFill={() => onAddDataAI?.("shelving")}
+        onAddData={() => handleReloadFromDb(true)}
+        addDataDisabled={isLoadingDb}
         onClear={onClearData}
         onSave={handleSaveToDatabase}
         saveDisabled={isSaving}

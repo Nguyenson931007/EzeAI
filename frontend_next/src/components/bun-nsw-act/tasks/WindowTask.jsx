@@ -40,6 +40,7 @@ export default function WindowTask({
   const [editingRowId, setEditingRowId] = useState(null);
   const [editDraft, setEditDraft] = useState({});
   const [saveStatus, setSaveStatus] = useState("idle");
+  const [isAddingData, setIsAddingData] = useState(false);
   const appModel = useAppModel();
   const user = appModel?.user || {};
   const isBunVic = isBunVicCustomer(getActiveClientShortName());
@@ -114,6 +115,35 @@ export default function WindowTask({
     } catch (error) {
       console.error("Save Window via Fixout error:", error);
       setSaveStatus("error");
+    }
+  };
+
+  const handleAddDataFromDb = async () => {
+    const targetJob = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+    if (!targetJob || targetJob.toLowerCase() === "default" || targetJob.toLowerCase() === "testai") return;
+    setIsAddingData(true);
+    try {
+      const res = await ApiService.fetchFixoutJobs(targetJob);
+      const savedWindows = (Array.isArray(res?.data) ? res.data : [])
+        .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
+        .filter((row) => String(row?.door_type || "").toLowerCase().includes("window"))
+        .map((row, index) => ({
+          id: `window-db-${row.fixout_id || index}`,
+          type: "window",
+          label: row.door_label || `Window ${index + 1}`,
+          windowType: "Window",
+          height: row.height || "",
+          width: row.width || "",
+          blockWork: String(row.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
+          floorLevel: row.floor_level || row.floorLevel || "GF",
+          source: "manual",
+          autofill_source: "manual",
+        }));
+      onSetEntries?.(savedWindows);
+    } catch (error) {
+      console.error("Add Window data from database error:", error);
+    } finally {
+      setIsAddingData(false);
     }
   };
 
@@ -218,6 +248,8 @@ export default function WindowTask({
           <span>1. Windows ({rows.length})</span>
           <EnteredTaskActions
             onAutoFill={onAutoFill}
+            onAddData={handleAddDataFromDb}
+            addDataDisabled={isAddingData}
             onClear={onClear}
             onSave={handleSave}
             saveDisabled={rows.length === 0}

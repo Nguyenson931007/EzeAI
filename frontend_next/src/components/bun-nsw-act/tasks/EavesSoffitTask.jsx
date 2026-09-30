@@ -305,7 +305,9 @@ export default function EavesSoffitTask({
             thickness: r.sheet_thickness || "4.5mm",
             batten: r.sofit_batten || "",
             bead: r.sofit_bead || "",
-            inputData: r.input_data || {}
+            inputData: r.input_data || {},
+            source: "manual",
+            autofill_source: "manual"
           }));
 
           if (onSetEntries) {
@@ -344,17 +346,6 @@ export default function EavesSoffitTask({
       }
     }
   };
-
-  const loadedJobRef = useRef(null);
-  useEffect(() => {
-    const target = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim().toLowerCase();
-    if (!target || target === "default" || target === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, appModel?.currentProjectName, appModel?.currentJobId, entries]);
 
   // Inline editing state for Card 2
   const [editingRowId, setEditingRowId] = useState(null);
@@ -764,6 +755,8 @@ export default function EavesSoffitTask({
           () => setIsScheduleOpen((v) => !v),
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("eaves_soffit")}
+            onAddData={() => handleReloadFromDb(true)}
+            addDataDisabled={isLoadingDb}
             onClear={onClearData}
           
             onSave={handleSaveToMSSQL}

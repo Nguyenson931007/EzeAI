@@ -593,7 +593,6 @@ export default function FowPlumbingTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState({ text: "", type: "info" });
-  const loadedJobRef = useRef(null);
   const editingRowIdRef = useRef(null);
   const editRowDataRef = useRef({});
 
@@ -700,6 +699,8 @@ export default function FowPlumbingTask({
               note: r.note || "",
               floorLevel: fl || "GF",
               floor_level: fl || "GF",
+              source: "manual",
+              autofill_source: "manual",
             };
           });
         if (loaded.length > 0 && onSetEntries) {
@@ -726,17 +727,6 @@ export default function FowPlumbingTask({
       setIsLoadingDb(false);
     }
   }, [activeJobNumber, currentProjectName, currentJobId, onSetEntries]);
-
-  // ── Auto-load saved FOW Plumbing entries from DB if empty on job load ──
-  useEffect(() => {
-    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, currentProjectName, currentJobId, entries, handleReloadFromDb]);
 
   const handleAdd = () => {
     const name = String(itemNameDraft || "").trim();
@@ -968,6 +958,8 @@ export default function FowPlumbingTask({
           <span>2. Entered plumbing fixtures {totalCount > 0 ? `(${totalCount})` : ""}</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("fow_plumbing")}
+            onAddData={() => handleReloadFromDb(true)}
+            addDataDisabled={isLoadingDb}
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}

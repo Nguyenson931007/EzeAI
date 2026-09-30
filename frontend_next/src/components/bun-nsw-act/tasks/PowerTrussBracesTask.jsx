@@ -326,7 +326,6 @@ export default function PowerTrussBracesTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
-  const loadedJobRef = useRef(null);
 
   const totalCount = (entries || []).length;
 
@@ -442,6 +441,8 @@ export default function PowerTrussBracesTask({
             length: r.length || "",
             type: r.type || "Column",
             qty: r.qty != null ? Number(r.qty) : 1,
+            source: "manual",
+            autofill_source: "manual",
           }));
 
         if (loaded.length > 0 && onSetEntries) {
@@ -478,17 +479,6 @@ export default function PowerTrussBracesTask({
       }
     }
   };
-
-  // ── Auto-load saved Power Truss Braces entries from DB on mount/job change ──
-  useEffect(() => {
-    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, currentProjectName, currentJobId, entries]);
 
   const handleAdd = () => {
     const wh = String(wallHeightDraft || "").trim();
@@ -669,6 +659,8 @@ export default function PowerTrussBracesTask({
           <span>2. Entered power truss braces {totalCount > 0 ? `(${totalCount})` : ""}</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("power_truss_braces")}
+            onAddData={() => handleReloadFromDb(true)}
+            addDataDisabled={isLoadingDb}
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}

@@ -316,7 +316,6 @@ export default function LockupTask({
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
-  const loadedJobRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [locationFilter, setLocationFilter] = useState(null); // null | "external" | "internal"
@@ -1284,7 +1283,13 @@ export default function LockupTask({
       };
 
       const items = (entries || []).filter((item) => !isWindowOpening(item)).map(item => ({
-        mode: parseStr(item.mode),
+        // The table can display Category from `category` even when legacy or
+        // generated rows have no `mode`. Persist the same value the user sees.
+        mode: parseStr(
+          item.mode ||
+          (item.category === "Prehung" ? "Prehung" : null) ||
+          (item.category === "Loose Jamb" ? "Loose" : null)
+        ),
         scope: parseStr(item.scope),
         label: parseStr(item.label),
         door_type: parseStr(item.door_type),
@@ -1328,42 +1333,12 @@ export default function LockupTask({
     }
   };
 
-  // ── Tự động tính toán & điền cửa của Job hiện tại từ bản vẽ 2D / Tải từ DB nếu khớp chính xác ──
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function initLockoutEntries() {
-      if (suppressAutoInit) return;
-      if (entries && entries.length > 0) return;
-
-      // 1. First priority: If canvas has doors for current plan/job, auto-fill from 2D canvas!
-      let hasCanvasDoors = false;
-      if (doors && doors.length > 0) {
-        hasCanvasDoors = true;
-      } else if (doorsByPage && Object.values(doorsByPage).some(list => Array.isArray(list) && list.length > 0)) {
-        hasCanvasDoors = true;
-      }
-
-      if (hasCanvasDoors) {
-        handleAutoFillAI();
-        return;
-      }
-
-      // 2. Secondary: If no canvas doors, check if specific non-empty activeJobNumber has saved records in DB
+  const handleAddDataFromDb = async () => {
       const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
-      if (!target || target === "default" || target === "testai") {
-        return;
-      }
-
-      // Guard: only fetch once per target to avoid server connection exhaustion
-      if (loadedJobRef.current === target) {
-        return;
-      }
-      loadedJobRef.current = target;
+      if (!target || target === "default" || target === "testai") return;
 
       try {
         const res = await ApiService.fetchLockoutJobs(target);
-        if (isCancelled) return;
         if (res && res.data) {
           const matchedRows = res.data.filter(j => {
             const jn = String(j.job_number || "").trim().toLowerCase();
@@ -1391,23 +1366,17 @@ export default function LockupTask({
               door_stop: r.door_stop || null,
               internal_type: r.internal_type || null,
               color: r.color || null,
-              default_qty: r.default_qty || 1
+              default_qty: r.default_qty || 1,
+              source: "manual",
+              autofill_source: "manual"
             }));
             onSetEntries(loaded);
           }
         }
       } catch (e) {
-        console.error("Auto load existing LockUp error:", e);
+        console.error("Add LockUp data from database error:", e);
       }
-    }
-
-    initLockoutEntries();
-
-    return () => {
-      isCancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeJobNumber, currentProjectName, currentJobId, doors, doorsByPage, suppressAutoInit]);
+  };
 
   // Render input matching Image 1
   const renderCellInput = (row, field, width = 80, isNumber = false, options = null) => {
@@ -2322,6 +2291,7 @@ export default function LockupTask({
           </div>
           <EnteredTaskActions
             onAutoFill={handleAutoCalculateLockout}
+            onAddData={handleAddDataFromDb}
             onClear={onClearData}
             isOpen={!isCard2Collapsed}
             onToggle={() => setIsCard2Collapsed((v) => !v)}

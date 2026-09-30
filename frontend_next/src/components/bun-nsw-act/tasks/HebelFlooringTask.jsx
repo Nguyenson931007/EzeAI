@@ -272,38 +272,34 @@ export default function HebelFlooringTask({
     return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
   }, [onChange, onSetEntries]);
 
-  // ── Tự động tải dữ liệu đã lưu từ ProcurementApp.dbo.AreaSummary của Job này ──
-  useEffect(() => {
-    async function loadExistingSavedAreas() {
-      if (entries && entries.length > 0) return;
-      try {
-        const res = await ApiService.fetchAreaSummaryJobs();
-        if (res && res.data) {
-          const target = String(currentProjectName || currentJobId || activeJobNumber || "").trim().toLowerCase();
-          const matchedRows = res.data.filter(j => {
-            const jn = String(j.job_number || "").trim().toLowerCase();
-            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
-            return (jn && jn === target) || (hw && hw === target);
-          });
-          const validRows = matchedRows.filter(r => r.net_area && parseFloat(r.net_area) > 0);
-          if (validRows.length > 0 && onSetEntries) {
-            const loaded = validRows.map((r, idx) => ({
-              id: `as-loaded-${Date.now()}-${idx}`,
-              floorLevel: r.floor_level || "GF",
-              typeArea: r.floor_area_type || "Dry",
-              product: r.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-              totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
-              areaM2: parseFloat(r.net_area)
-            }));
-            onSetEntries(loaded);
-          }
+  const handleAddDataFromDb = async () => {
+    try {
+      const res = await ApiService.fetchAreaSummaryJobs();
+      if (res && res.data) {
+        const target = String(currentProjectName || currentJobId || activeJobNumber || "").trim().toLowerCase();
+        const matchedRows = res.data.filter(j => {
+          const jn = String(j.job_number || "").trim().toLowerCase();
+          const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+          return (jn && jn === target) || (hw && hw === target);
+        });
+        const validRows = matchedRows.filter(r => r.net_area && parseFloat(r.net_area) > 0);
+        if (validRows.length > 0 && onSetEntries) {
+          onSetEntries(validRows.map((r, idx) => ({
+            id: `as-loaded-${Date.now()}-${idx}`,
+            floorLevel: r.floor_level || "GF",
+            typeArea: r.floor_area_type || "Dry",
+            product: r.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+            totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
+            areaM2: parseFloat(r.net_area),
+            source: "manual",
+            autofill_source: "manual"
+          })));
         }
-      } catch (e) {
-        console.error("Auto load existing AreaSummary error:", e);
       }
+    } catch (e) {
+      console.error("Add Hebel data from database error:", e);
     }
-    loadExistingSavedAreas();
-  }, [currentProjectName, currentJobId, activeJobNumber, onSetEntries]);
+  };
 
   const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
   const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
@@ -974,6 +970,7 @@ export default function HebelFlooringTask({
           <span>2. Entered flooring areas ({enteredRows.length})</span>
           <EnteredTaskActions
             onAutoFill={handleAutoFillAI}
+            onAddData={handleAddDataFromDb}
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}

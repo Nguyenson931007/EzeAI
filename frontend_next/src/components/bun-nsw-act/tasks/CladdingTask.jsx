@@ -462,7 +462,11 @@ export default function CladdingTask({
           });
           // MSSQL intentionally stores only Cladding measurements. Reattach
           // W-n / wallId from the browser cache for UI identification.
-          const loaded = hydrateRowsFromWallLinkCache(loadedFromSql);
+          const loaded = hydrateRowsFromWallLinkCache(loadedFromSql).map((row) => ({
+            ...row,
+            source: "manual",
+            autofill_source: "manual",
+          }));
 
           if (onSetEntries) {
             onSetEntries(loaded);
@@ -497,17 +501,6 @@ export default function CladdingTask({
       }
     }
   };
-
-  const loadedJobRef = useRef(null);
-  useEffect(() => {
-    const target = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim().toLowerCase();
-    if (!target || target === "default" || target === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, appModel?.currentProjectName, appModel?.currentJobId, entries]);
 
   const handleSaveToMSSQL = async () => {
     if (!entries || entries.length === 0) return;
@@ -798,6 +791,8 @@ const claddingManualRows = (() => {
           <span>3. Entered Cladding Walls ({(entries || []).length})</span>
           <EnteredTaskActions
             onAutoFill={() => onAddDataAI?.("cladding")}
+            onAddData={() => handleReloadFromDb(true)}
+            addDataDisabled={isLoadingDb}
             onClear={handleClearCladdingData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
