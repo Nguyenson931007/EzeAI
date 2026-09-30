@@ -5,7 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { isBunVicCustomer } from "@/constants/procurementFormParity";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable, TaskRowNumber } from "./TaskUi";
+import { isAiGeneratedTaskRow, TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable, TaskRowNumber } from "./TaskUi";
 
 const levelRank = (value) => {
   const v = String(value || "GF").trim().toUpperCase();
@@ -23,6 +23,8 @@ const displaySize = (row) => {
 
 export default function WindowTask({
   entries = [],
+  onSetEntries,
+  onRemoveEntry,
   onSelectEntry,
   onAutoFill,
   onClear,
@@ -136,10 +138,6 @@ export default function WindowTask({
   };
 
   const saveEdit = (row) => {
-    if (!row?.doorId || typeof updateDoorsProperty !== "function") {
-      setEditingRowId(null);
-      return;
-    }
     const location = String(editDraft.location || "").trim();
     const normalizedScope = /^ext/i.test(location) ? "external" : /^int/i.test(location) ? "internal" : "";
     const patch = {
@@ -149,7 +147,21 @@ export default function WindowTask({
       width_mm: Number(editDraft.width) || Number(row.width) || undefined,
       ...(normalizedScope ? { scope: normalizedScope, location: normalizedScope } : {}),
     };
-    updateDoorsProperty([row.doorId], patch);
+    onSetEntries?.((current) => (current || []).map((item) => (
+      item.id === row.id
+        ? {
+            ...item,
+            label: patch.door_name,
+            windowType: patch.window_type,
+            height: patch.height_mm,
+            width: patch.width_mm,
+            ...(normalizedScope ? { location: normalizedScope === "external" ? "External" : "Internal" } : {}),
+          }
+        : item
+    )));
+    if (row?.doorId && typeof updateDoorsProperty === "function") {
+      updateDoorsProperty([row.doorId], patch);
+    }
     setEditingRowId(null);
   };
 
@@ -179,6 +191,8 @@ export default function WindowTask({
     });
     return result;
   }, [rows]);
+  const aiCount = rows.filter(isAiGeneratedTaskRow).length;
+  const manualCount = rows.length - aiCount;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -201,7 +215,7 @@ export default function WindowTask({
             userSelect: "none",
           }}
         >
-          <span>1. Windows from plan ({rows.length})</span>
+          <span>1. Windows ({rows.length})</span>
           <EnteredTaskActions
             onAutoFill={onAutoFill}
             onClear={onClear}
@@ -218,20 +232,21 @@ export default function WindowTask({
             <TaskSummaryTable className="window-task-summary">
               <thead>
                 <tr>
-                  <th style={{ width: "34px", textAlign: "center" }}>#</th>
+                  <th style={{ width: "64px", minWidth: "64px", textAlign: "center" }}>#</th>
                   <th>Label</th>
                   <th>Type</th>
                   <th>Location</th>
                   <th>Size</th>
                   <th>Wall</th>
+                  <th style={{ width: "38px" }}></th>
                 </tr>
               </thead>
               <tbody>
                 {groupedRows.length === 0 ? (
-                  <TaskEmptyRow colSpan={6}>No windows found on the current plan.</TaskEmptyRow>
+                  <TaskEmptyRow colSpan={7}>No AI or manual windows entered.</TaskEmptyRow>
                 ) : groupedRows.map((item, index) => {
                   if (item.kind === "level") {
-                    return <FloorLevelGroupRow key={item.key} level={item.level} colSpan={6} />;
+                    return <FloorLevelGroupRow key={item.key} level={item.level} colSpan={7} />;
                   }
                   const row = item.row;
                   const rowNumber = groupedRows.slice(0, index + 1).filter((x) => x.kind === "row").length;
@@ -296,12 +311,26 @@ export default function WindowTask({
                           </span>
                         ) : null}
                       </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (onRemoveEntry) onRemoveEntry(row);
+                            else onSetEntries?.((current) => (current || []).filter((item) => item.id !== row.id));
+                          }}
+                          style={{ border: "1px solid #fecaca", borderRadius: "4px", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontWeight: 900 }}
+                          title="Delete window from Window and Fixout tasks"
+                        >
+                          ✕
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </TaskSummaryTable>
-            <TaskSummaryFooter>{rows.length} {rows.length === 1 ? "window" : "windows"} from drawing</TaskSummaryFooter>
+            <TaskSummaryFooter>{rows.length} windows · AI: {aiCount} · Manual: {manualCount}</TaskSummaryFooter>
           </>
         ) : null}
       </div>

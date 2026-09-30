@@ -913,6 +913,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
   const [isTrimOpen, setIsTrimOpen] = useState(false);
   const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
   const revealRows = safeParseJson(read("fixout_reveal_openings", "[]"), []);
+  const excludedWindowIds = safeParseJson(read("fixout_excluded_window_ids", "[]"), []);
 
   const persistRows = (key, rows) => write(key, JSON.stringify(rows));
   const addRobe = () => {
@@ -925,11 +926,29 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
 
   const addReveal = () => {
     if (!String(revealDraft.height).trim() || !String(revealDraft.width).trim()) return;
-    const next = [...revealRows, { ...revealDraft, id: `reveal-${Date.now()}` }];
+    const isWindow = String(revealDraft.type || "").toLowerCase() === "window";
+    const manualWindowCount = revealRows.filter((row) => (
+      String(row?.type || "").toLowerCase() === "window" && row?.source === "manual"
+    )).length;
+    const next = [...revealRows, {
+      ...revealDraft,
+      id: `reveal-manual-${Date.now()}`,
+      label: isWindow ? `Manual Window ${manualWindowCount + 1}` : "Manual Door Opening",
+      source: "manual",
+      autofill_source: "manual",
+      floorLevel: "GF",
+    }];
     persistRows("fixout_reveal_openings", next);
     setRevealDraft({ type: "window", height: "", width: "", blockWork: "No" });
   };
-  const removeReveal = (index) => persistRows("fixout_reveal_openings", revealRows.filter((_, rowIndex) => rowIndex !== index));
+  const removeReveal = (index) => {
+    const removed = revealRows[index];
+    if (removed?.doorId && String(removed?.type || "").toLowerCase() === "window") {
+      const nextExcluded = Array.from(new Set([...excludedWindowIds.map(String), String(removed.doorId)]));
+      persistRows("fixout_excluded_window_ids", nextExcluded);
+    }
+    persistRows("fixout_reveal_openings", revealRows.filter((_, rowIndex) => rowIndex !== index));
+  };
 
   const fieldStyle = { display: "flex", flexDirection: "column", gap: "3px", minWidth: "90px", flex: "1 1 110px" };
   const labelStyle = { fontSize: "10px", color: "#475569", fontWeight: 700 };
@@ -1003,7 +1022,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
               </div>
               <TaskInlineEnteredSection title="Entered reveals">
                 <TaskSummaryTable className="fixout-summary-openings" compact>
-                  <thead><tr><th style={{ width: "30px" }}>#</th><th>Type</th><th>Window ID</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
+                  <thead><tr><th style={{ width: "64px", minWidth: "64px" }}>#</th><th>Type</th><th>Window ID</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
                   <tbody>
                     {revealRows.length === 0 ? (
                       <TaskEmptyRow colSpan={7}>No window/door openings entered.</TaskEmptyRow>
@@ -1090,8 +1109,6 @@ export default function FixoutTask({
   const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [isLoadingDb, setIsLoadingDb] = useState(false);
-  const [reloadMsg, setReloadMsg] = useState(null);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
@@ -1099,7 +1116,6 @@ export default function FixoutTask({
   const editingRowIdRef = useRef(null);
   const editRowDataRef = useRef({});
   const entriesRef = useRef(entries);
-  const loadedJobRef = useRef(null);
 
   const [prehungDoors, setPrehungDoors] = useState(FALLBACK_PREHUNG_INTERNAL_DOORS);
   const [looseJambDoors, setLooseJambDoors] = useState(FALLBACK_LOOSE_JAMB_INTERNAL_DOORS);
@@ -1251,97 +1267,6 @@ export default function FixoutTask({
     };
   }, []);
 
-  const handleReloadFromDb = async (force = true) => {
-    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!force && (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai")) return;
-    setIsLoadingDb(true);
-    setReloadMsg(null);
-
-    try {
-      const res = await ApiService.fetchFixoutJobs(target);
-      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const revealRowsFromDb = res.data
-          .filter((r) => String(r?.category || "").toLowerCase() === "reveal")
-          .map((r, idx) => ({
-            id: `reveal-db-${r.fixout_id || idx}`,
-            type: String(r.door_type || "Window").toLowerCase().includes("window") ? "window" : "door",
-            label: r.door_label || "",
-            height: r.height || "",
-            width: r.width || "",
-            blockWork: String(r.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
-            floorLevel: r.floor_level || r.floorLevel || "GF",
-            source: "db",
-          }));
-        if (revealRowsFromDb.length > 0 && onChange) {
-          onChange("fixout", "fixout_reveal_openings", JSON.stringify(revealRowsFromDb));
-        }
-
-        const loaded = res.data
-          .filter((r) => String(r?.category || "").toLowerCase() !== "reveal")
-          .filter((r) => !isWindowOpening(r) && (r.door_label || r.door_type || r.height || r.width))
-          .map((r, idx) => ({
-            id: `fix-${r.fixout_id || Date.now()}-${idx}`,
-            floorLevel: r.floor_level || r.floorLevel || "GF",
-            category: r.category || "cavity",
-            door_label: r.door_label || "",
-            door_type: r.door_type || "",
-            height: r.height || 2040,
-            width: r.width || 820,
-            thicks: r.thicks ? String(r.thicks) : "35",
-            wall_width: r.wall_width ? String(r.wall_width) : "90",
-            door_frame: r.door_frame || "Timber Jamb",
-            lift_off_pivot: r.lift_off_pivot || "",
-            handing: r.handing || "",
-            hole: isBunVic && r.hole === "HF" ? "HL" : (r.hole || ""),
-            finish: r.finish || "",
-            door_furniture: r.door_furniture || (r.category === "cavity" ? "CSD Passage Set" : "None"),
-            door_stop: r.door_stop || "None",
-            qty: r.qty || 1,
-          }));
-
-        if (loaded.length > 0 && onSetEntries) {
-          onSetEntries(loaded);
-          const first = loaded[0];
-          if (first && first.floorLevel) {
-          }
-        }
-        if (force) {
-          const parts = [];
-          if (loaded.length > 0) parts.push(`${loaded.length} ${loaded.length === 1 ? "door" : "doors"}`);
-          if (revealRowsFromDb.length > 0) parts.push(`${revealRowsFromDb.length} ${revealRowsFromDb.length === 1 ? "opening" : "openings"}`);
-          setReloadMsg(parts.length
-            ? { type: "success", text: `Loaded ${parts.join(" + ")} from SQL` }
-            : { type: "info", text: "No saved data found in SQL" });
-        }
-      } else {
-        if (force) {
-          setReloadMsg({ type: "info", text: "No data returned from SQL" });
-        }
-      }
-    } catch (err) {
-      console.error("Error loading Fixout from SQL:", err);
-      if (force) {
-        setReloadMsg({ type: "error", text: "SQL connection error" });
-      }
-    } finally {
-      setIsLoadingDb(false);
-      if (force) {
-        setTimeout(() => setReloadMsg(null), 3500);
-      }
-    }
-  };
-
-  // Auto-load saved Fixout entries from DB if empty on job load
-  useEffect(() => {
-    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
-    if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
-    if (entries && entries.length > 0) return;
-    if (loadedJobRef.current === target) return;
-    loadedJobRef.current = target;
-
-    handleReloadFromDb(false);
-  }, [activeJobNumber, currentProjectName, currentJobId, entries]);
-
   const handleRemoveEntry = (id) => {
     if (onSetEntries) {
       onSetEntries((prev) => (prev || []).filter((e) => e.id !== id));
@@ -1437,15 +1362,6 @@ export default function FixoutTask({
         >
           <span>1. Door information</span>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {reloadMsg && (
-              <span style={{
-                fontSize: "11px",
-                fontWeight: 700,
-                color: reloadMsg.type === "success" ? "#16a34a" : (reloadMsg.type === "error" ? "#dc2626" : "#2563eb")
-              }}>
-                {reloadMsg.text}
-              </span>
-            )}
             <TaskActionButtons
               onAutoFill={() => onAddDataAI?.("fixout")}
               onClear={onClearData}

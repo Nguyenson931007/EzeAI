@@ -88,6 +88,36 @@ export default function TaskModulesContainer({
 }) {
   if (!activeModuleTab) return null;
   const activeModuleId = activeModuleTab.baseId || activeModuleTab.id;
+  const fixoutRevealRows = (() => {
+    try {
+      const raw = moduleFormData?.fixout?.fixout_reveal_openings;
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  })();
+  const windowTaskEntries = fixoutRevealRows.filter((row) => String(row?.type || "").toLowerCase() === "window");
+  const setWindowTaskEntries = (actionOrEntries) => {
+    const nextWindows = typeof actionOrEntries === "function"
+      ? actionOrEntries(windowTaskEntries)
+      : actionOrEntries;
+    const nonWindowRows = fixoutRevealRows.filter((row) => String(row?.type || "").toLowerCase() !== "window");
+    const normalizedWindows = Array.isArray(nextWindows) ? nextWindows : [];
+    handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...nonWindowRows, ...normalizedWindows]));
+    setWindowEntries?.(normalizedWindows);
+  };
+  const excludeAiWindow = (row) => {
+    if (!row?.doorId) return;
+    let excluded = [];
+    try {
+      const raw = moduleFormData?.fixout?.fixout_excluded_window_ids;
+      const parsed = raw ? JSON.parse(raw) : [];
+      excluded = Array.isArray(parsed) ? parsed : [];
+    } catch (_) {}
+    const next = Array.from(new Set([...excluded.map(String), String(row.doorId)]));
+    handleModuleFormChange("fixout", "fixout_excluded_window_ids", JSON.stringify(next));
+  };
 
   return (
     <div
@@ -369,21 +399,25 @@ export default function TaskModulesContainer({
       {/* Window — separate view, same data/save flow as Fixout reveals */}
       {activeModuleId === "windows" && WindowTask && (
         <WindowTask
-          entries={windowEntries}
+          entries={windowTaskEntries}
+          onSetEntries={setWindowTaskEntries}
+          onRemoveEntry={(row) => {
+            excludeAiWindow(row);
+            setWindowTaskEntries((current) => current.filter((item) => item.id !== row.id));
+          }}
           onSelectEntry={handleSelectEntry}
           onAutoFill={() => handleAddDataAI("windows")}
           onClear={() => {
             handleResetModuleData("windows");
-            setWindowEntries?.([]);
-            let currentRows = [];
+            const aiIds = windowTaskEntries.map((row) => row?.doorId).filter(Boolean).map(String);
+            let excluded = [];
             try {
-              const parsed = moduleFormData?.fixout?.fixout_reveal_openings
-                ? JSON.parse(moduleFormData.fixout.fixout_reveal_openings)
-                : [];
-              currentRows = Array.isArray(parsed) ? parsed : [];
+              const raw = moduleFormData?.fixout?.fixout_excluded_window_ids;
+              const parsed = raw ? JSON.parse(raw) : [];
+              excluded = Array.isArray(parsed) ? parsed : [];
             } catch (_) {}
-            const keep = currentRows.filter((row) => String(row?.type || "").toLowerCase() !== "window");
-            handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify(keep));
+            handleModuleFormChange("fixout", "fixout_excluded_window_ids", JSON.stringify(Array.from(new Set([...excluded.map(String), ...aiIds]))));
+            setWindowTaskEntries([]);
           }}
           updateDoorsProperty={updateDoorsProperty}
           fixoutEntries={fixoutDoorEntries}

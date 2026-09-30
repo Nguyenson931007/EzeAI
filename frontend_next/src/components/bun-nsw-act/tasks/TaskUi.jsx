@@ -210,7 +210,8 @@ export function isAiGeneratedTaskRow(row) {
   if (
     source === "floor_ceiling_sync" ||
     source === "floor_ceiling_ai" ||
-    source === "floor-ceiling-ai"
+    source === "floor-ceiling-ai" ||
+    source === "window_autofill"
   ) {
     return true;
   }

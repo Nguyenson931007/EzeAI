@@ -1498,9 +1498,11 @@ export default function RightPropertyPaneView({
     } else if (normalizedModuleId === "fixout") {
       const rows = buildFixoutRows(allDoors, allWallsForDoorRouting);
       const windowRevealRows = buildWindowRows(allDoors, allWallsForDoorRouting).map((row, index) => ({
+        ...row,
         id: `window-reveal-${row.doorId || index}`,
         doorId: row.doorId || null,
         source: "window_autofill",
+        autofill_source: "drawing",
         type: "window",
         label: row.label || `W-${index + 1}`,
         height: row.height || "",
@@ -1509,6 +1511,7 @@ export default function RightPropertyPaneView({
         floorLevel: row.floorLevel || "GF",
       }));
       setFixoutDoorEntries(rows);
+      handleModuleFormChange("fixout", "fixout_excluded_window_ids", "[]");
 
       const currentRevealRows = (() => {
         try {
@@ -1531,9 +1534,11 @@ export default function RightPropertyPaneView({
       const rows = buildWindowRows(allDoors);
       setWindowEntries(rows);
       const windowRevealRows = rows.map((row, index) => ({
+        ...row,
         id: `window-reveal-${row.doorId || index}`,
         doorId: row.doorId || null,
         source: "window_autofill",
+        autofill_source: "drawing",
         type: "window",
         label: row.label || `W-${index + 1}`,
         height: row.height || "",
@@ -1541,14 +1546,15 @@ export default function RightPropertyPaneView({
         blockWork: "No",
         floorLevel: row.floorLevel || "GF",
       }));
+      handleModuleFormChange("fixout", "fixout_excluded_window_ids", "[]");
       let currentRevealRows = [];
       try {
         const raw = moduleFormData?.fixout?.fixout_reveal_openings;
         const parsed = raw ? JSON.parse(raw) : [];
         currentRevealRows = Array.isArray(parsed) ? parsed : [];
       } catch (_) {}
-      const nonWindowRows = currentRevealRows.filter((row) => String(row?.type || "").toLowerCase() !== "window");
-      handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...nonWindowRows, ...windowRevealRows]));
+      const rowsNotCreatedByAutoFill = currentRevealRows.filter((row) => row?.source !== "window_autofill");
+      handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...rowsNotCreatedByAutoFill, ...windowRevealRows]));
       generatedCount = rows.length;
     } else if (normalizedModuleId === "shelving") {
       const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
@@ -3963,10 +3969,22 @@ export default function RightPropertyPaneView({
     // Keep this section live with plan window changes while preserving rows
     // entered manually by the user.
     if (!manuallyClearedTasksRef.current?.fixout || planChanged) {
-      const liveWindowRevealRows = generatedByTask.windows.map((row, index) => ({
+      let excludedWindowIds = [];
+      try {
+        const parsed = moduleFormData?.fixout?.fixout_excluded_window_ids
+          ? JSON.parse(moduleFormData.fixout.fixout_excluded_window_ids)
+          : [];
+        excludedWindowIds = Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch (_) {}
+      const excludedWindowIdSet = new Set(excludedWindowIds);
+      const liveWindowRevealRows = generatedByTask.windows
+        .filter((row) => !row?.doorId || !excludedWindowIdSet.has(String(row.doorId)))
+        .map((row, index) => ({
+        ...row,
         id: `window-reveal-${row.doorId || index}`,
         doorId: row.doorId || null,
         source: "window_autofill",
+        autofill_source: "drawing",
         type: "window",
         label: row.label || `W-${index + 1}`,
         height: row.height || "",
@@ -4016,6 +4034,7 @@ export default function RightPropertyPaneView({
     scaleValue,
     pages,
     floorLevelForPage,
+    moduleFormData?.fixout?.fixout_excluded_window_ids,
   ]);
   const [lckType, setLckType] = React.useState("Solid Core Entry Door");
   const [lckSpec, setLckSpec] = React.useState("2040x820x40mm Timber Entry");

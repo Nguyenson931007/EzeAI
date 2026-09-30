@@ -551,3 +551,22 @@ tr.task-floor-level-row td {
   box-sizing: border-box;
   vertical-align: middle;
 }
+
+/* Window/Fixout reveal rows need enough room for the row number plus the
+   existing AI badge. Keep a visible divider so the STT column cannot visually
+   merge into Label/Type. */
+.window-task-summary thead th:first-child,
+.fixout-summary-openings thead th:first-child {
+  width: 64px !important;
+  min-width: 64px !important;
+  border-right: 1px solid #cbd5e1 !important;
+  text-align: center !important;
+}
+
+.window-task-summary tbody > tr:not([data-task-group-row="true"]) > td:first-child,
+.fixout-summary-openings tbody > tr > td:first-child {
+  width: 64px !important;
+  min-width: 64px !important;
+  border-right: 1px solid #cbd5e1 !important;
+  text-align: center !important;
+}
