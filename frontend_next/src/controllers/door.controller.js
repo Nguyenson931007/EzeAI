@@ -581,7 +581,12 @@ export function useDoorController({
     const oldDoor = doors.find(d => d.id === newDoorData.id);
     if (!oldDoor) return;
 
-    let updatedDoor = { ...newDoorData, modifiedAt: new Date().toISOString() };
+    let updatedDoor = {
+      ...newDoorData,
+      data_revision: Number(oldDoor.data_revision || 0) + 1,
+      updated_at: Date.now(),
+      modifiedAt: new Date().toISOString(),
+    };
     const healedWalls = mergeCollinearWalls ? mergeCollinearWalls(walls, 12, 0.98, 999999, true, true) : walls;
 
     // 1. Rotation change

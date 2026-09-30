@@ -207,6 +207,22 @@ export default function App() {
   } = useAppModel();
 
   // === LOCAL UI STATE (View-specific) ===
+  // One central invalidation path for Floor & Ceiling scan/cache.
+  // Any project/page reset can dispatch this event; the shared takeoff cache is
+  // cleared here so old Floor/Ceiling rows cannot leak into another plan.
+  useEffect(() => {
+    const clearFloorCeilingCache = () => {
+      setFloorCeilingTakeoffData(null);
+      try {
+        sessionStorage.removeItem("floor_ceiling_workspace");
+        sessionStorage.removeItem("fc_workspace_state");
+        localStorage.removeItem("floor_ceiling_workspace");
+      } catch (_) {}
+    };
+    window.addEventListener("ezefloor:clear_floor_ceiling_scan", clearFloorCeilingCache);
+    return () => window.removeEventListener("ezefloor:clear_floor_ceiling_scan", clearFloorCeilingCache);
+  }, [setFloorCeilingTakeoffData]);
+
   const [image, setImage] = useState(null);
   const [showPDF, setShowPDF] = useState(true);
   const [ssoLoading, setSsoLoading] = useState(false);
@@ -1477,6 +1493,14 @@ export default function App() {
     });
 
     if (isLevel) {
+      // Architectural page changes invalidate the previous Floor & Ceiling scan.
+      // This prevents a previous plan's Floor/Ceiling rows from surviving after
+      // adding/replacing level pages.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan"));
+        window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation-clear"));
+      }
+
       if (isAddingPagesMode) {
         const startIdx = pages.length;
         setPages(prev => [...prev, ...selectedData]);

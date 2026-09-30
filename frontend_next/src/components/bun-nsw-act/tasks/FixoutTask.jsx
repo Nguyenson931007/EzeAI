@@ -1003,13 +1003,20 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
               </div>
               <TaskInlineEnteredSection title="Entered reveals">
                 <TaskSummaryTable className="fixout-summary-openings" compact>
-                  <thead><tr><th style={{ width: "30px" }}>#</th><th>Type</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
+                  <thead><tr><th style={{ width: "30px" }}>#</th><th>Type</th><th>Window ID</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
                   <tbody>
                     {revealRows.length === 0 ? (
-                      <TaskEmptyRow colSpan={6}>No window/door openings entered.</TaskEmptyRow>
+                      <TaskEmptyRow colSpan={7}>No window/door openings entered.</TaskEmptyRow>
                     ) : revealRows.map((row, index) => (
                       <tr key={row.id || index}>
-                        <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td><td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td><td>{row.height || "—"}</td><td>{row.width || "—"}</td><td>{row.blockWork || "—"}</td>
+                        <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
+                        <td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td>
+                        <td style={{ fontWeight: 800, color: "#1d4ed8" }}>
+                          {String(row.type || "").toLowerCase() === "window" ? (row.label || "—") : "—"}
+                        </td>
+                        <td>{row.height || "—"}</td>
+                        <td>{row.width || "—"}</td>
+                        <td>{row.blockWork || "—"}</td>
                         <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeReveal(index)} style={S.deleteBtn} title="Delete opening">✕</button></td>
                       </tr>
                     ))}
@@ -1253,7 +1260,24 @@ export default function FixoutTask({
     try {
       const res = await ApiService.fetchFixoutJobs(target);
       if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const revealRowsFromDb = res.data
+          .filter((r) => String(r?.category || "").toLowerCase() === "reveal")
+          .map((r, idx) => ({
+            id: `reveal-db-${r.fixout_id || idx}`,
+            type: String(r.door_type || "Window").toLowerCase().includes("window") ? "window" : "door",
+            label: r.door_label || "",
+            height: r.height || "",
+            width: r.width || "",
+            blockWork: String(r.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
+            floorLevel: r.floor_level || r.floorLevel || "GF",
+            source: "db",
+          }));
+        if (revealRowsFromDb.length > 0 && onChange) {
+          onChange("fixout", "fixout_reveal_openings", JSON.stringify(revealRowsFromDb));
+        }
+
         const loaded = res.data
+          .filter((r) => String(r?.category || "").toLowerCase() !== "reveal")
           .filter((r) => !isWindowOpening(r) && (r.door_label || r.door_type || r.height || r.width))
           .map((r, idx) => ({
             id: `fix-${r.fixout_id || Date.now()}-${idx}`,
@@ -1280,13 +1304,14 @@ export default function FixoutTask({
           const first = loaded[0];
           if (first && first.floorLevel) {
           }
-          if (force) {
-            setReloadMsg({ type: "success", text: `Loaded ${loaded.length} ${loaded.length === 1 ? "door" : "doors"} from SQL` });
-          }
-        } else {
-          if (force) {
-            setReloadMsg({ type: "info", text: "No saved data found in SQL" });
-          }
+        }
+        if (force) {
+          const parts = [];
+          if (loaded.length > 0) parts.push(`${loaded.length} ${loaded.length === 1 ? "door" : "doors"}`);
+          if (revealRowsFromDb.length > 0) parts.push(`${revealRowsFromDb.length} ${revealRowsFromDb.length === 1 ? "opening" : "openings"}`);
+          setReloadMsg(parts.length
+            ? { type: "success", text: `Loaded ${parts.join(" + ")} from SQL` }
+            : { type: "info", text: "No saved data found in SQL" });
         }
       } else {
         if (force) {
@@ -1331,12 +1356,14 @@ export default function FixoutTask({
   };
 
   const handleSave = async () => {
-    if (!entries || entries.length === 0) return;
+    const revealRowsForSave = safeParseJson(formData?.fixout_reveal_openings, []);
+    const doorRowsForSave = (entries || []).filter((item) => !isWindowOpening(item));
+    if (doorRowsForSave.length === 0 && revealRowsForSave.length === 0) return;
     setIsSaving(true);
     setSaveSuccess(false);
 
     try {
-      const items = (entries || []).filter((item) => !isWindowOpening(item)).map((item) => ({
+      const doorItems = doorRowsForSave.map((item) => ({
         floor_level: item.floorLevel || item.floor_level || "GF",
         category: item.category || null,
         door_label: item.door_label || null,
@@ -1354,6 +1381,25 @@ export default function FixoutTask({
         door_stop: item.door_stop || null,
         qty: item.qty || 1,
       }));
+      const revealItems = (Array.isArray(revealRowsForSave) ? revealRowsForSave : []).map((row, index) => ({
+        floor_level: row.floorLevel || row.floor_level || "GF",
+        category: "reveal",
+        door_label: row.label || row.door_label || `Opening ${index + 1}`,
+        door_type: String(row.type || "window").toLowerCase() === "window" ? "Window" : "Door Opening",
+        height: row.height || null,
+        width: row.width || null,
+        thicks: null,
+        wall_width: null,
+        door_frame: `Block Work: ${row.blockWork || "No"}`,
+        lift_off_pivot: null,
+        handing: null,
+        hole: null,
+        finish: null,
+        door_furniture: null,
+        door_stop: null,
+        qty: row.qty || 1,
+      }));
+      const items = [...doorItems, ...revealItems];
 
       const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
       const payload = {

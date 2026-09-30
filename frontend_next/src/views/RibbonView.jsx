@@ -849,6 +849,12 @@ export default function RibbonView({
     try {
       clearWorkspaceState("active_session");
     } catch (_) { }
+    try {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan"));
+        window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation-clear"));
+      }
+    } catch (_) { }
   };
 
   const handleNewClick = async () => {

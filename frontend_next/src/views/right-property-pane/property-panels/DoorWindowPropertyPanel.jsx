@@ -229,15 +229,13 @@ export default function DoorWindowPropertyPanel({
 
   // Apply property change to all selected doors (or single door)
   const handleApplyProperty = (patch) => {
-    if (isMulti && updateDoorsProperty) {
-      updateDoorsProperty(selectedDoorIds, patch);
-    } else {
-      if (updateDoorsProperty && activeDoor) {
-        updateDoorsProperty([activeDoor.id], patch);
-      }
-      if (updateDoor && activeDoor) {
-        updateDoor({ ...activeDoor, ...patch });
-      }
+    const targetIds = isMulti ? selectedDoorIds : (activeDoor ? [activeDoor.id] : []);
+    if (targetIds.length > 0 && updateDoorsProperty) {
+      updateDoorsProperty(targetIds, patch);
+      return;
+    }
+    if (!isMulti && updateDoor && activeDoor) {
+      updateDoor({ ...activeDoor, ...patch });
     }
   };
 

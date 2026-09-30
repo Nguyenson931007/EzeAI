@@ -431,8 +431,28 @@ export default function WallPropertyPanel({
         {(() => {
           const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
           const targetWalls = (walls || []).filter((w) => targetIds.includes(w.id));
-          const isAllInclude = targetWalls.length > 0 && targetWalls.every((w) => w.include_insulation !== false && !w.exclude_insulation);
-          const isAllExclude = targetWalls.length > 0 && targetWalls.every((w) => w.include_insulation === false || w.exclude_insulation === true);
+          const wallInsulationState = (w) => {
+            const cls = String(getWallClass(w) || w?.class_name || w?.wall_type || "").toLowerCase();
+            const isExternal = cls === "exterior_wall" || cls === "ext" || cls.includes("exterior");
+            const hasUserOverride = w?.insulation_user_override === true || w?.insulationUserOverride === true;
+
+            if (hasUserOverride) {
+              const explicitlyExcluded =
+                w?.exclude_insulation === true || w?.excludeInsulation === true ||
+                w?.include_insulation === false || w?.includeInsulation === false ||
+                w?.has_insulation === false || w?.hasInsulation === false;
+              if (explicitlyExcluded) return "exclude";
+
+              const explicitlyIncluded =
+                w?.include_insulation === true || w?.includeInsulation === true ||
+                w?.has_insulation === true || w?.hasInsulation === true;
+              if (explicitlyIncluded) return "include";
+            }
+
+            return isExternal ? "include" : "exclude";
+          };
+          const isAllInclude = targetWalls.length > 0 && targetWalls.every((w) => wallInsulationState(w) === "include");
+          const isAllExclude = targetWalls.length > 0 && targetWalls.every((w) => wallInsulationState(w) === "exclude");
           const currentInsulation = isAllInclude ? "include" : (isAllExclude ? "exclude" : "multiple");
 
           const insulationOptions = [
@@ -467,8 +487,9 @@ export default function WallPropertyPanel({
                     title={opt.label}
                     onClick={() => {
                       if (targetIds.length > 0 && updateWallsProperty) {
+                        // interaction.controller keeps include/exclude/has-insulation aliases in sync.
+                        // One write is enough and guarantees one downstream task reconciliation.
                         updateWallsProperty(targetIds, "include_insulation", opt.isInclude);
-                        updateWallsProperty(targetIds, "exclude_insulation", !opt.isInclude);
                       }
                     }}
                   >

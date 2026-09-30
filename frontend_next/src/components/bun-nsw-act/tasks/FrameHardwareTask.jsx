@@ -788,7 +788,7 @@ export default function FrameHardwareTask({
           }
         }
 
-        if (targetPageIndex >= 0) {
+        if (targetPageIndex >= 0 && Number(targetPageIndex) !== Number(currentPage)) {
           if (typeof goPage === "function") goPage(targetPageIndex);
           else if (typeof setCurrentPage === "function") setCurrentPage(targetPageIndex);
         }

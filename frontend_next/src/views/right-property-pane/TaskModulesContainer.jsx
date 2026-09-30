@@ -25,7 +25,6 @@ export default function TaskModulesContainer({
   TimberPostsTask,
   FixoutTask,
   LockupTask,
-  WindowTask,
   ShelvingTask,
   DoorsFurnitureTask,
   FowPlumbingTask,
@@ -385,17 +384,6 @@ export default function TaskModulesContainer({
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleId)}
           onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("lock_up", row, targetTask)}
-        />
-      )}
-
-      {/* Local-only Window register: intentionally no Procurement API / DB save. */}
-      {activeModuleId === "windows" && WindowTask && (
-        <WindowTask
-          entries={windowEntries}
-          onSelectEntry={handleSelectEntry}
-          onAutoFill={() => handleAddDataAI("windows")}
-          onClear={() => handleResetModuleData("windows")}
-          updateDoorsProperty={updateDoorsProperty}
         />
       )}
 

@@ -6,7 +6,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { normalizeFloorLevel, replaceAutoFillRows } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, replaceAutoFillRows, shouldIncludeWallInInsulation } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
@@ -474,6 +474,7 @@ export default function InsulationTask({
       const processWalls = (pWalls, pDoors, pageName, pScale, pLevelCode) => {
         const effectiveScale = pScale || effScale;
         (pWalls || []).forEach(w => {
+          if (!shouldIncludeWallInInsulation(w)) return;
           let lengthM = 0;
           if (w.length_m) {
             lengthM = parseFloat(w.length_m);

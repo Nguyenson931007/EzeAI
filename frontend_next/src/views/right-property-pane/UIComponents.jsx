@@ -565,18 +565,6 @@ export const EXTRA_MODULE_TABS = [
     )
   },
   {
-    id: "windows",
-    label: "Window",
-    title: "Windows",
-    localOnly: true,
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-        <rect x="3" y="3" width="18" height="18" rx="1.5" />
-        <path d="M12 3v18M3 12h18" />
-      </svg>
-    )
-  },
-  {
     id: "shelving",
     label: "Shelving",
     title: "Shelving",

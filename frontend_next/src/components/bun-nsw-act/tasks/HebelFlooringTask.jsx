@@ -370,7 +370,7 @@ export default function HebelFlooringTask({
   }, [formData]);
 
   const DRY_PRODUCT_OPTIONS = useMemo(() => {
-    const list = dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    const list = Array.from(new Set(dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
     return ["Select...", ...(list.length > 0 ? list : [
       "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
       "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
@@ -381,7 +381,7 @@ export default function HebelFlooringTask({
   }, [dryCatalogItems]);
 
   const WET_PRODUCT_OPTIONS = useMemo(() => {
-    const list = wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean);
+    const list = Array.from(new Set(wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
     return ["Select...", ...(list.length > 0 ? list : [
       "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
       "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
@@ -390,7 +390,9 @@ export default function HebelFlooringTask({
   }, [wetCatalogItems]);
 
   const BALCONY_OPTIONS = useMemo(() => {
-    const list = [...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean);
+    const list = Array.from(new Set(
+      [...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean)
+    ));
     return ["Select...", ...(list.length > 0 ? list : [
       "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
       "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",

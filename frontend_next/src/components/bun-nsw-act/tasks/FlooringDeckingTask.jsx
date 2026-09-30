@@ -514,9 +514,11 @@ export default function FlooringDeckingTask({
   const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
   const hasProcurementFlooringCatalog = catalogItems.length > 0;
 
-  const flooringValues = (items) => items
-    .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
-    .filter(Boolean);
+  const flooringValues = (items) => Array.from(new Set(
+    (items || [])
+      .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
+      .filter(Boolean)
+  ));
 
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {

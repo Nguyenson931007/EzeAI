@@ -101,6 +101,7 @@ import {
   buildFinalFitPatch,
   roomAreaM2,
   wallLengthMm,
+  shouldIncludeWallInInsulation,
 } from "@/utils/procurementAutoFill";
 import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
 import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
@@ -353,7 +354,8 @@ export default function RightPropertyPaneView({
     setTextUnderline,
     setTextStrikethrough,
     setCalloutStrokeWidth,
-    isCanvasMoving
+    isCanvasMoving,
+    floorCeilingTakeoffData
   } = useAppModel();
 
   const selectedAnnotation = React.useMemo(() => {
@@ -1279,6 +1281,15 @@ export default function RightPropertyPaneView({
       curPageObj?.source === "floor_ceiling_page" ||
       curPageObj?.source === "floor_ceiling_workspace"
     );
+    const isFloorCeilingPageIndex = (pageIndex) => {
+      const page = pages?.[Number(pageIndex)];
+      return Boolean(
+        page?.isFloorCeilingWorkspace ||
+        page?.source === "floor_ceiling_page" ||
+        page?.source === "floor_ceiling_workspace" ||
+        page?.category === "floor_ceiling"
+      );
+    };
 
     const rawWalls = isFCPage
       ? []
@@ -1338,6 +1349,7 @@ export default function RightPropertyPaneView({
     const allWallsForDoorRouting = effectiveWallsByPage && Object.keys(effectiveWallsByPage).length
       ? Object.entries(effectiveWallsByPage).flatMap(([pageKey, pageWalls]) => {
           const pIdx = Number(pageKey);
+          if (isFloorCeilingPageIndex(pIdx)) return [];
           return (pageWalls || [])
             .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
             .map((wall) => ({ ...wall, __sourcePageIndex: pIdx }));
@@ -1412,38 +1424,59 @@ export default function RightPropertyPaneView({
       const wallPages = (effectiveWallsByPage && Object.keys(effectiveWallsByPage).length) ? effectiveWallsByPage : { [currentPage]: currentWalls };
       Object.entries(wallPages).forEach(([pageKey, pageWalls]) => {
         const pIdx = Number(pageKey);
+        // Floor & Ceiling workspace walls are calculation helpers only. Never feed
+        // them back into wall-based task Auto Fill.
+        if (isFloorCeilingPageIndex(pIdx)) return;
         const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
         allRows.push(...buildInsulationRows(pageWalls || [], pageScale, floorLevelForPage(pIdx)));
       });
       setInsulationWallEntries((current) => replaceAutoFillRows(current, allRows));
 
-      const areaPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? roomsByPageProp : { [currentPage]: currentRooms };
-      const ceilEntries = [];
-      Object.entries(areaPages).forEach(([pageKey, pageRooms]) => {
-        const pIdx = Number(pageKey);
-        const pageScale = (effectiveScalesByPage && effectiveScalesByPage[pIdx] > 0) ? effectiveScalesByPage[pIdx] : fallbackScale;
-        const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
-        if (area > 0) ceilEntries.push(buildInsulationAreaRow({
-          id: `ins-ai-ceil-${pIdx}`,
-          roomIds: (pageRooms || []).map((room) => room?.id).filter(Boolean),
-          floorLevel: floorLevelForPage(pIdx),
-          type: "Ceiling",
-          rValue: "",
-          product: "",
-          areaM2: Number(area.toFixed(2)),
-        }));
-      });
-      setInsulationAreaEntries((current) => replaceAutoFillRows(current, ceilEntries));
-      generatedCount = allRows.length + ceilEntries.length;
+      // Reuse the latest explicit Floor & Ceiling scan when Insulation is cleared
+      // and Auto Fill is pressed again. Do NOT invent Ceiling/Floor from room area.
+      const cachedAreaRows = Array.isArray(floorCeilingTakeoffData?.insulationEntries)
+        ? floorCeilingTakeoffData.insulationEntries
+        : [];
+      if (cachedAreaRows.length > 0) {
+        setInsulationAreaEntries((current) => {
+          const manualOnly = (Array.isArray(current) ? current : []).filter((row) => row?.source !== "floor_ceiling_sync");
+          return [...manualOnly, ...cachedAreaRows];
+        });
+      }
+
+      generatedCount = allRows.length + cachedAreaRows.length;
       formPatch = {
         ext_wall_area: String(allRows.filter((x) => x.type === "Ext wall").reduce((s, x) => s + Number(x.insulationArea || 0), 0).toFixed(2)),
         int_wall_area: String(allRows.filter((x) => x.type === "Int wall").reduce((s, x) => s + Number(x.insulationArea || 0), 0).toFixed(2)),
-        ceiling_area: String(ceilEntries.reduce((s, x) => s + Number(x.areaM2 || 0), 0).toFixed(2)),
       };
     } else if (normalizedModuleId === "fixout") {
       const rows = buildFixoutRows(allDoors, allWallsForDoorRouting);
+      const windowRevealRows = buildWindowRows(allDoors, allWallsForDoorRouting).map((row, index) => ({
+        id: `window-reveal-${row.doorId || index}`,
+        doorId: row.doorId || null,
+        source: "window_autofill",
+        type: "window",
+        label: row.label || `W-${index + 1}`,
+        height: row.height || "",
+        width: row.width || "",
+        blockWork: "No",
+        floorLevel: row.floorLevel || "GF",
+      }));
       setFixoutDoorEntries(rows);
-      generatedCount = rows.length;
+
+      const currentRevealRows = (() => {
+        try {
+          const raw = moduleFormData?.fixout?.fixout_reveal_openings;
+          const parsed = raw ? JSON.parse(raw) : [];
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          return [];
+        }
+      })();
+      const manualRevealRows = currentRevealRows.filter((row) => row?.source !== "window_autofill");
+      handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...manualRevealRows, ...windowRevealRows]));
+
+      generatedCount = rows.length + windowRevealRows.length;
     } else if (normalizedModuleId === "lock_up") {
       const rows = buildLockupRows(allDoors, allWallsForDoorRouting);
       setLockupEntries(rows);
@@ -2733,8 +2766,10 @@ export default function RightPropertyPaneView({
       const curRooms = (roomsByPageProp && roomsByPageProp[currentPage]) ? roomsByPageProp[currentPage] : (rooms || []);
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
 
-      // 1. Calculate Wall Insulation on ALL walls
-      const targetWalls = curWalls;
+      // 1. Plan-derived wall insulation rule:
+      //    Exterior walls are included by default (unless explicitly excluded).
+      //    Interior walls are included only when Include Insulation is ON.
+      const targetWalls = curWalls.filter(shouldIncludeWallInInsulation);
 
       if (targetWalls.length > 0) {
         const wallGroupsMap = {};
@@ -2809,64 +2844,9 @@ export default function RightPropertyPaneView({
         }
       }
 
-      // 2. Calculate Area / Ceiling Insulation on ALL rooms
-      const targetRooms = curRooms;
-
-      let ceilM2 = 0;
-      const roomIdsList = [];
-      targetRooms.forEach(r => {
-        const override = customInsAreaOverrides[r.id] || {};
-        let aM2 = 0;
-        if (override.areaM2) {
-          aM2 = override.areaM2;
-        } else if (r.areaM2 && !isNaN(r.areaM2)) {
-          aM2 = parseFloat(r.areaM2);
-        } else if (r.area && !isNaN(r.area)) {
-          aM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
-        } else if (r.area_m2 && !isNaN(r.area_m2)) {
-          aM2 = parseFloat(r.area_m2);
-        } else {
-          const pts = r.polygon || r.poly;
-          if (pts && pts.length >= 3) {
-            let pxArea = 0;
-            for (let j = 0; j < pts.length; j++) {
-              const p1 = pts[j];
-              const p2 = pts[(j + 1) % pts.length];
-              const x1 = typeof p1.x === 'number' ? p1.x : (Array.isArray(p1) ? p1[0] : 0);
-              const y1 = typeof p1.y === 'number' ? p1.y : (Array.isArray(p1) ? p1[1] : 0);
-              const x2 = typeof p2.x === 'number' ? p2.x : (Array.isArray(p2) ? p2[0] : 0);
-              const y2 = typeof p2.y === 'number' ? p2.y : (Array.isArray(p2) ? p2[1] : 0);
-              pxArea += (x1 * y2 - x2 * y1);
-            }
-            pxArea = Math.abs(pxArea) / 2;
-            const areaMm2 = pxArea * Math.pow(effScale, 2);
-            aM2 = areaMm2 / 1000000;
-          }
-        }
-        if (aM2 > 0) {
-          ceilM2 += aM2;
-          roomIdsList.push(r.id);
-        }
-      });
-
-      if (ceilM2 > 0 && (!insulationAreaEntries || insulationAreaEntries.length === 0)) {
-        const cVal = Number(ceilM2.toFixed(2));
-        setInsulationAreaEntries([
-          {
-            id: roomIdsList.length === 1 ? `ins-a-single-${roomIdsList[0]}` : `ins-a-ceil-${Date.now()}`,
-            roomId: roomIdsList.length === 1 ? roomIdsList[0] : undefined,
-            roomIds: roomIdsList,
-            location: roomIdsList.length === 1 ? (targetRooms[0]?.name || "Room Ceiling") : "Ceiling / Roof Space",
-            areaType: "Ceiling",
-            rValue: "R4.0",
-            product: "0810620 · INS CEILING BATT R4.0 430MM",
-            areaM2: cVal,
-            area: cVal,
-            totalArea: Number((cVal * 1.05).toFixed(2)),
-            autofill_source: "drawing"
-          }
-        ]);
-      }
+      // Floor / Ceiling insulation is intentionally NOT inferred from room polygons here.
+      // It must come from the dedicated Floor & Ceiling workspace so its user
+      // toggles (Timber Floor / Ceiling below roof) remain the source of truth.
     }
   }, [activePaneTab, currentPage, walls, wallsByPageProp, rooms, roomsByPageProp, realScale, scaleValue, customInsWallOverrides, customInsAreaOverrides, manuallyClearedTasks]);
 
@@ -3769,7 +3749,17 @@ export default function RightPropertyPaneView({
 
     const wallPages = {};
     Object.entries(effectiveWallsByPage || {}).forEach(([pageKey, pageWalls]) => {
-      wallPages[pageKey] = (pageWalls || []).filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks);
+      const pageIndex = Number(pageKey);
+      const page = pages?.[pageIndex];
+      const isFloorCeilingPage = Boolean(
+        page?.isFloorCeilingWorkspace ||
+        page?.source === "floor_ceiling_page" ||
+        page?.source === "floor_ceiling_workspace" ||
+        page?.category === "floor_ceiling"
+      );
+      wallPages[pageKey] = isFloorCeilingPage
+        ? []
+        : (pageWalls || []).filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks);
     });
 
     const allDoors = Object.entries(effectiveDoorsByPage || {}).flatMap(([pageKey, pageDoors]) => {
@@ -3807,14 +3797,8 @@ export default function RightPropertyPaneView({
       const pageIndex = Number(pageKey);
       const pageScale = Number(effectiveScalesByPage?.[pageIndex]) > 0 ? Number(effectiveScalesByPage[pageIndex]) : fallbackScale;
       flooringRows.push(...buildFlooringRows(pageRooms || [], pageScale, floorLevelForPage(pageIndex)).map((row) => ({ ...row, sourcePageIndex: pageIndex })));
-      const area = (pageRooms || []).reduce((sum, room) => sum + roomAreaM2(room, pageScale), 0);
-      if (area > 0) insulationAreaRows.push(buildInsulationAreaRow({
-        id: `ins-ai-ceil-${pageIndex}`,
-        roomIds: (pageRooms || []).map((room) => room?.id).filter(Boolean),
-        floorLevel: floorLevelForPage(pageIndex),
-        type: "Ceiling",
-        areaM2: Number(area.toFixed(2)),
-      }));
+      // Floor/Ceiling insulation is intentionally not derived from room area.
+      // The dedicated Floor & Ceiling workspace owns these rows.
     });
 
     const claddingRows = [];
@@ -3901,12 +3885,52 @@ export default function RightPropertyPaneView({
 
     reconcileRows("frame_hardware", setFrameWallEntries);
     reconcileRows("insulation", setInsulationWallEntries);
-    reconcileRows("insulation_area", setInsulationAreaEntries, "insulation");
+    // insulation_area is managed by Floor & Ceiling sync/manual entry, not by
+    // generic plan reconciliation. This prevents a wall/door edit from wiping
+    // valid Floor/Ceiling rows.
     reconcileRows("flooring_decking", setFlooringEntries);
     reconcileRows("hebel_flooring", setHebelFlooringEntries);
     reconcileRows("cladding", setCladdingWallEntries);
     reconcileRows("fixout", setFixoutDoorEntries);
     reconcileRows("lock_up", setLockupEntries);
+
+    // Windows now belong to Fixout > Additional trim measurements > Reveals.
+    // Keep this section live with plan window changes while preserving rows
+    // entered manually by the user.
+    if (!manuallyClearedTasksRef.current?.fixout || planChanged) {
+      const liveWindowRevealRows = generatedByTask.windows.map((row, index) => ({
+        id: `window-reveal-${row.doorId || index}`,
+        doorId: row.doorId || null,
+        source: "window_autofill",
+        type: "window",
+        label: row.label || `W-${index + 1}`,
+        height: row.height || "",
+        width: row.width || "",
+        blockWork: "No",
+        floorLevel: row.floorLevel || "GF",
+      }));
+      setModuleFormData((prev) => {
+        const currentFixout = prev?.fixout || {};
+        let currentRevealRows = [];
+        try {
+          const parsed = currentFixout.fixout_reveal_openings ? JSON.parse(currentFixout.fixout_reveal_openings) : [];
+          currentRevealRows = Array.isArray(parsed) ? parsed : [];
+        } catch (_) {}
+        const manualRevealRows = currentRevealRows.filter((row) => row?.source !== "window_autofill");
+        const nextJson = JSON.stringify([...manualRevealRows, ...liveWindowRevealRows]);
+        if (currentFixout.fixout_reveal_openings === nextJson) return prev;
+        return {
+          ...prev,
+          fixout: {
+            ...currentFixout,
+            fixout_reveal_openings: nextJson,
+          },
+        };
+      });
+    }
+
+    // Keep the internal derived list for summary/selection compatibility, but
+    // there is no longer a standalone Window task tab.
     if (!manuallyClearedTasksRef.current?.windows || planChanged) {
       setWindowEntries(generatedByTask.windows);
     }

@@ -1092,9 +1092,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             }
 
             const thickness = drawingWall.thickness || mmToPx(70, realScale);
+            const defaultWallType = drawingWall.wallType || "interior_wall";
+            const defaultInsulationIncluded = defaultWallType === "exterior_wall" || defaultWallType === "ext";
             const newWall = {
               id: wallId,
-              class_name: drawingWall.wallType || "interior_wall",
+              class_name: defaultWallType,
               centerline: [
                 [drawingWall.startX, drawingWall.startY],
                 [endX, endY]
@@ -1102,7 +1104,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
               thickness_px: thickness,
               confidence: 1.0,
               review_state: 'MANUAL',
-              height: defaultHeightVal
+              height: defaultHeightVal,
+              insulation_user_override: false,
+              insulationUserOverride: false,
+              include_insulation: defaultInsulationIncluded,
+              includeInsulation: defaultInsulationIncluded,
+              has_insulation: defaultInsulationIncluded,
+              hasInsulation: defaultInsulationIncluded,
+              exclude_insulation: !defaultInsulationIncluded,
+              excludeInsulation: !defaultInsulationIncluded
             };
 
             if (isFloorCeilingWorkspace) {
@@ -1650,7 +1660,13 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const updatedDoors = pageDoors.map(d => {
       if (!doorIds.includes(d.id)) return d;
 
-      let updated = { ...d, ...patch, modifiedAt: new Date().toISOString() };
+      let updated = {
+        ...d,
+        ...patch,
+        data_revision: Number(d.data_revision || 0) + 1,
+        updated_at: Date.now(),
+        modifiedAt: new Date().toISOString(),
+      };
 
       // Geometry adjustments if width_mm or height_mm changed
       if (patch.width_mm !== undefined && patch.width_mm !== d.width_mm) {
@@ -1934,6 +1950,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             newWall.surface = surface;
           } else if (field === "include_insulation" || field === "includeInsulation" || field === "has_insulation" || field === "hasInsulation") {
             const incVal = Boolean(value);
+            newWall.insulation_user_override = true;
+            newWall.insulationUserOverride = true;
             newWall.include_insulation = incVal;
             newWall.includeInsulation = incVal;
             newWall.has_insulation = incVal;
@@ -1942,6 +1960,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             newWall.excludeInsulation = !incVal;
           } else if (field === "exclude_insulation" || field === "excludeInsulation") {
             const excVal = Boolean(value);
+            newWall.insulation_user_override = true;
+            newWall.insulationUserOverride = true;
             newWall.exclude_insulation = excVal;
             newWall.excludeInsulation = excVal;
             newWall.include_insulation = !excVal;
@@ -2682,9 +2702,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           }
 
           const thickness = drawingWall.thickness || defaultThickPx;
+          const defaultWallType = drawingWall.wallType || "interior_wall";
+          const defaultInsulationIncluded = defaultWallType === "exterior_wall" || defaultWallType === "ext";
           const newWall = {
             id: wallId,
-            class_name: drawingWall.wallType || "interior_wall",
+            class_name: defaultWallType,
             centerline: [
               [startX, startY],
               [endX, endY]
@@ -2692,7 +2714,15 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             thickness_px: thickness,
             confidence: 1.0,
             review_state: 'MANUAL',
-            height: defaultHeightVal
+            height: defaultHeightVal,
+            insulation_user_override: false,
+            insulationUserOverride: false,
+            include_insulation: defaultInsulationIncluded,
+            includeInsulation: defaultInsulationIncluded,
+            has_insulation: defaultInsulationIncluded,
+            hasInsulation: defaultInsulationIncluded,
+            exclude_insulation: !defaultInsulationIncluded,
+            excludeInsulation: !defaultInsulationIncluded
           };
 
           if (isFloorCeilingWorkspace) {

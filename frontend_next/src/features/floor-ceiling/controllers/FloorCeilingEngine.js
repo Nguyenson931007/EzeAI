@@ -2218,8 +2218,25 @@ export function scanFloorAndCeiling({
         upperCode: "",
         autoAdjustWalls
       });
-      allZones = result.zones;
-      allAreas = result.areas;
+      // A one-storey project still uses the Floor & Ceiling workspace, but
+      // Floor insulation is only applicable when the architectural walls are
+      // marked as Timber floor. Ceiling remains enabled because this is the
+      // top level directly below the roof.
+      const levelWalls = wallsByOrder[order] || [];
+      const hasTimberFloor = levelWalls.some((wall) => {
+        const floorType = String(wall?.floor_type || wall?.floorType || wall?.base_type || wall?.baseType || "").trim().toLowerCase();
+        return floorType.includes("timber");
+      });
+      allZones = (result.zones || []).map((zone) => {
+        if (zone.targetType !== "floor") return zone;
+        return {
+          ...zone,
+          floorEnabled: hasTimberFloor ? zone.floorEnabled !== false : false,
+          userType: hasTimberFloor ? zone.userType : "none",
+          note: hasTimberFloor ? zone.note : `${zone.note || "Floor"} - OFF (not Timber Floor)`
+        };
+      });
+      allAreas = recalcZoneAreas(allZones);
     }
   } else {
     // Pairwise: for each adjacent pair of levels

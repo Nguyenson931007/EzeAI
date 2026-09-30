@@ -226,18 +226,21 @@ export const isWindowOpening = (item) => {
   return /^w[-_ ]?\d+[a-z]?$/i.test(label);
 };
 
-export const buildWindowRows = (doors = []) => doors
-  .filter(isWindowOpening)
+export const buildWindowRows = (doors = [], walls = []) => doors
+  .filter((door) => isTaskEligibleOpening(door) && isWindowOpening(door))
   .map((d, idx) => {
     const dims = doorDimensions(d);
     const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `W-${idx + 1}`;
-    const wallThickness = finite(d?.wall_thickness || d?.thickness_mm || d?.parent_wall_thickness);
+    const parentWall = findDoorParentWall(d, walls);
+    const wallThickness = finite(parentWall?.thickness_mm || parentWall?.thickness || d?.wall_thickness || d?.thickness_mm || d?.parent_wall_thickness);
     const explicitScope = lower(d?.scope || d?.location);
     const scope = explicitScope === "external" || explicitScope === "exterior"
       ? "External"
       : explicitScope === "internal" || explicitScope === "interior"
         ? "Internal"
-        : "";
+        : parentWall
+          ? (isExternalProcurementWall(parentWall) ? "External" : "Internal")
+          : "";
     return {
       id: `window-local-${d?.id ?? idx}`,
       doorId: d?.id,
@@ -255,6 +258,13 @@ export const buildWindowRows = (doors = []) => doors
     };
   });
 
+const isTaskEligibleOpening = (item) => {
+  if (!item) return false;
+  if (item.excludeFromOtherTasks === true || item.exclude_from_other_tasks === true) return false;
+  const status = lower(item.status);
+  return status !== "deleted" && status !== "superseded" && status !== "inactive";
+};
+
 const explicitHanding = (d, allowed) => {
   const raw = text(d?.handing || d?.hung || d?.hingeSide || d?.hinge_side);
   if (!raw) return "";
@@ -263,14 +273,16 @@ const explicitHanding = (d, allowed) => {
   return explicitAllowed(aliases[u] || raw, allowed);
 };
 
-export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "fixout").map((d, idx) => {
+export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => isTaskEligibleOpening(d) && !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "fixout").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const rawType = lower(d?.door_type || d?.type || d?.class_name);
   const cavity = /slid|cavity/.test(`${label.toLowerCase()} ${rawType}`);
   const dims = doorDimensions(d);
   const heights = cavity ? FIXOUT_CAVITY_HEIGHTS : FIXOUT_HEIGHTS;
   const widths = cavity ? FIXOUT_CAVITY_WIDTHS : FIXOUT_WIDTHS;
-  const wallWidth = closestAllowed(d?.wall_thickness || d?.thickness_mm, FIXOUT_WALL_WIDTHS, 15);
+  const parentWall = findDoorParentWall(d, walls);
+  const parentWallThickness = finite(parentWall?.thickness_mm || parentWall?.thickness);
+  const wallWidth = closestAllowed(parentWallThickness || d?.wall_thickness || d?.thickness_mm, FIXOUT_WALL_WIDTHS, 15);
   const thickness = closestAllowed(d?.leaf_thickness || d?.door_thickness || d?.thickness, FIXOUT_THICKNESSES, 3);
   const frame = explicitAllowed(d?.frame_type || d?.frameType, FIXOUT_FRAME_TYPES);
   const handing = cavity ? "" : explicitHanding(d, FIXOUT_HANDING);
@@ -300,9 +312,11 @@ export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => !
   };
 });
 
-export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "lock_up").map((d, idx) => {
+export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => isTaskEligibleOpening(d) && !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "lock_up").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const dims = doorDimensions(d);
+  const parentWall = findDoorParentWall(d, walls);
+  const parentWallThickness = finite(parentWall?.thickness_mm || parentWall?.thickness);
   const explicitScope = lower(d?.scope || d?.location);
   const explicitExterior = d?.is_ext === true || d?.is_exterior === true || explicitScope === "external" || explicitScope === "exterior";
   const explicitInterior = explicitScope === "internal" || explicitScope === "interior";
@@ -323,7 +337,9 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => !
     height: closestAllowed(dims.height, LOCKUP_HEIGHTS, 90) || (dims.height ? String(Math.round(dims.height)) : ""),
     width: closestAllowed(dims.width, LOCKUP_WIDTHS, 70) || (dims.width ? String(Math.round(dims.width)) : ""),
     thickness: closestAllowed(d?.door_thickness || d?.leaf_thickness || d?.thickness, LOCKUP_THICKNESSES, 3),
-    jamb_or_wall: finite(d?.wall_thickness || d?.thickness_mm) ? `${Math.round(finite(d?.wall_thickness || d?.thickness_mm))}mm Wall` : "",
+    jamb_or_wall: (parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))
+      ? `${Math.round(parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))}mm Wall`
+      : "",
     jamb_size: text(d?.jamb_size || d?.jambSize),
     hung,
     door_type: text(d?.door_type || d?.product),
@@ -375,9 +391,43 @@ export const buildInsulationAreaRow = ({ id, roomIds = [], floorLevel = "GF", ty
   };
 };
 
+export const shouldIncludeWallInInsulation = (wall) => {
+  if (!wall) return false;
+  if (wall?.excludeFromOtherTasks === true || wall?.exclude_from_other_tasks === true) return false;
+
+  const cls = lower(wall?.class_name || wall?.wall_type);
+  const isExternal = cls.includes("exterior") || cls === "ext";
+  const hasUserOverride = wall?.insulation_user_override === true || wall?.insulationUserOverride === true;
+
+  // Business rule:
+  // - External wall => Include by default.
+  // - Internal / partition / other wall => Exclude by default.
+  // - Internal wall only enters Insulation after the user explicitly presses Include.
+  if (hasUserOverride) {
+    if (
+      wall?.exclude_insulation === true ||
+      wall?.excludeInsulation === true ||
+      wall?.include_insulation === false ||
+      wall?.includeInsulation === false ||
+      wall?.has_insulation === false ||
+      wall?.hasInsulation === false
+    ) return false;
+
+    if (
+      wall?.include_insulation === true ||
+      wall?.includeInsulation === true ||
+      wall?.has_insulation === true ||
+      wall?.hasInsulation === true
+    ) return true;
+  }
+
+  return isExternal;
+};
+
 export const buildInsulationRows = (walls = [], scale = 1, floorLevel = "GF") => {
   const groups = new Map();
   walls.forEach((w) => {
+    if (!shouldIncludeWallInInsulation(w)) return;
     const cls = lower(w?.class_name || w?.wall_type);
     if (!cls) return;
     const type = cls.includes("exterior") || cls === "ext"
@@ -416,9 +466,12 @@ export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, 
   const floorLevelsByPage = buildArchitecturalFloorLevelMap(pages);
   Object.entries(wallsByPage || {}).forEach(([pageKey, walls]) => {
     const pageIndex = Number(pageKey);
+    const page = pages?.[pageIndex];
+    if (page?.isFloorCeilingWorkspace || page?.source === "floor_ceiling_page" || page?.source === "floor_ceiling_workspace" || page?.category === "floor_ceiling") return;
     const pageLevel = floorLevelsByPage.get(pageIndex) || resolvePageFloorLevel(pages, pageIndex);
     const scale = finite(scalesByPage?.[pageIndex]) || fallbackScale;
     (walls || []).forEach((w) => {
+      if (w?.excludeFromOtherTasks === true || w?.exclude_from_other_tasks === true) return;
       const rawClass = lower(w?.class_name || w?.wall_type);
       const isExt = rawClass.includes("exterior") || rawClass === "ext" || w?.is_ext === true || w?.is_exterior === true;
       const isLbw = w?.is_lbw === true || w?.is_load_bearing === true || w?.lbw === true;
@@ -513,13 +566,14 @@ export const buildFowPlumbingRows = (rooms = [], catalog = []) => {
 };
 
 export const buildFinalFitPatch = (doors = []) => {
-  const internal = doors.filter((d) => {
+  const eligibleDoors = (doors || []).filter(isTaskEligibleOpening);
+  const internal = eligibleDoors.filter((d) => {
     const s = lower(d?.scope || d?.location);
     return s === "internal" || s === "interior" || d?.is_internal === true;
   });
   return {
     final_fit_enabled: "Yes",
     passage_handles: String(internal.length || 0),
-    door_stops: String(doors.length || 0),
+    door_stops: String(eligibleDoors.length || 0),
   };
 };
