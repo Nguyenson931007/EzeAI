@@ -29,6 +29,12 @@ class InputWall(BaseModel):
     centerline: List[List[float]]
     thickness: float
     height: float = 2700.0
+    frame_stud_spacing: Optional[str] = None
+    frame_timber_grade: Optional[str] = None
+    frame_stud_size: Optional[str] = None
+    frame_stud_ply_count: Optional[int] = None
+    frame_plate_ply_count: Optional[int] = None
+    treated: Optional[str] = None
 
     @field_validator("wall_class")
     @classmethod
@@ -220,20 +226,47 @@ class EZPlanExporter(BaseExporter):
 
             p1, p2 = w.centerline[0], w.centerline[1]
 
+            thick_val = float(w.thickness)
+            stud_size = w.frame_stud_size or f"{int(thick_val)}x35"
+            stud_spacing = w.frame_stud_spacing or "450"
+            timber_grade = w.frame_timber_grade or "MGP10"
+            stud_ply = w.frame_stud_ply_count or (2 if w.height > 2805 else 1)
+            plate_ply = w.frame_plate_ply_count or 1
+
             ez_wall = EZPlanWall(
                 Id=wall_uuid,
                 StartX=float(p1[0]),
                 StartY=float(p1[1]),
                 EndX=float(p2[0]),
                 EndY=float(p2[1]),
-                Thickness=float(w.thickness),
+                Thickness=thick_val,
                 Height=float(w.height),
                 Alignment="Left",
                 LocationLine="FinishFaceExterior",
                 Interior=is_interior,
                 Exterior=is_exterior,
                 LoadBearingWall=is_load_bearing,
-                ExteriorPlasterFaceManuallyConfirmed=False
+                ExteriorPlasterFaceManuallyConfirmed=False,
+                FrameStudSpacing=stud_spacing,
+                FrameBottomPlateGrade=timber_grade,
+                FrameRibbonPlateGrade=timber_grade,
+                FrameTopPlateGrade=timber_grade,
+                FrameStudGrade=timber_grade,
+                FrameNogGrade=timber_grade,
+                FrameBottomPlateSize=stud_size,
+                FrameRibbonPlateSize=stud_size,
+                FrameTopPlateSize=stud_size,
+                FrameStudSize=stud_size,
+                FrameNogSize=stud_size,
+                FrameBottomPlatePlyCount=plate_ply,
+                FrameRibbonPlatePlyCount=plate_ply,
+                FrameTopPlatePlyCount=plate_ply,
+                FrameStudPlyCount=stud_ply,
+                FrameWallColorArgb=-16776961 if is_exterior else -65281,
+                FrameExternalWallColorArgb=-16776961,
+                FrameInternalWallColorArgb=-65281,
+                FrameLoadBearingWallColorArgb=-16776961,
+                FrameNonLoadBearingWallColorArgb=-65281
             )
             output_walls.append(ez_wall)
 

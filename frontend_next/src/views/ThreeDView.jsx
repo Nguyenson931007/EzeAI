@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { cutWallsByDoors, getDoorCenterline, mapFloorName, getBaseWallId, getWallClass, getWallType, getWallSideOffsets, distancePointToSegment, polygonAreaM2 } from "@/utils/geometry";
 import { buildRoof3DSceneObjects } from "@/engines/Roof/Roof3DBuilder";
+import { findStackedLowerDoor, findStackedUpperWindow } from "@/models/DoorTypeRegistry";
 
 let _blockWallTextureCache = null;
 function getBlockWallTexture() {
@@ -1681,18 +1682,51 @@ export default function ThreeDView({
             dTypeId.includes("sliding") ||
             dTypeId.includes("slider");
 
-          const isWindow = ((dClass.includes("window") || dType === "window" || dName.includes("window") || dTypeId === "win_standard" || (door.id && String(door.id).startsWith("window_"))) && !isSliding);
+          const isWindow = ((dClass.includes("window") || dType === "window" || dName.includes("window") || dTypeId === "win_standard" || dTypeId === "win_raked" || (door.id && String(door.id).startsWith("window_"))) && !isSliding);
 
           if (isWindow) {
             const rawWinHeightMm = (typeof door.height_mm === 'number' && door.height_mm >= 300)
               ? door.height_mm
               : ((typeof door.height === 'number' && door.height >= 300) ? door.height : 1200);
-            const winHeightPx = Math.min(rawWinHeightMm / scaleFactor, hostWallHeightPx * 0.75);
-            const headerHeight = hostWallHeightPx * 0.875;
-            const sillHeight = Math.max(0, headerHeight - winHeightPx);
-            const windowHeight = headerHeight - sillHeight;
+            const rawWinHeight2Mm = (typeof door.height2_mm === 'number' && door.height2_mm >= 300)
+              ? door.height2_mm
+              : rawWinHeightMm;
+            const isRaked = rawWinHeight2Mm !== rawWinHeightMm;
 
-            if (sillHeight > 0.1) {
+            const winHeight1Px = Math.min(rawWinHeightMm / scaleFactor, hostWallHeightPx * 0.85);
+            const winHeight2Px = Math.min(rawWinHeight2Mm / scaleFactor, hostWallHeightPx * 0.85);
+            const maxWinHeightPx = Math.max(winHeight1Px, winHeight2Px);
+
+            const rawSillMm = (typeof door.sillHeight === 'number' && door.sillHeight >= 0)
+              ? door.sillHeight
+              : ((typeof door.sill_height === 'number' && door.sill_height >= 0) ? door.sill_height : null);
+
+            // Check for stacked lower door underneath this window (Option A: Spatial Auto-Detection)
+            const stackedLowerDoor = findStackedLowerDoor(door, pageDoors, pageWalls);
+            const isStacked = Boolean(stackedLowerDoor);
+            const lowerDoorHeightMm = isStacked
+              ? Number(stackedLowerDoor.height_mm || stackedLowerDoor.height || 2040)
+              : null;
+
+            let sillHeight;
+            let headerHeight;
+            if (isStacked) {
+              // Automatically start window elevation at lower door's header
+              sillHeight = lowerDoorHeightMm / scaleFactor;
+              headerHeight = sillHeight + maxWinHeightPx;
+            } else if (rawSillMm !== null) {
+              sillHeight = rawSillMm / scaleFactor;
+              headerHeight = sillHeight + maxWinHeightPx;
+            } else {
+              headerHeight = hostWallHeightPx * 0.875;
+              sillHeight = Math.max(0, headerHeight - maxWinHeightPx);
+            }
+
+            const headerLeft = sillHeight + winHeight1Px;
+            const headerRight = sillHeight + winHeight2Px;
+
+            // Only render bottom wall mesh if NOT stacked on top of a lower door
+            if (!isStacked && sillHeight > 0.1) {
               const bottomWallGeo = new THREE.BoxGeometry(length, sillHeight, wallThickness);
               const bottomWallMesh = new THREE.Mesh(bottomWallGeo, fillerMat);
               bottomWallMesh.position.set(0, sillHeight / 2, 0);
@@ -1701,14 +1735,36 @@ export default function ThreeDView({
               doorGroup.add(bottomWallMesh);
             }
 
-            const topWallHeight = hostWallHeightPx - headerHeight;
-            if (topWallHeight > 0.1) {
-              const topWallGeo = new THREE.BoxGeometry(length, topWallHeight, wallThickness);
-              const topWallMesh = new THREE.Mesh(topWallGeo, fillerMat);
-              topWallMesh.position.set(0, headerHeight + topWallHeight / 2, 0);
-              topWallMesh.castShadow = enableShadows;
-              topWallMesh.receiveShadow = enableShadows;
-              doorGroup.add(topWallMesh);
+            if (!isRaked) {
+              const topWallHeight = Math.max(0, hostWallHeightPx - headerHeight);
+              if (topWallHeight > 0.1) {
+                const topWallGeo = new THREE.BoxGeometry(length, topWallHeight, wallThickness);
+                const topWallMesh = new THREE.Mesh(topWallGeo, fillerMat);
+                topWallMesh.position.set(0, headerHeight + topWallHeight / 2, 0);
+                topWallMesh.castShadow = enableShadows;
+                topWallMesh.receiveShadow = enableShadows;
+                doorGroup.add(topWallMesh);
+              }
+            } else {
+              // Sloped top wall filler above raked window
+              if (hostWallHeightPx > Math.min(headerLeft, headerRight)) {
+                const topWallShape = new THREE.Shape();
+                topWallShape.moveTo(-length / 2, Math.min(headerLeft, hostWallHeightPx));
+                topWallShape.lineTo(length / 2, Math.min(headerRight, hostWallHeightPx));
+                topWallShape.lineTo(length / 2, hostWallHeightPx);
+                topWallShape.lineTo(-length / 2, hostWallHeightPx);
+                topWallShape.closePath();
+
+                const topWallGeo = new THREE.ExtrudeGeometry(topWallShape, {
+                  depth: wallThickness,
+                  bevelEnabled: false
+                });
+                topWallGeo.translate(0, 0, -wallThickness / 2);
+                const topWallMesh = new THREE.Mesh(topWallGeo, fillerMat);
+                topWallMesh.castShadow = enableShadows;
+                topWallMesh.receiveShadow = enableShadows;
+                doorGroup.add(topWallMesh);
+              }
             }
 
             // High-End Anodized Architectural Window Frame System
@@ -1720,34 +1776,68 @@ export default function ThreeDView({
               metalness: 0.85
             });
 
-            // Outer Frame Posts & Headers
-            const leftPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
-            const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
-            leftPost.position.set(-length / 2 + frameThickness / 2, sillHeight + windowHeight / 2, 0);
-            leftPost.castShadow = enableShadows;
-            leftPost.receiveShadow = enableShadows;
-            doorGroup.add(leftPost);
-
-            const rightPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
-            const rightPost = new THREE.Mesh(rightPostGeo, windowFrameMat);
-            rightPost.position.set(length / 2 - frameThickness / 2, sillHeight + windowHeight / 2, 0);
-            rightPost.castShadow = enableShadows;
-            rightPost.receiveShadow = enableShadows;
-            doorGroup.add(rightPost);
-
-            const topFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
-            const topFrame = new THREE.Mesh(topFrameGeo, windowFrameMat);
-            topFrame.position.set(0, headerHeight - frameThickness / 2, 0);
-            topFrame.castShadow = enableShadows;
-            topFrame.receiveShadow = enableShadows;
-            doorGroup.add(topFrame);
-
+            // Bottom Frame (Horizontal sill frame for both standard and raked)
             const bottomFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
             const bottomFrame = new THREE.Mesh(bottomFrameGeo, windowFrameMat);
             bottomFrame.position.set(0, sillHeight + frameThickness / 2, 0);
             bottomFrame.castShadow = enableShadows;
             bottomFrame.receiveShadow = enableShadows;
             doorGroup.add(bottomFrame);
+
+            // Outer Frame Posts & Headers
+            if (!isRaked) {
+              const windowHeight = headerHeight - sillHeight;
+              const leftPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
+              const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
+              leftPost.position.set(-length / 2 + frameThickness / 2, sillHeight + windowHeight / 2, 0);
+              leftPost.castShadow = enableShadows;
+              leftPost.receiveShadow = enableShadows;
+              doorGroup.add(leftPost);
+
+              const rightPostGeo = new THREE.BoxGeometry(frameThickness, windowHeight, frameDepth);
+              const rightPost = new THREE.Mesh(rightPostGeo, windowFrameMat);
+              rightPost.position.set(length / 2 - frameThickness / 2, sillHeight + windowHeight / 2, 0);
+              rightPost.castShadow = enableShadows;
+              rightPost.receiveShadow = enableShadows;
+              doorGroup.add(rightPost);
+
+              const topFrameGeo = new THREE.BoxGeometry(length, frameThickness, frameDepth);
+              const topFrame = new THREE.Mesh(topFrameGeo, windowFrameMat);
+              topFrame.position.set(0, headerHeight - frameThickness / 2, 0);
+              topFrame.castShadow = enableShadows;
+              topFrame.receiveShadow = enableShadows;
+              doorGroup.add(topFrame);
+            } else {
+              // Raked left post
+              const leftPostGeo = new THREE.BoxGeometry(frameThickness, winHeight1Px, frameDepth);
+              const leftPost = new THREE.Mesh(leftPostGeo, windowFrameMat);
+              leftPost.position.set(-length / 2 + frameThickness / 2, sillHeight + winHeight1Px / 2, 0);
+              leftPost.castShadow = enableShadows;
+              leftPost.receiveShadow = enableShadows;
+              doorGroup.add(leftPost);
+
+              // Raked right post
+              const rightPostGeo = new THREE.BoxGeometry(frameThickness, winHeight2Px, frameDepth);
+              const rightPost = new THREE.Mesh(rightPostGeo, windowFrameMat);
+              rightPost.position.set(length / 2 - frameThickness / 2, sillHeight + winHeight2Px / 2, 0);
+              rightPost.castShadow = enableShadows;
+              rightPost.receiveShadow = enableShadows;
+              doorGroup.add(rightPost);
+
+              // Sloped Top Header Frame
+              const slopeDx = length;
+              const slopeDy = winHeight2Px - winHeight1Px;
+              const slopedLen = Math.hypot(slopeDx, slopeDy);
+              const slopeAngle = Math.atan2(slopeDy, slopeDx);
+
+              const slopedTopFrameGeo = new THREE.BoxGeometry(slopedLen, frameThickness, frameDepth);
+              const slopedTopFrame = new THREE.Mesh(slopedTopFrameGeo, windowFrameMat);
+              slopedTopFrame.position.set(0, sillHeight + (winHeight1Px + winHeight2Px) / 2 - frameThickness / 2, 0);
+              slopedTopFrame.rotation.z = slopeAngle;
+              slopedTopFrame.castShadow = enableShadows;
+              slopedTopFrame.receiveShadow = enableShadows;
+              doorGroup.add(slopedTopFrame);
+            }
 
             // Protruding Architectural Exterior Window Sill Cap
             const sillCapGeo = new THREE.BoxGeometry(length + 4, 1.8, frameDepth + 4);
@@ -1757,17 +1847,26 @@ export default function ThreeDView({
             sillCapMesh.castShadow = enableShadows;
             doorGroup.add(sillCapMesh);
 
-            // Vertical Center Mullion Divider for Windows > 1200mm
+            // Vertical Center Mullion Dividers
             if (length > 60) {
-              const mullionGeo = new THREE.BoxGeometry(1.8, windowHeight - frameThickness * 2, frameDepth - 1);
-              const mullionMesh = new THREE.Mesh(mullionGeo, windowFrameMat);
-              mullionMesh.position.set(0, sillHeight + windowHeight / 2, 0);
-              mullionMesh.castShadow = enableShadows;
-              doorGroup.add(mullionMesh);
+              const numPanes = length > 120 ? 3 : 2;
+              for (let i = 1; i < numPanes; i++) {
+                const frac = i / numPanes;
+                const mX = -length / 2 + frac * length;
+                const mH = isRaked
+                  ? (winHeight1Px + frac * (winHeight2Px - winHeight1Px) - frameThickness * 2)
+                  : (headerHeight - sillHeight - frameThickness * 2);
+                if (mH > 5) {
+                  const mullionGeo = new THREE.BoxGeometry(1.8, mH, frameDepth - 1);
+                  const mullionMesh = new THREE.Mesh(mullionGeo, windowFrameMat);
+                  mullionMesh.position.set(mX, sillHeight + frameThickness + mH / 2, 0);
+                  mullionMesh.castShadow = enableShadows;
+                  doorGroup.add(mullionMesh);
+                }
+              }
             }
 
             // High-Clarity Reflective Low-E Architectural Glass Panes
-            const glassGeo = new THREE.BoxGeometry(length - frameThickness * 2, windowHeight - frameThickness * 2, 0.8);
             const glassMat = new THREE.MeshPhysicalMaterial({
               color: 0x38bdf8, // Subtle cyan-blue low-E glass tint
               transparent: true,
@@ -1778,21 +1877,50 @@ export default function ThreeDView({
               thickness: 1.2,
               reflectivity: 0.95
             });
-            const glassMesh = new THREE.Mesh(glassGeo, glassMat);
-            glassMesh.position.set(0, sillHeight + windowHeight / 2, 0);
-            doorGroup.add(glassMesh);
+
+            if (!isRaked) {
+              const windowHeight = headerHeight - sillHeight;
+              const glassGeo = new THREE.BoxGeometry(length - frameThickness * 2, windowHeight - frameThickness * 2, 0.8);
+              const glassMesh = new THREE.Mesh(glassGeo, glassMat);
+              glassMesh.position.set(0, sillHeight + windowHeight / 2, 0);
+              doorGroup.add(glassMesh);
+            } else {
+              const glassShape = new THREE.Shape();
+              const gLeft = -length / 2 + frameThickness;
+              const gRight = length / 2 - frameThickness;
+              const gBottom = sillHeight + frameThickness;
+              const gTopLeft = sillHeight + winHeight1Px - frameThickness;
+              const gTopRight = sillHeight + winHeight2Px - frameThickness;
+
+              glassShape.moveTo(gLeft, gBottom);
+              glassShape.lineTo(gRight, gBottom);
+              glassShape.lineTo(gRight, gTopRight);
+              glassShape.lineTo(gLeft, gTopLeft);
+              glassShape.closePath();
+
+              const glassGeo = new THREE.ExtrudeGeometry(glassShape, { depth: 0.8, bevelEnabled: false });
+              glassGeo.translate(0, 0, -0.4);
+              const glassMesh = new THREE.Mesh(glassGeo, glassMat);
+              doorGroup.add(glassMesh);
+            }
           } else {
             const calculatedDoorHeightPx = door.height_mm ? (door.height_mm / scaleFactor) : (hostWallHeightPx * 0.85);
             const frameHeight = Math.min(calculatedDoorHeightPx, hostWallHeightPx - 1);
 
-            const topDoorWallHeight = hostWallHeightPx - frameHeight;
-            if (topDoorWallHeight > 0.1) {
-              const topDoorWallGeo = new THREE.BoxGeometry(length, topDoorWallHeight, wallThickness);
-              const topDoorWallMesh = new THREE.Mesh(topDoorWallGeo, fillerMat);
-              topDoorWallMesh.position.set(0, frameHeight + topDoorWallHeight / 2, 0);
-              topDoorWallMesh.castShadow = enableShadows;
-              topDoorWallMesh.receiveShadow = enableShadows;
-              doorGroup.add(topDoorWallMesh);
+            // Check if there is an upper window stacked above this door
+            const stackedUpperWindow = findStackedUpperWindow(door, pageDoors, pageWalls);
+
+            // Only render top wall filler above door if NO upper window is stacked above it
+            if (!stackedUpperWindow) {
+              const topDoorWallHeight = hostWallHeightPx - frameHeight;
+              if (topDoorWallHeight > 0.1) {
+                const topDoorWallGeo = new THREE.BoxGeometry(length, topDoorWallHeight, wallThickness);
+                const topDoorWallMesh = new THREE.Mesh(topDoorWallGeo, fillerMat);
+                topDoorWallMesh.position.set(0, frameHeight + topDoorWallHeight / 2, 0);
+                topDoorWallMesh.castShadow = enableShadows;
+                topDoorWallMesh.receiveShadow = enableShadows;
+                doorGroup.add(topDoorWallMesh);
+              }
             }
 
             const frameMat = new THREE.MeshStandardMaterial({

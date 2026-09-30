@@ -179,6 +179,27 @@ export const DOOR_TYPE_REGISTRY = {
     ],
     iconType: 'window',
   },
+  win_raked: {
+    id: 'win_raked',
+    label: 'Raked Window (Trapezoid)',
+    shortLabel: 'Raked Win',
+    category: 'external',
+    renderClass: 'window',
+    doorType: 'window',
+    headOffset: 100,
+    defaultWidth: 1800,
+    defaultHeight: 1800,
+    defaultHeight2: 900,
+    minWidth: 600,
+    maxWidth: 4000,
+    presetSizes: [
+      { w: 1200, h: 1500, h2: 800, label: '1200 x 1500/800 mm' },
+      { w: 1800, h: 1800, h2: 900, label: '1800 x 1800/900 mm' },
+      { w: 2400, h: 2100, h2: 900, label: '2400 x 2100/900 mm' },
+      { w: 3000, h: 2400, h2: 1200, label: '3000 x 2400/1200 mm' },
+    ],
+    iconType: 'window',
+  },
 
   // ── Internal Penetrations ──
   int_hinged_single: {
@@ -443,7 +464,7 @@ export function computeDoorHeight(wallClassName, doorTypeId, heightOverride = nu
     return heightOverride;
   }
   const doorDef = DOOR_TYPE_REGISTRY[doorTypeId];
-  if (doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard') {
+  if (doorDef?.doorType === 'window' || doorDef?.renderClass === 'window' || doorTypeId === 'win_standard' || doorTypeId === 'win_raked') {
     return doorDef?.defaultHeight || 1200;
   }
   if (doorDef?.doorType === 'garage' || doorDef?.renderClass === 'garage_door' || doorTypeId === 'ext_garage') {
@@ -497,6 +518,9 @@ export function resolveDoorTypeId(doorClass, category = 'internal') {
   }
   if (str.includes('garage') || str.includes('roller')) {
     return 'ext_garage';
+  }
+  if (str.includes('raked') || str.includes('trapezoid')) {
+    return 'win_raked';
   }
   if (str.includes('window') || str.includes('win_') || str === 'win') {
     return 'win_standard';
@@ -640,8 +664,19 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
   const thicknessMm = parentWall?.thickness || WALL_TYPE_DEFAULTS[wallClass]?.defaultThicknessMm || 90;
   const rotation = Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
 
-  const areaMm2 = widthMm * heightMm;
-  const perimeterMm = 2 * (widthMm + heightMm);
+  const height2Mm = overrides.height2_mm !== undefined
+    ? Number(overrides.height2_mm)
+    : (overrides.height2 !== undefined
+        ? Number(overrides.height2)
+        : (doorDef.defaultHeight2 !== undefined ? doorDef.defaultHeight2 : heightMm));
+  const isRaked = isWindow && height2Mm !== heightMm;
+  const slopedLen = isRaked ? Math.hypot(widthMm, height2Mm - heightMm) : widthMm;
+  const areaMm2 = isRaked
+    ? Math.round((widthMm * (heightMm + height2Mm)) / 2)
+    : widthMm * heightMm;
+  const perimeterMm = isRaked
+    ? Math.round(widthMm + heightMm + height2Mm + slopedLen)
+    : 2 * (widthMm + heightMm);
 
   const now = new Date().toISOString();
 
@@ -676,9 +711,11 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     // ── Dimensions (mm) ──
     width_mm: widthMm,
     height_mm: heightMm,
+    height2_mm: height2Mm,
     height: heightMm,
     heightMm: heightMm,
     thickness_mm: thicknessMm,
+    is_raked: isRaked,
 
     // ── Computed Metrics ──
     area_mm2: areaMm2,
@@ -927,8 +964,10 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     product: door.product || door.door_type || lockupModel,
     width_mm: widthMm,
     height_mm: heightMm,
+    height2_mm: door.height2_mm !== undefined ? Number(door.height2_mm) : heightMm,
     height: heightMm,
     heightMm: heightMm,
+    is_raked: isWindowObj && door.height2_mm !== undefined && Number(door.height2_mm) !== heightMm,
     hingeSide: door.hingeSide || door.hinge_side || 'left',
     hinge_side: door.hinge_side || door.hingeSide || 'left',
     swingDirection: door.swingDirection || door.swing_direction || door.swing || 'inward',
@@ -1021,6 +1060,12 @@ export function validateDoorPlacement(door, wall, existingDoors = [], tolerance 
     const otherEnd = ot + oHalfW;
 
     if (doorEnd > otherStart + tolerance && doorStart < otherEnd - tolerance) {
+      // Allow vertical stacking if one is a window and the other is a door
+      const doorIsWin = isWindowPenetration(door);
+      const otherIsWin = isWindowPenetration(other);
+      if (doorIsWin !== otherIsWin) {
+        continue;
+      }
       errors.push(`Door overlaps with ${other.doorName || other.door_name || other.id}`);
     }
   }
@@ -1046,8 +1091,15 @@ export function computeDoorMetrics(door, wall, realScale) {
   const doorWidthPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
   const widthMm = door.width_mm || (realScale ? Math.round(doorWidthPx * realScale) : 760);
   const heightMm = door.height_mm || 1980;
-  const areaMm2 = widthMm * heightMm;
-  const perimeterMm = 2 * (widthMm + heightMm);
+  const height2Mm = (door.height2_mm !== undefined && door.height2_mm !== null) ? Number(door.height2_mm) : heightMm;
+  const isRaked = height2Mm !== heightMm;
+  const slopedLen = isRaked ? Math.hypot(widthMm, height2Mm - heightMm) : widthMm;
+  const areaMm2 = isRaked
+    ? Math.round((widthMm * (heightMm + height2Mm)) / 2)
+    : widthMm * heightMm;
+  const perimeterMm = isRaked
+    ? Math.round(widthMm + heightMm + height2Mm + slopedLen)
+    : 2 * (widthMm + heightMm);
 
   let distLeftMm = 0;
   let distRightMm = 0;
@@ -1084,3 +1136,150 @@ export function computeDoorMetrics(door, wall, realScale) {
 
   return { widthMm, heightMm, areaMm2, perimeterMm, distLeftMm, distRightMm };
 }
+
+/**
+ * Helper to determine whether an object is a window (not a door, sliding door, or garage).
+ *
+ * @param {Object} door
+ * @returns {boolean}
+ */
+export function isWindowPenetration(door) {
+  if (!door) return false;
+  const dClass = (door.class || '').toLowerCase();
+  const dType = (door.type || '').toLowerCase();
+  const dName = (door.door_name || door.doorName || '').toLowerCase();
+  const dTypeId = (door.doorTypeId || '').toLowerCase();
+
+  const isSliding = dType === 'sliding' ||
+    dClass.includes('sliding') ||
+    dClass.includes('slider') ||
+    dClass.includes('cavity') ||
+    dClass.includes('windoor') ||
+    dName.includes('slider') ||
+    dName.includes('sliding') ||
+    dName.includes('windoor') ||
+    dTypeId.includes('sliding') ||
+    dTypeId.includes('slider');
+
+  return (
+    ((dClass.includes('window') ||
+      dType === 'window' ||
+      dName.includes('window') ||
+      dName.startsWith('w-') ||
+      dTypeId === 'win_standard' ||
+      dTypeId === 'win_raked' ||
+      dTypeId.startsWith('win_') ||
+      (door.id && String(door.id).startsWith('window_'))) &&
+      !isSliding)
+  );
+}
+
+/**
+ * Finds if there is a lower door (or opening) stacked beneath the given window on the same wall.
+ *
+ * @param {Object} windowObj - The window object to check
+ * @param {Array} allDoors - Array of all doors/windows on the floor/page
+ * @param {Array} [walls=[]] - Array of walls for coordinate projection
+ * @returns {Object|null} The lower door object if found, else null
+ */
+export function findStackedLowerDoor(windowObj, allDoors = [], walls = []) {
+  if (!windowObj || !windowObj.points || windowObj.points.length < 2) return null;
+  if (!isWindowPenetration(windowObj)) return null;
+
+  const wP1 = Array.isArray(windowObj.points[0]) ? { x: windowObj.points[0][0], y: windowObj.points[0][1] } : windowObj.points[0];
+  const wP2 = Array.isArray(windowObj.points[1]) ? { x: windowObj.points[1][0], y: windowObj.points[1][1] } : windowObj.points[1];
+  const wDx = wP2.x - wP1.x;
+  const wDy = wP2.y - wP1.y;
+  const wLen = Math.hypot(wDx, wDy);
+  if (wLen < 1) return null;
+
+  const wCx = (wP1.x + wP2.x) / 2;
+  const wCy = (wP1.y + wP2.y) / 2;
+
+  let bestMatch = null;
+  let maxOverlapRatio = 0;
+
+  for (const other of allDoors) {
+    if (other.id === windowObj.id) continue;
+    if (!other.points || other.points.length < 2) continue;
+    if (isWindowPenetration(other)) continue; // only match lower doors / openings
+
+    // Check parent wall match or proximity
+    const sameWall = (
+      (windowObj.parentWallId && other.parentWallId && (
+        windowObj.parentWallId === other.parentWallId ||
+        windowObj.parentWallId.split('-A-')[0].split('-B-')[0] === other.parentWallId.split('-A-')[0].split('-B-')[0]
+      ))
+    );
+
+    const oP1 = Array.isArray(other.points[0]) ? { x: other.points[0][0], y: other.points[0][1] } : other.points[0];
+    const oP2 = Array.isArray(other.points[1]) ? { x: other.points[1][0], y: other.points[1][1] } : other.points[1];
+    const oCx = (oP1.x + oP2.x) / 2;
+    const oCy = (oP1.y + oP2.y) / 2;
+    const centerDist = Math.hypot(wCx - oCx, wCy - oCy);
+
+    // If not marked as same wall, check if centers are close (within 60px)
+    if (!sameWall && centerDist > 60) continue;
+
+    // Project both segments onto the axis of other door
+    const oDx = oP2.x - oP1.x;
+    const oDy = oP2.y - oP1.y;
+    const oLen = Math.hypot(oDx, oDy);
+    if (oLen < 1) continue;
+
+    const ux = oDx / oLen;
+    const uy = oDy / oLen;
+
+    // Perpendicular distance between centers
+    const perpDist = Math.abs(ux * (wCy - oCy) - uy * (wCx - oCx));
+    if (perpDist > 40) continue; // must be on same wall alignment within 40px
+
+    // 1D projection of window along door line
+    const tW1 = (wP1.x - oP1.x) * ux + (wP1.y - oP1.y) * uy;
+    const tW2 = (wP2.x - oP1.x) * ux + (wP2.y - oP1.y) * uy;
+    const minW = Math.min(tW1, tW2);
+    const maxW = Math.max(tW1, tW2);
+
+    const minO = 0;
+    const maxO = oLen;
+
+    // Overlap length
+    const overlap = Math.max(0, Math.min(maxW, maxO) - Math.max(minW, minO));
+    const minSpan = Math.min(maxW - minW, oLen);
+    if (minSpan <= 0) continue;
+
+    const overlapRatio = overlap / minSpan;
+    if (overlapRatio >= 0.35 && overlapRatio > maxOverlapRatio) {
+      maxOverlapRatio = overlapRatio;
+      bestMatch = other;
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Finds if there is an upper window stacked above the given door.
+ *
+ * @param {Object} doorObj - The lower door object
+ * @param {Array} allDoors - Array of all doors/windows on the floor/page
+ * @param {Array} [walls=[]] - Array of walls for coordinate projection
+ * @returns {Object|null} The upper window object if found, else null
+ */
+export function findStackedUpperWindow(doorObj, allDoors = [], walls = []) {
+  if (!doorObj || !doorObj.points || doorObj.points.length < 2) return null;
+  if (isWindowPenetration(doorObj)) return null;
+
+  for (const other of allDoors) {
+    if (other.id === doorObj.id) continue;
+    if (!isWindowPenetration(other)) continue;
+
+    const lowerDoor = findStackedLowerDoor(other, allDoors, walls);
+    if (lowerDoor && lowerDoor.id === doorObj.id) {
+      return other;
+    }
+  }
+
+  return null;
+}
+

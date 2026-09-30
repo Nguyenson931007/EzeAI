@@ -1850,6 +1850,11 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           newWall.thickness = thicknessMm;
           newWall.thickness_px = thicknessPx;
 
+          // Automatically sync frame_stud_size to match the new thickness
+          if (!newWall.frame_stud_size || !String(newWall.frame_stud_size).startsWith(`${thicknessMm}x`)) {
+            newWall.frame_stud_size = `${thicknessMm}x35`;
+          }
+
           if (w.centerline && w.centerline.length === 2) {
             const pts = w.centerline.map(pt => ({ x: pt[0], y: pt[1] }));
             const newPoly = calculateWallPolygonWithJunctions(pts, thicknessPx, w.id, pageWalls);

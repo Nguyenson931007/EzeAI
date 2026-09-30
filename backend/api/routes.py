@@ -2073,6 +2073,9 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
             is_ext = w_type == "ext" or w_class == "exterior_wall"
             is_int = not is_ext
             
+            # Load bearing: if explicitly provided in is_lbw, use it, else fallback to is_ext
+            is_load_bearing = bool(wall.get("is_lbw")) if "is_lbw" in wall else is_ext
+            
             if c_mm and len(c_mm) >= 2:
                 p1 = c_mm[0]
                 p2 = c_mm[1]
@@ -2088,6 +2091,18 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                 length_val = int(wall.get("length_mm") or wall.get("length") or 0)
                 thick_val = int(wall.get("thickness_mm") or wall.get("thickness") or 90)
                 height_val = int(wall.get("height_mm") or wall.get("height") or 2700)
+
+                # Dynamic framing properties from user selection or defaults
+                stud_spacing = str(wall.get("frame_stud_spacing") or "450")
+                timber_grade = str(wall.get("frame_timber_grade") or "MGP10")
+                stud_size = str(wall.get("frame_stud_size") or f"{thick_val}x35")
+                stud_ply = int(wall.get("frame_stud_ply_count") or 1)
+                plate_ply = int(wall.get("frame_plate_ply_count") or 1)
+                treated_val = str(wall.get("treated") or "UNTREATED")
+
+                # Auto double stud for walls taller than 2805mm if not explicitly set
+                if height_val > 2805 and "frame_stud_ply_count" not in wall:
+                    stud_ply = 2
 
                 formatted_walls.append({
                     "Id": wall_id,
@@ -2125,28 +2140,29 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                     "IsVirtualRoofWall": False,
                     "IsExisting": False,
                     "AllowInternalRibbonPlateEdit": False,
-                    "LoadBearingWall": is_ext,
+                    "LoadBearingWall": is_load_bearing,
                     "ExteriorPlasterFaceManuallyConfirmed": False,
-                    "FrameStudSpacing": "450",
-                    "FrameBottomPlateGrade": "MGP10",
-                    "FrameRibbonPlateGrade": "MGP10",
-                    "FrameTopPlateGrade": "MGP10",
-                    "FrameStudGrade": "MGP10",
-                    "FrameNogGrade": "MGP10",
-                    "FrameBottomPlateSize": "90x35",
-                    "FrameRibbonPlateSize": "90x35",
-                    "FrameTopPlateSize": "90x35",
-                    "FrameStudSize": "90x35",
-                    "FrameNogSize": "90x35",
-                    "FrameBottomPlatePlyCount": 1,
-                    "FrameRibbonPlatePlyCount": 1,
-                    "FrameTopPlatePlyCount": 1,
-                    "FrameStudPlyCount": 1,
+                    "FrameStudSpacing": stud_spacing,
+                    "FrameBottomPlateGrade": timber_grade,
+                    "FrameRibbonPlateGrade": timber_grade,
+                    "FrameTopPlateGrade": timber_grade,
+                    "FrameStudGrade": timber_grade,
+                    "FrameNogGrade": timber_grade,
+                    "FrameBottomPlateSize": stud_size,
+                    "FrameRibbonPlateSize": stud_size,
+                    "FrameTopPlateSize": stud_size,
+                    "FrameStudSize": stud_size,
+                    "FrameNogSize": stud_size,
+                    "FrameBottomPlatePlyCount": plate_ply,
+                    "FrameRibbonPlatePlyCount": plate_ply,
+                    "FrameTopPlatePlyCount": plate_ply,
+                    "FrameStudPlyCount": stud_ply,
                     "FrameWallColorArgb": -16776961 if is_ext else -65281,
                     "FrameExternalWallColorArgb": -16776961,
                     "FrameInternalWallColorArgb": -65281,
                     "FrameLoadBearingWallColorArgb": -16776961,
-                    "FrameNonLoadBearingWallColorArgb": -65281
+                    "FrameNonLoadBearingWallColorArgb": -65281,
+                    "_treated": treated_val
                 })
                 
         # ── 3b. Compute dynamic EZPlan values from wall data ──
@@ -2170,6 +2186,40 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
         int_thicknesses = [fw["Thickness"] for fw in formatted_walls if fw.get("Interior")]
         ext_wall_width = str(int(Counter(ext_thicknesses).most_common(1)[0][0])) if ext_thicknesses else "90"
         int_wall_width = str(int(Counter(int_thicknesses).most_common(1)[0][0])) if int_thicknesses else "90"
+
+        # Dominant stud spacing
+        all_stud_spacings = [fw["FrameStudSpacing"] for fw in formatted_walls if fw.get("FrameStudSpacing")]
+        dominant_spacing = Counter(all_stud_spacings).most_common(1)[0][0] if all_stud_spacings else "450"
+
+        # Dominant grades
+        ext_grades = [fw["FrameStudGrade"] for fw in formatted_walls if fw.get("Exterior")]
+        int_grades = [fw["FrameStudGrade"] for fw in formatted_walls if fw.get("Interior")]
+        ext_timber_grade = Counter(ext_grades).most_common(1)[0][0] if ext_grades else "MGP10"
+        int_timber_grade = Counter(int_grades).most_common(1)[0][0] if int_grades else "MGP10"
+
+        # Dominant treated
+        all_treated = [fw.get("_treated", "UNTREATED") for fw in formatted_walls if fw.get("_treated")]
+        dominant_treated = Counter(all_treated).most_common(1)[0][0] if all_treated else "UNTREATED"
+
+        # Clean temporary helper keys from formatted_walls before JSON dump
+        for fw in formatted_walls:
+            fw.pop("_treated", None)
+
+        # Frame sizing width & length
+        ext_sizes = [fw["FrameStudSize"] for fw in formatted_walls if fw.get("Exterior")]
+        int_sizes = [fw["FrameStudSize"] for fw in formatted_walls if fw.get("Interior")]
+        dominant_ext_size = Counter(ext_sizes).most_common(1)[0][0] if ext_sizes else f"{ext_wall_width}x35"
+        dominant_int_size = Counter(int_sizes).most_common(1)[0][0] if int_sizes else f"{int_wall_width}x35"
+
+        def parse_dim(sz_str, def_w, def_l):
+            try:
+                parts = sz_str.lower().split("x")
+                return str(parts[0]), str(parts[1])
+            except Exception:
+                return str(def_w), str(def_l)
+
+        ext_sz_w, ext_sz_l = parse_dim(dominant_ext_size, ext_wall_width, "35")
+        int_sz_w, int_sz_l = parse_dim(dominant_int_size, int_wall_width, "35")
         
         # ── 3c. Build full EZPlan document ──
         ezplan_doc = {
@@ -2243,7 +2293,7 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                 "TrussCenters": "600",
                 "RafterCenters": "600",
                 "TrussRafterCenters": "600",
-                "Treated": "UNTREATED",
+                "Treated": dominant_treated,
                 "WindClass": "N1",
                 "FloorSection": "Ground floor",
                 "StepDown": "0",
@@ -2262,17 +2312,17 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                 "CeilingHeight": str(wall_height),
                 "ExternalWallWidth": ext_wall_width,
                 "InternalWallWidth": int_wall_width,
-                "ExternalStudSpacing": "450",
-                "InternalStudSpacing": "450",
-                "ExternalBottomPlate": "MGP10",
-                "ExternalRibbonPlate": "MGP10",
-                "ExternalTopPlate": "MGP10",
-                "ExternalStud": "MGP10",
-                "ExternalNog": "MGP10",
-                "InternalBottomPlate": "MGP10",
-                "InternalTopPlate": "MGP10",
-                "InternalStud": "MGP10",
-                "InternalNog": "MGP10",
+                "ExternalStudSpacing": dominant_spacing,
+                "InternalStudSpacing": dominant_spacing,
+                "ExternalBottomPlate": ext_timber_grade,
+                "ExternalRibbonPlate": ext_timber_grade,
+                "ExternalTopPlate": ext_timber_grade,
+                "ExternalStud": ext_timber_grade,
+                "ExternalNog": ext_timber_grade,
+                "InternalBottomPlate": int_timber_grade,
+                "InternalTopPlate": int_timber_grade,
+                "InternalStud": int_timber_grade,
+                "InternalNog": int_timber_grade,
                 "ExternalWallColorArgb": -16776961,
                 "InternalWallColorArgb": -65281,
                 "LoadBearingWallColorArgb": -16776961,
@@ -2292,46 +2342,46 @@ async def export_wall_labels(data: ExportWallLabelsRequest):
                 "OpeningTagSizeMm": 500,
                 "TextNoteSizeMm": 500,
                 "MeasureInfoSizeMm": 500,
-                "FrameSizingWallType": "90",
+                "FrameSizingWallType": ext_wall_width,
                 "LoadBearingFrameSizing": {
-                    "ExternalBottomPlateLength": "35",
-                    "ExternalBottomPlateWidth": "90",
-                    "ExternalRibbonPlateLength": "35",
-                    "ExternalRibbonPlateWidth": "90",
-                    "ExternalTopPlateLength": "35",
-                    "ExternalTopPlateWidth": "90",
-                    "ExternalStudLength": "35",
-                    "ExternalStudWidth": "90",
-                    "ExternalNogLength": "35",
-                    "ExternalNogWidth": "90",
-                    "InternalBottomPlateLength": "35",
-                    "InternalBottomPlateWidth": "90",
-                    "InternalTopPlateLength": "35",
-                    "InternalTopPlateWidth": "90",
-                    "InternalStudLength": "35",
-                    "InternalStudWidth": "90",
-                    "InternalNogLength": "35",
-                    "InternalNogWidth": "90"
+                    "ExternalBottomPlateLength": ext_sz_l,
+                    "ExternalBottomPlateWidth": ext_sz_w,
+                    "ExternalRibbonPlateLength": ext_sz_l,
+                    "ExternalRibbonPlateWidth": ext_sz_w,
+                    "ExternalTopPlateLength": ext_sz_l,
+                    "ExternalTopPlateWidth": ext_sz_w,
+                    "ExternalStudLength": ext_sz_l,
+                    "ExternalStudWidth": ext_sz_w,
+                    "ExternalNogLength": ext_sz_l,
+                    "ExternalNogWidth": ext_sz_w,
+                    "InternalBottomPlateLength": int_sz_l,
+                    "InternalBottomPlateWidth": int_sz_w,
+                    "InternalTopPlateLength": int_sz_l,
+                    "InternalTopPlateWidth": int_sz_w,
+                    "InternalStudLength": int_sz_l,
+                    "InternalStudWidth": int_sz_w,
+                    "InternalNogLength": int_sz_l,
+                    "InternalNogWidth": int_sz_w
                 },
                 "NonLoadBearingFrameSizing": {
-                    "ExternalBottomPlateLength": "35",
-                    "ExternalBottomPlateWidth": "90",
-                    "ExternalRibbonPlateLength": "35",
-                    "ExternalRibbonPlateWidth": "90",
-                    "ExternalTopPlateLength": "35",
-                    "ExternalTopPlateWidth": "90",
-                    "ExternalStudLength": "35",
-                    "ExternalStudWidth": "90",
-                    "ExternalNogLength": "35",
-                    "ExternalNogWidth": "90",
-                    "InternalBottomPlateLength": "35",
-                    "InternalBottomPlateWidth": "90",
-                    "InternalTopPlateLength": "35",
-                    "InternalTopPlateWidth": "90",
-                    "InternalStudLength": "35",
-                    "InternalStudWidth": "90",
-                    "InternalNogLength": "35",
-                    "InternalNogWidth": "90"
+                    "ExternalBottomPlateLength": ext_sz_l,
+                    "ExternalBottomPlateWidth": ext_sz_w,
+                    "ExternalRibbonPlateLength": ext_sz_l,
+                    "ExternalRibbonPlateWidth": ext_sz_w,
+                    "ExternalTopPlateLength": ext_sz_l,
+                    "ExternalTopPlateWidth": ext_sz_w,
+                    "ExternalStudLength": ext_sz_l,
+                    "ExternalStudWidth": ext_sz_w,
+                    "ExternalNogLength": ext_sz_l,
+                    "ExternalNogWidth": ext_sz_w,
+                    "InternalBottomPlateLength": int_sz_l,
+                    "InternalBottomPlateWidth": int_sz_w,
+                    "InternalTopPlateLength": int_sz_l,
+                    "InternalTopPlateWidth": int_sz_w,
+                    "InternalStudLength": int_sz_l,
+                    "InternalStudWidth": int_sz_w,
+                    "InternalNogLength": int_sz_l,
+                    "InternalNogWidth": int_sz_w
                 }
             }
         }
