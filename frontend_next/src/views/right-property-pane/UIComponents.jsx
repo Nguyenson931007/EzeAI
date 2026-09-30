@@ -565,6 +565,29 @@ export const EXTRA_MODULE_TABS = [
     )
   },
   {
+    id: "fixout",
+    label: "Fixout",
+    title: "Fixout",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
+        <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
+      </svg>
+    )
+  },
+  {
+    id: "windows",
+    label: "Window",
+    title: "Window",
+    localOnly: true,
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <rect x="3" y="4" width="18" height="16" rx="1.5" />
+        <path d="M12 4v16M3 12h18" />
+      </svg>
+    )
+  },
+  {
     id: "shelving",
     label: "Shelving",
     title: "Shelving",
@@ -617,17 +640,6 @@ export const EXTRA_MODULE_TABS = [
         <path d="M6 3v6a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V3" />
         <path d="M12 12v9" />
         <circle cx="12" cy="18" r="2.5" />
-      </svg>
-    )
-  },
-  {
-    id: "fixout",
-    label: "Fixout",
-    title: "Fixout",
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-        <path d="M3 21h18M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16" />
-        <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4" />
       </svg>
     )
   },

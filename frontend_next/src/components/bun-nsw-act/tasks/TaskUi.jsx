@@ -206,6 +206,15 @@ export function isAiGeneratedTaskRow(row) {
   const autoFillSource = String(row.autofill_source ?? row.autoFillSource ?? "").trim().toLowerCase();
   if (autoFillSource && autoFillSource !== "manual") return true;
 
+  const source = String(row.source ?? row.source_type ?? row.sourceType ?? "").trim().toLowerCase();
+  if (
+    source === "floor_ceiling_sync" ||
+    source === "floor_ceiling_ai" ||
+    source === "floor-ceiling-ai"
+  ) {
+    return true;
+  }
+
   const rowId = String(row.id ?? "").trim().toLowerCase();
   return /(?:^|[-_])ai(?:[-_]|$)/.test(rowId);
 }

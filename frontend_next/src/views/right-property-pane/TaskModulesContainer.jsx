@@ -25,6 +25,7 @@ export default function TaskModulesContainer({
   TimberPostsTask,
   FixoutTask,
   LockupTask,
+  WindowTask,
   ShelvingTask,
   DoorsFurnitureTask,
   FowPlumbingTask,
@@ -60,6 +61,7 @@ export default function TaskModulesContainer({
   lockupEntries,
   handleSetLockupEntries,
   windowEntries,
+  setWindowEntries,
   hardiesFireWallEntries,
   handleSetHardiesFireWallEntries,
   // Selection Props
@@ -361,6 +363,34 @@ export default function TaskModulesContainer({
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleId)}
           onMoveDoorTask={(row, targetTask) => onMoveDoorTask?.("fixout", row, targetTask)}
+        />
+      )}
+
+      {/* Window — separate view, same data/save flow as Fixout reveals */}
+      {activeModuleId === "windows" && WindowTask && (
+        <WindowTask
+          entries={windowEntries}
+          onSelectEntry={handleSelectEntry}
+          onAutoFill={() => handleAddDataAI("windows")}
+          onClear={() => {
+            handleResetModuleData("windows");
+            setWindowEntries?.([]);
+            let currentRows = [];
+            try {
+              const parsed = moduleFormData?.fixout?.fixout_reveal_openings
+                ? JSON.parse(moduleFormData.fixout.fixout_reveal_openings)
+                : [];
+              currentRows = Array.isArray(parsed) ? parsed : [];
+            } catch (_) {}
+            const keep = currentRows.filter((row) => String(row?.type || "").toLowerCase() !== "window");
+            handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify(keep));
+          }}
+          updateDoorsProperty={updateDoorsProperty}
+          fixoutEntries={fixoutDoorEntries}
+          fixoutFormData={moduleFormData.fixout || {}}
+          activeJobNumber={currentProjectName || currentJobId}
+          currentProjectName={currentProjectName}
+          currentJobId={currentJobId}
         />
       )}
 

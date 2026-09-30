@@ -2564,7 +2564,7 @@ export function buildSyncPayloadForTasks(detectedData) {
   const insulationEntries = [];
 
   const ceilingProduct = "0300784 · INSULATION BATTS G/WOOL KNAUF++175X430 EARTHWOOL R3.5 PK17 - 8.5 m²/pack";
-  const floorProduct = "0810608 · INS BATTS ACOUSTIC GWOOL KNAUF++EARTHWOOL R2.0 75X430 PK20 - 10 m²/pack";
+  const floorProduct = ""; // Resolved from the active customer Procurement catalog in InsulationTask.
 
   if (currentAreas.byLevel && Object.keys(currentAreas.byLevel).length > 0) {
     const levelEntries = Object.entries(currentAreas.byLevel);
@@ -2594,7 +2594,7 @@ export function buildSyncPayloadForTasks(detectedData) {
           id: `fc_ins_floor_${code}_${Date.now() + 1}`,
           type: "Floor",
           floorLevel: code,
-          rValue: "R2.0",
+          rValue: "R2.5",
           product: floorProduct,
           insulationArea: floorM2,
           totalArea: floorM2,
@@ -2629,7 +2629,7 @@ export function buildSyncPayloadForTasks(detectedData) {
         id: `fc_ins_floor_${Date.now() + 1}`,
         type: "Floor",
         floorLevel: defaultLevel,
-        rValue: "R2.0",
+        rValue: "R2.5",
         product: floorProduct,
         insulationArea: currentAreas.totalFloorM2,
         totalArea: currentAreas.totalFloorM2,

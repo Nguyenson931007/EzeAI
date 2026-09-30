@@ -323,6 +323,40 @@ export default function InsulationTask({
     [floorCatalogItems, ceilingCatalogItems, areaInsType, areaRValue, hasProcurementInsulationCatalog]
   );
 
+  // Floor/Ceiling scan owns geometry + area only. Resolve R-value/product from
+  // the current customer's Procurement catalog so generated rows match the form.
+  useEffect(() => {
+    if (!onSetAreaEntries || !(areaEntries || []).some((row) => row?.source === "floor_ceiling_sync")) return;
+
+    let changed = false;
+    const next = (areaEntries || []).map((row) => {
+      if (row?.source !== "floor_ceiling_sync") return row;
+
+      const isFloor = String(row?.type || "").toLowerCase() === "floor";
+      const catalog = isFloor ? floorCatalogItems : ceilingCatalogItems;
+      const rOptions = getRValueOptions(catalog);
+      const preferredR = isFloor ? "R2.5" : "R3.5";
+      const currentR = normalizeRValue(row?.rValue);
+      const resolvedR =
+        (rOptions.includes(preferredR) && preferredR) ||
+        (currentR && rOptions.includes(currentR) && currentR) ||
+        rOptions[0] ||
+        currentR ||
+        preferredR;
+
+      const productOptions = getProductOptionsForAreaAndR(isFloor ? "Floor" : "Ceiling", resolvedR);
+      const currentProduct = String(row?.product || "").trim();
+      const resolvedProduct =
+        (currentProduct && productOptions.includes(currentProduct) ? currentProduct : "") ||
+        productOptions[0] ||
+        currentProduct;
+
+      if (resolvedR !== currentR || resolvedProduct !== currentProduct) changed = true;
+      return { ...row, rValue: resolvedR, product: resolvedProduct };
+    });
+
+    if (changed) onSetAreaEntries(next);
+  }, [areaEntries, onSetAreaEntries, floorCatalogItems, ceilingCatalogItems, hasProcurementInsulationCatalog]);
 
   useEffect(() => {
     if (extRValueOptions.length && !extRValueOptions.includes(extRValue)) setExtRValue(extRValueOptions[0]);
@@ -385,7 +419,7 @@ export default function InsulationTask({
     if (newType === "Ceiling") {
       setAreaRValue("R3.5");
     } else if (newType === "Floor") {
-      setAreaRValue("R2.0");
+      setAreaRValue("R2.5");
     }
   };
 
@@ -468,6 +502,12 @@ export default function InsulationTask({
   const handleAutoFillAI = async () => {
     setIsAutoFilling(true);
     try {
+      // Always run the shared task Auto Fill first. Besides rebuilding the
+      // drawing-derived wall rows, it clears the manual-Clear guard and restores
+      // the latest Floor & Ceiling scan. The API call below then enriches/replaces
+      // only the wall portion of the same Auto Fill action.
+      if (onAddDataAI) onAddDataAI("insulation");
+
       const payloadWalls = [];
       const effScale = (realScale && realScale > 0) ? realScale : (scaleValue && scaleValue > 0 ? scaleValue : 1.0);
 
@@ -540,8 +580,6 @@ export default function InsulationTask({
       }
 
       if (payloadWalls.length === 0) {
-        if (onAddDataAI) onAddDataAI("insulation");
-        setIsAutoFilling(false);
         return;
       }
 
@@ -580,12 +618,9 @@ export default function InsulationTask({
         if (onSetWallEntries) {
           onSetWallEntries((current) => replaceAutoFillRows(current, mappedRows));
         }
-      } else {
-        if (onAddDataAI) onAddDataAI("insulation");
       }
     } catch (err) {
       console.error("Auto fill insulation error:", err);
-      if (onAddDataAI) onAddDataAI("insulation");
     } finally {
       setIsAutoFilling(false);
     }

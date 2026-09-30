@@ -223,6 +223,7 @@ export default function FloorCeilingLevelControlPanel({
     setAdjustStatus(null);
     if (setFloorCeilingTakeoffData) setFloorCeilingTakeoffData(null);
     if (typeof window !== "undefined") {
+      window.__EZEFLOOR_FC_INSULATION_ENTRIES__ = [];
       window.dispatchEvent(new CustomEvent("ezefloor:clear_floor_ceiling_scan"));
       window.dispatchEvent(new CustomEvent("sync-floor-ceiling-insulation-clear"));
     }
@@ -236,6 +237,9 @@ export default function FloorCeilingLevelControlPanel({
       setSyncStatus(null);
       setAdjustStatus(null);
       if (setFloorCeilingTakeoffData) setFloorCeilingTakeoffData(null);
+      if (typeof window !== "undefined") {
+        window.__EZEFLOOR_FC_INSULATION_ENTRIES__ = [];
+      }
       try {
         sessionStorage.removeItem("floor_ceiling_workspace");
         sessionStorage.removeItem("fc_workspace_state");
@@ -464,7 +468,6 @@ export default function FloorCeilingLevelControlPanel({
     const currentZones = Array.isArray(detectedZones) ? detectedZones : [];
     const updated = currentZones.filter(z => z.id !== zoneId);
 
-    // Update state directly outside of sync call to prevent React setState during render
     setDetectedZones(updated);
     if (activePage) activePage.detectedZones = updated;
 
@@ -476,8 +479,9 @@ export default function FloorCeilingLevelControlPanel({
       };
       setLastScanResult(recalculated);
       if (activePage) activePage.lastScanResult = recalculated;
-      // Only sync to insulation, do not fire frame hardware
       performSync(recalculated, false);
+    } else if (onSyncInsulation) {
+      onSyncInsulation([]);
     }
   };
 
@@ -513,10 +517,37 @@ export default function FloorCeilingLevelControlPanel({
     const payload = buildSyncPayloadForTasks(scanRes);
     if (!payload) return;
 
+    // Persist BOTH the raw scan and the derived Floor/Ceiling insulation rows.
+    // This is the single shared source used later by Insulation -> Auto Fill.
+    // Clearing the Insulation task must not force the user to press the green
+    // Floor & Ceiling Auto Fill button again.
+    const latestInsulationEntries = Array.isArray(payload.insulationEntries)
+      ? payload.insulationEntries
+      : [];
+
+    if (setFloorCeilingTakeoffData) {
+      setFloorCeilingTakeoffData((prev) => ({
+        ...(prev || {}),
+        ...(scanRes || {}),
+        insulationEntries: latestInsulationEntries,
+        frameMetrics: payload.frameMetrics || prev?.frameMetrics || null,
+        lastSyncedAt: Date.now()
+      }));
+    }
+
+    // Keep a session-level snapshot so Insulation -> Clear data does not
+    // destroy the last valid Floor/Ceiling scan source.
+    if (typeof window !== "undefined") {
+      window.__EZEFLOOR_FC_INSULATION_ENTRIES__ = latestInsulationEntries;
+    }
+
     let syncedMsg = [];
-    if (onSyncInsulation && payload.insulationEntries.length > 0) {
-      onSyncInsulation(payload.insulationEntries);
-      syncedMsg.push(`${payload.insulationEntries.length} Floor & Ceiling insulation entries`);
+    if (onSyncInsulation) {
+      // Send [] as well so stale Floor/Ceiling rows are removed from Insulation.
+      onSyncInsulation(payload.insulationEntries || []);
+      if ((payload.insulationEntries || []).length > 0) {
+        syncedMsg.push(`${payload.insulationEntries.length} Floor & Ceiling insulation entries`);
+      }
     }
 
     if (syncFrame && onSyncFrame && payload.frameMetrics) {

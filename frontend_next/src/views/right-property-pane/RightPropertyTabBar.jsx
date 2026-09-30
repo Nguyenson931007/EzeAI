@@ -17,8 +17,20 @@ export default function RightPropertyTabBar({
   customerModuleTabs = [],
   customerModuleIds = [],
   flooringTaskFloors = ["GF"],
-  onFlooringTaskFloorsChange
+  onFlooringTaskFloorsChange,
+  moduleHasData = {}
 }) {
+  const visibleTaskTabs = (taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS)
+    .filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id))
+    .map((mod, index) => ({ mod, index }))
+    .sort((a, b) => {
+      const aHas = moduleHasData?.[a.mod.baseId || a.mod.id] ? 1 : 0;
+      const bHas = moduleHasData?.[b.mod.baseId || b.mod.id] ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+      return a.index - b.index;
+    })
+    .map(({ mod }) => mod);
+
   return (
     <div className="rp-side-tab-bar">
       {/* Properties / Explorer tab */}
@@ -97,7 +109,7 @@ export default function RightPropertyTabBar({
           <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
           {/* Dynamic Module tabs */}
-          {(taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS).filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id)).map((mod) => (
+          {visibleTaskTabs.map((mod) => (
             <button
               key={mod.id}
               title={mod.title}
@@ -149,6 +161,7 @@ export default function RightPropertyTabBar({
               onFlooringTaskFloorsChange={onFlooringTaskFloorsChange}
               activePaneTab={activePaneTab}
               setActivePaneTab={setActivePaneTab}
+              moduleHasData={moduleHasData}
             />
           </div>
         </>

@@ -48,7 +48,7 @@ import {
 } from "@/utils/geometry";
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
-import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall, findStackedLowerDoor } from "@/models/DoorTypeRegistry";
+import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -1884,17 +1884,8 @@ const DoorLayer = React.memo(({
           // Dynamic architectural height (synced with d.height_mm / d.height when user edits)
           const defaultManualHeight = isManualWindow ? 1200 : (isManualGarage ? 2200 : 2040);
           const manualDoorHeight = Math.round(Number(d.height_mm || d.height || d.heightMm || defaultManualHeight));
-          const manualDoorHeight2 = (isManualWindow && d.height2_mm !== undefined && d.height2_mm !== null) ? Math.round(Number(d.height2_mm)) : null;
-          const isRakedWindow = isManualWindow && manualDoorHeight2 !== null && manualDoorHeight2 !== manualDoorHeight;
 
-          // Check if window is stacked over a lower door
-          const stackedLowerDoor = isManualWindow ? findStackedLowerDoor(d, doors, walls) : null;
-          const isStackedWindow = Boolean(stackedLowerDoor);
-          const labelYOffset = isStackedWindow ? 26 : 0;
-
-          const manualDimensionText = isRakedWindow
-            ? `${manualDoorHeight}/${manualDoorHeight2}x${manualDoorWidth}`
-            : `${manualDoorHeight}x${manualDoorWidth}`;
+          const manualDimensionText = `${manualDoorHeight}x${manualDoorWidth}`;
 
           const renderSingleDoor = () => {
             const geom = calculateDoorGeometry({
@@ -2051,20 +2042,6 @@ const DoorLayer = React.memo(({
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
                 <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
                 <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
-
-                {/* Raked window slope indicator */}
-                {isRakedWindow && (
-                  <line
-                    x1={p1.x + nx * (manualDoorHeight > manualDoorHeight2 ? thickness : -thickness)}
-                    y1={p1.y + ny * (manualDoorHeight > manualDoorHeight2 ? thickness : -thickness)}
-                    x2={p2.x + nx * (manualDoorHeight > manualDoorHeight2 ? -thickness : thickness)}
-                    y2={p2.y + ny * (manualDoorHeight > manualDoorHeight2 ? -thickness : thickness)}
-                    stroke={isSelected ? "#FF5722" : "#0284c7"}
-                    strokeWidth={1.5}
-                    strokeDasharray="2,2"
-                    opacity={0.8}
-                  />
-                )}
               </g>
             );
           };
@@ -2329,23 +2306,23 @@ const DoorLayer = React.memo(({
                     {hasCustomName && (
                       <text
                         x={(p1.x + p2.x) / 2}
-                        y={(p1.y + p2.y) / 2 - 28 - labelYOffset}
+                        y={(p1.y + p2.y) / 2 - 28}
                         fontSize="12"
                         textAnchor="middle"
-                        fill={isSelected ? color : (isStackedWindow ? "#2563eb" : "#64748b")}
+                        fill={isSelected ? color : "#64748b"}
                         fontFamily="Inter, sans-serif"
                         fontWeight="bold"
                         style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                       >
-                        {d.door_name}{isStackedWindow ? " [Stacked]" : ""}
+                        {d.door_name}
                       </text>
                     )}
                     <text
                       x={(p1.x + p2.x) / 2}
-                      y={(p1.y + p2.y) / 2 - 13 - labelYOffset}
+                      y={(p1.y + p2.y) / 2 - 13}
                       fontSize="14"
                       textAnchor="middle"
-                      fill={isSelected ? color : (isStackedWindow ? "#1d4ed8" : "#1e293b")}
+                      fill={isSelected ? color : "#1e293b"}
                       fontFamily="Inter, sans-serif"
                       fontWeight="bold"
                       style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
@@ -2526,73 +2503,6 @@ const DoorLayer = React.memo(({
                         onMouseOut={(e) => e.currentTarget.style.background = 'none'}
                       >
                         ✏️ Edit
-                      </button>
-                    </div>
-                  </foreignObject>
-                );
-              })()}
-
-              {/* Floating interactive flip control panel for Raked Windows */}
-              {isSelected && type === "window" && isRakedWindow && (() => {
-                return (
-                  <foreignObject
-                    x={(p1.x + p2.x) / 2 - 45}
-                    y={(p1.y + p2.y) / 2 - 32}
-                    width={90}
-                    height={30}
-                    style={{ overflow: 'visible' }}
-                  >
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        gap: '4px',
-                        background: 'rgba(15, 23, 42, 0.9)',
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(255, 87, 34, 0.5)',
-                        borderRadius: '20px',
-                        padding: '3px 8px',
-                        boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        pointerEvents: 'auto'
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        title="Flip Slope Direction"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (updateDoor) {
-                            const h1 = Number(d.height_mm || d.height || 1200);
-                            const h2 = Number(d.height2_mm !== undefined ? d.height2_mm : h1);
-                            updateDoor({
-                              ...d,
-                              height_mm: h2,
-                              height: h2,
-                              heightMm: h2,
-                              height2_mm: h1,
-                            });
-                          }
-                        }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#fff',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          fontWeight: 'bold',
-                          borderRadius: '12px',
-                          transition: 'background 0.2s',
-                          whiteSpace: 'nowrap'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                      >
-                        ⇄ Flip Slope
                       </button>
                     </div>
                   </foreignObject>
@@ -4800,94 +4710,81 @@ export default function CanvasView({
         )}
         {(activeScanRoom || isDetecting) && <div className="sweep-line" />}
 
-        {/* ── LIVE AI ROOM SCANNER STATUS PANEL ── */}
+        {/* Compact user-facing AI progress — hide technical model/OCR details. */}
         {activeScanRoom && (
-          <div className="scanner-panel">
-            <div className="scanner-header">
+          <div
+            className="scanner-panel"
+            style={{
+              width: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px"
+            }}
+          >
+            <div className="scanner-header" style={{ marginBottom: "8px" }}>
               <div className="scanner-live-badge">
                 <span className="live-dot" />
-                Live AI OCR Stream
+                AI is analyzing the plan
               </div>
               <span className="scanner-progress-text">
-                Room {activeScanRoom.index + 1} of {activeScanRoom.total}
+                {Math.min(100, Math.max(0, Math.round(((activeScanRoom.index + 1) / Math.max(1, activeScanRoom.total)) * 100)))}%
               </span>
             </div>
 
-            <div className="scanner-target-title">CURRENT OCR DETECTION</div>
-            <div className="scanner-target-name">{activeScanRoom.name}</div>
-
-            <div className="scanner-candidates-label">OCR Candidates Match</div>
-            <div className="scanner-candidates-list">
-              {activeScanRoom.candidates && activeScanRoom.candidates.length > 0 ? (
-                activeScanRoom.candidates.slice(0, 3).map((cand, idx) => (
-                  <div key={idx} className="scanner-cand-item">
-                    <span className="scanner-cand-name">{cand.text}</span>
-                    <span className="scanner-cand-score">
-                      {(cand.score || cand.conf * 100 || 80).toFixed(0)}%
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="scanner-cand-item" style={{ fontStyle: 'italic', color: '#64748b', fontSize: '11px' }}>
-                  No generic candidates, settling on AI category model
-                </div>
-              )}
-            </div>
-
-            <div className="scanner-bar-container">
+            <div className="scanner-bar-container" style={{ margin: "8px 0 0" }}>
               <div
                 className="scanner-bar-fill"
-                style={{ width: `${((activeScanRoom.index + 1) / activeScanRoom.total) * 100}%` }}
+                style={{ width: `${((activeScanRoom.index + 1) / Math.max(1, activeScanRoom.total)) * 100}%` }}
               />
             </div>
           </div>
         )}
 
         {isDetecting && !activeScanRoom && (
-          <div className="scanner-panel" style={{ border: '1px solid #cbd5e1' }}>
-            <div className="scanner-header">
-              <div className="scanner-live-badge" style={{ color: '#2563eb' }}>
-                <span className="live-dot" style={{ backgroundColor: '#2563eb', boxShadow: '0 0 8px #2563eb' }} />
-                AI Inference Running
+          <div
+            className="scanner-panel"
+            style={{
+              width: "320px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border: "1px solid #cbd5e1"
+            }}
+          >
+            <div className="scanner-header" style={{ marginBottom: "8px" }}>
+              <div className="scanner-live-badge" style={{ color: "#2563eb" }}>
+                <span
+                  className="live-dot"
+                  style={{ backgroundColor: "#2563eb", boxShadow: "0 0 8px #2563eb" }}
+                />
+                AI is analyzing the plan
               </div>
-              <span className="scanner-progress-text">
-                {roiProgress}%
-              </span>
+              <span className="scanner-progress-text">{roiProgress}%</span>
             </div>
 
-            <div className="scanner-target-title">ACTIVE PIPELINE PROCESS</div>
-            <div className="scanner-target-name" style={{ fontSize: '16px', background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: '1.4' }}>
-              {cacheStatus === "processing" ? "Analyzing Architectural Drawings..." : cacheStatus}
-            </div>
-
-            <div className="scanner-bar-container" style={{ marginTop: '14px', marginBottom: '14px' }}>
+            <div className="scanner-bar-container" style={{ margin: "8px 0 10px" }}>
               <div
                 className="scanner-bar-fill"
                 style={{
                   width: `${roiProgress}%`,
-                  background: 'linear-gradient(90deg, #2563eb, #3b82f6)'
+                  background: "linear-gradient(90deg, #2563eb, #3b82f6)"
                 }}
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button
                 onClick={cancelROI}
                 style={{
-                  background: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  color: '#dc2626',
-                  borderRadius: '6px',
-                  padding: '4px 12px',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  transition: 'all 0.2s'
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#dc2626",
+                  borderRadius: "6px",
+                  padding: "4px 10px",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  fontWeight: "600"
                 }}
-                onMouseEnter={(e) => e.target.style.background = '#fee2e2'}
-                onMouseLeave={(e) => e.target.style.background = '#fef2f2'}
               >
-                🛑 Cancel Scanning
+                Hủy
               </button>
             </div>
           </div>
@@ -7837,7 +7734,6 @@ export default function CanvasView({
               visible={doorEditDialog.visible}
               door={d}
               walls={walls}
-              doors={doors}
               realScale={realScale}
               onSave={handleDoorEditSave}
               onClose={() => setDoorEditDialog({ visible: false, door: null })}

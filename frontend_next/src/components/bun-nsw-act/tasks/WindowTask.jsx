@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
+import { ApiService } from "@/models/api.service";
+import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
+import { isBunVicCustomer } from "@/constants/procurementFormParity";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable, TaskRowNumber } from "./TaskUi";
 
@@ -23,11 +27,94 @@ export default function WindowTask({
   onAutoFill,
   onClear,
   updateDoorsProperty,
+  fixoutEntries = [],
+  fixoutFormData = {},
+  activeJobNumber,
+  currentProjectName,
+  currentJobId,
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
   const [editDraft, setEditDraft] = useState({});
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const appModel = useAppModel();
+  const user = appModel?.user || {};
+  const isBunVic = isBunVicCustomer(getActiveClientShortName());
+
+  const safeParseJson = (value, fallback = []) => {
+    try {
+      const parsed = value ? JSON.parse(value) : fallback;
+      return Array.isArray(parsed) ? parsed : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  };
+
+  const handleSave = async () => {
+    const revealRows = safeParseJson(fixoutFormData?.fixout_reveal_openings, []);
+    const doorRows = (fixoutEntries || []).filter((item) => {
+      const kind = String(item?.class || item?.type || item?.door_type || "").toLowerCase();
+      return kind !== "window";
+    });
+    if (doorRows.length === 0 && revealRows.length === 0) return;
+
+    setSaveStatus("saving");
+    try {
+      const doorItems = doorRows.map((item) => ({
+        floor_level: item.floorLevel || item.floor_level || "GF",
+        category: item.category || null,
+        door_label: item.door_label || null,
+        door_type: item.door_type || null,
+        height: item.height || null,
+        width: item.width || null,
+        thicks: item.thicks || null,
+        wall_width: item.wall_width || null,
+        door_frame: item.door_frame || null,
+        lift_off_pivot: item.lift_off_pivot || null,
+        handing: item.handing || null,
+        hole: isBunVic && item.hole === "HF" ? "HL" : (item.hole || null),
+        finish: item.finish || null,
+        door_furniture: item.door_furniture || null,
+        door_stop: item.door_stop || null,
+        qty: item.qty || 1,
+      }));
+      const revealItems = revealRows.map((row, index) => ({
+        floor_level: row.floorLevel || row.floor_level || "GF",
+        category: "reveal",
+        door_label: row.label || row.door_label || `Opening ${index + 1}`,
+        door_type: String(row.type || "window").toLowerCase() === "window" ? "Window" : "Door Opening",
+        height: row.height || null,
+        width: row.width || null,
+        thicks: null,
+        wall_width: null,
+        door_frame: `Block Work: ${row.blockWork || "No"}`,
+        lift_off_pivot: null,
+        handing: null,
+        hole: null,
+        finish: null,
+        door_furniture: null,
+        door_stop: null,
+        qty: row.qty || 1,
+      }));
+
+      const targetJob = activeJobNumber || currentProjectName || currentJobId || "TestAI";
+      const res = await ApiService.saveFixoutJobs({
+        user_update: user?.username || user?.name || "admin",
+        jobs: [{ id_job_hw: String(targetJob), fixout_items: [...doorItems, ...revealItems] }],
+      });
+      if (res?.success) {
+        setSaveStatus("success");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      } else {
+        setSaveStatus("error");
+      }
+    } catch (error) {
+      console.error("Save Window via Fixout error:", error);
+      setSaveStatus("error");
+    }
+  };
+
   const rows = useMemo(() => [...(entries || [])].sort((a, b) => {
     const byLevel = levelRank(a?.floorLevel) - levelRank(b?.floorLevel);
     if (byLevel) return byLevel;
@@ -118,6 +205,9 @@ export default function WindowTask({
           <EnteredTaskActions
             onAutoFill={onAutoFill}
             onClear={onClear}
+            onSave={handleSave}
+            saveDisabled={rows.length === 0}
+            saveStatus={saveStatus}
             isOpen={isOpen}
             onToggle={() => setIsOpen((value) => !value)}
           />
@@ -125,9 +215,6 @@ export default function WindowTask({
 
         {isOpen ? (
           <>
-            <div style={{ padding: "7px 10px", background: "#fff7ed", borderBottom: "1px solid #fed7aa", color: "#9a3412", fontSize: "10.5px", fontWeight: 650 }}>
-              Local plan register only — Window rows are not loaded from or saved to Procurement API / SQL.
-            </div>
             <TaskSummaryTable className="window-task-summary">
               <thead>
                 <tr>

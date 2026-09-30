@@ -21,7 +21,8 @@ export default function ManageModulesPopup({
   flooringTaskFloors = ["GF"],
   onFlooringTaskFloorsChange,
   activePaneTab,
-  setActivePaneTab
+  setActivePaneTab,
+  moduleHasData = {}
 }) {
   const normalizedFlooringFloors = normalizeTaskFloorCodes(flooringTaskFloors);
   const highestFloorNumber = Math.max(0, ...normalizedFlooringFloors.map((floor) => floorNumberFromCode(floor) ?? 0));
@@ -39,6 +40,16 @@ export default function ManageModulesPopup({
   };
 
   if (!showAddModulePopup) return null;
+
+  const sortedCustomerModuleTabs = [...customerModuleTabs]
+    .map((mod, index) => ({ mod, index }))
+    .sort((a, b) => {
+      const aHas = moduleHasData?.[a.mod.id] ? 1 : 0;
+      const bHas = moduleHasData?.[b.mod.id] ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+      return a.index - b.index;
+    })
+    .map(({ mod }) => mod);
 
   return (
     <div
@@ -95,7 +106,7 @@ export default function ManageModulesPopup({
 
       {/* Module Checklist List */}
       <div style={{ padding: "6px 8px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px", maxHeight: "280px" }}>
-        {customerModuleTabs.map((mod) => {
+        {sortedCustomerModuleTabs.map((mod) => {
           const isEnabled = enabledModuleIds.includes(mod.id);
           return (
             <React.Fragment key={mod.id}>

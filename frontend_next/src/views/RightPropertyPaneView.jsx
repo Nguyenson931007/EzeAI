@@ -106,6 +106,7 @@ import {
 import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
 import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
 import { flooringTaskId, makeFlooringTaskTabs, normalizeTaskFloorCodes, parseFlooringTaskId } from "@/utils/taskFloorLevels";
+import { buildSyncPayloadForTasks } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
 
 function getPlanObjectBounds(objects = []) {
   const points = [];
@@ -1434,9 +1435,54 @@ export default function RightPropertyPaneView({
 
       // Reuse the latest explicit Floor & Ceiling scan when Insulation is cleared
       // and Auto Fill is pressed again. Do NOT invent Ceiling/Floor from room area.
-      const cachedAreaRows = Array.isArray(floorCeilingTakeoffData?.insulationEntries)
-        ? floorCeilingTakeoffData.insulationEntries
-        : [];
+      const liveFloorCeilingRows =
+        typeof window !== "undefined" &&
+        Array.isArray(window.__EZEFLOOR_FC_INSULATION_ENTRIES__)
+          ? window.__EZEFLOOR_FC_INSULATION_ENTRIES__
+          : [];
+
+      let cachedAreaRows = liveFloorCeilingRows.length > 0
+        ? liveFloorCeilingRows
+        : (Array.isArray(floorCeilingTakeoffData?.insulationEntries)
+            ? floorCeilingTakeoffData.insulationEntries
+            : []);
+
+      // Clear Data removes task rows, not the Floor & Ceiling scan itself.
+      // Rebuild the rows from the latest scan so Insulation Auto Fill alone
+      // is enough to restore Floor/Ceiling.
+      if (cachedAreaRows.length === 0) {
+        const scanSources = [];
+        if (floorCeilingTakeoffData?.areas) scanSources.push(floorCeilingTakeoffData);
+        (pages || []).forEach((page) => {
+          if (
+            page?.lastScanResult &&
+            (page?.isFloorCeilingWorkspace ||
+              page?.source === "floor_ceiling_page" ||
+              page?.source === "floor_ceiling_workspace" ||
+              page?.category === "floor_ceiling")
+          ) {
+            scanSources.push(page.lastScanResult);
+          }
+        });
+
+        const rebuilt = scanSources.flatMap((scan) => {
+          const payload = buildSyncPayloadForTasks(scan);
+          return Array.isArray(payload?.insulationEntries) ? payload.insulationEntries : [];
+        });
+
+        const seen = new Set();
+        cachedAreaRows = rebuilt.filter((row) => {
+          const key = [
+            String(row?.type || ""),
+            String(row?.floorLevel || row?.floor_level || "GF"),
+            Number(row?.insulationArea || row?.totalArea || row?.area || 0).toFixed(2),
+          ].join("|");
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
       if (cachedAreaRows.length > 0) {
         setInsulationAreaEntries((current) => {
           const manualOnly = (Array.isArray(current) ? current : []).filter((row) => row?.source !== "floor_ceiling_sync");
@@ -1484,6 +1530,25 @@ export default function RightPropertyPaneView({
     } else if (normalizedModuleId === "windows") {
       const rows = buildWindowRows(allDoors);
       setWindowEntries(rows);
+      const windowRevealRows = rows.map((row, index) => ({
+        id: `window-reveal-${row.doorId || index}`,
+        doorId: row.doorId || null,
+        source: "window_autofill",
+        type: "window",
+        label: row.label || `W-${index + 1}`,
+        height: row.height || "",
+        width: row.width || "",
+        blockWork: "No",
+        floorLevel: row.floorLevel || "GF",
+      }));
+      let currentRevealRows = [];
+      try {
+        const raw = moduleFormData?.fixout?.fixout_reveal_openings;
+        const parsed = raw ? JSON.parse(raw) : [];
+        currentRevealRows = Array.isArray(parsed) ? parsed : [];
+      } catch (_) {}
+      const nonWindowRows = currentRevealRows.filter((row) => String(row?.type || "").toLowerCase() !== "window");
+      handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...nonWindowRows, ...windowRevealRows]));
       generatedCount = rows.length;
     } else if (normalizedModuleId === "shelving") {
       const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
@@ -4432,12 +4497,6 @@ export default function RightPropertyPaneView({
           thickness_mm: thicknessMm,
           floor_type: floorType,
           is_load_bearing: isLbw,
-          frame_stud_spacing: w.frame_stud_spacing || "450",
-          frame_timber_grade: w.frame_timber_grade || "MGP10",
-          frame_stud_size: w.frame_stud_size || `${thicknessMm}x35`,
-          frame_stud_ply_count: Number(w.frame_stud_ply_count || 1),
-          frame_plate_ply_count: Number(w.frame_plate_ply_count || 1),
-          treated: w.treated || "UNTREATED",
           centerline_px: c,
           centerline_mm: p1Mm && p2Mm ? [p1Mm, p2Mm] : null,
           surface: w.surface || null,
@@ -4824,6 +4883,34 @@ export default function RightPropertyPaneView({
       return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
     });
   }, [cadMetrics, effectiveDoorsByPage, roomsByPageProp, rooms]);
+
+  const hasMeaningfulFormData = React.useCallback((value) => {
+    if (!value || typeof value !== "object") return false;
+    return Object.values(value).some((item) => {
+      if (Array.isArray(item)) return item.length > 0;
+      if (item && typeof item === "object") return hasMeaningfulFormData(item);
+      const text = String(item ?? "").trim();
+      return text !== "" && text !== "0" && text !== "false" && text !== "[]";
+    });
+  }, []);
+
+  const moduleHasData = {
+    frame_hardware: (frameWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.frame_hardware),
+    flooring_decking: (flooringEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.flooring_decking),
+    hebel_flooring: (hebelFlooringEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.hebel_flooring),
+    insulation: (insulationWallEntries || []).length > 0 || (insulationAreaEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.insulation),
+    eaves_soffit: (eavesEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.eaves_soffit),
+    cladding: (claddingWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.cladding),
+    lock_up: (lockupEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.lock_up) || hasMeaningfulFormData(moduleFormData?.lockup),
+    windows: (windowEntries || []).length > 0,
+    shelving: (shelvingEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.shelving),
+    timber_posts: (timberPostEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.timber_posts),
+    power_truss_braces: (powerTrussEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.power_truss_braces),
+    fixout: (fixoutDoorEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.fixout),
+    fow_plumbing: (fowPlumbingEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.fow_plumbing),
+    final_fit: hasMeaningfulFormData(moduleFormData?.final_fit),
+    hardies_fire_walls: (hardiesFireWallEntries || []).length > 0 || hasMeaningfulFormData(moduleFormData?.hardies_fire_walls),
+  };
 
   return (
     <div
@@ -5401,6 +5488,7 @@ export default function RightPropertyPaneView({
           lockupEntries={lockupEntries}
           handleSetLockupEntries={handleSetLockupEntries}
           windowEntries={windowEntries}
+          setWindowEntries={setWindowEntries}
           hardiesFireWallEntries={hardiesFireWallEntries}
           handleSetHardiesFireWallEntries={handleSetHardiesFireWallEntries}
           selectedWall={selectedWall}
@@ -5444,6 +5532,7 @@ export default function RightPropertyPaneView({
         customerModuleIds={customerModuleIds}
         flooringTaskFloors={flooringTaskFloors}
         onFlooringTaskFloorsChange={persistFlooringTaskFloors}
+        moduleHasData={moduleHasData}
       />
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
