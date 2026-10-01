@@ -264,26 +264,6 @@ export default function TimberPostsTask({
     return getSizesForPostType(postType);
   }, [getSizesForPostType, postType]);
 
-  useEffect(() => {
-    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
-    let changed = false;
-    const next = entries.map((row) => {
-      const generated = row?.autofill_source && row.autofill_source !== "manual"
-        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
-      if (!generated) return row;
-      const postTypeValue = resolveDropdownValue(row.postType || row.post_type, POST_TYPE_OPTIONS, { fallback: "" });
-      const sizeOptions = getSizesForPostType(postTypeValue);
-      const postSizeValue = resolveDropdownValue(row.postSize || row.post_size, sizeOptions, { fallback: "" });
-      const stockOptions = getStocksForTypeAndSize(postTypeValue, postSizeValue).map(postOptionKey);
-      const postValue = resolveDropdownValue(row.post || row.product, ["", ...stockOptions], { fallback: "" });
-      const postOverValue = resolveDropdownValue(row.postOver || row.post_over, ["slab", "timber"], { fallback: "" });
-      const patch = { ...row, postType: postTypeValue, postSize: postSizeValue, post: postValue, postOver: postOverValue };
-      if (["postType","postSize","post","postOver"].some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
-      return patch;
-    });
-    if (changed) onSetEntries(next);
-  }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
-
   // Helper to get stocks for any type & size
   const getStocksForTypeAndSize = useCallback((type, size) => {
     if (!type || type === "Please Select" || !size || size === "Please Select") {
@@ -321,6 +301,26 @@ export default function TimberPostsTask({
     if (specialUnknown) return specialUnknown;
     return candidates[candidates.length - 1] || null;
   }, [combinedCatalog]);
+
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const postTypeValue = resolveDropdownValue(row.postType || row.post_type, POST_TYPE_OPTIONS, { fallback: "" });
+      const sizeOptions = getSizesForPostType(postTypeValue);
+      const postSizeValue = resolveDropdownValue(row.postSize || row.post_size, sizeOptions, { fallback: "" });
+      const stockOptions = getStocksForTypeAndSize(postTypeValue, postSizeValue).map(postOptionKey);
+      const postValue = resolveDropdownValue(row.post || row.product, ["", ...stockOptions], { fallback: "" });
+      const postOverValue = resolveDropdownValue(row.postOver || row.post_over, ["slab", "timber"], { fallback: "" });
+      const patch = { ...row, postType: postTypeValue, postSize: postSizeValue, post: postValue, postOver: postOverValue };
+      if (["postType","postSize","post","postOver"].some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
+      return patch;
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
 
   const matchedPost = useMemo(() => {
     const hMm = normalizeMm(postHeight);

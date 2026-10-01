@@ -74,6 +74,70 @@ export default function HebelFlooringTask({
   const [isBalconyOpen, setIsBalconyOpen] = useState(true);
   const [isOtherOpen, setIsOtherOpen] = useState(true);
 
+  const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
+
+  const dryCatalogItems = useMemo(() => catalogByGroup(catalogItems, "dry_flooring"), [catalogItems]);
+  const wetCatalogItems = useMemo(() => catalogByGroup(catalogItems, "wet_flooring"), [catalogItems]);
+  const deckingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "decking"), [catalogItems]);
+  const tgCatalogItems = useMemo(() => catalogByGroup(catalogItems, "tg_flooring"), [catalogItems]);
+
+  const DRY_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [dryCatalogItems]);
+
+  const WET_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [wetCatalogItems]);
+
+  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set([...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean)))], [deckingCatalogItems, wetCatalogItems]);
+
+  const OTHER_TYPE_AREA_OPTIONS = [
+    "T+G Flooring Area",
+    "Decking Input",
+    "Tile Underlay",
+    "Battens Over Slab Area",
+    "Floor Joist Packers"
+  ];
+
+  const getOtherProductOptions = (type) => {
+    if (type === "Decking Input") {
+      const list = Array.from(new Set(deckingCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
+      return ["Select...", ...list];
+    }
+    if (type === "T+G Flooring Area") {
+      const list = Array.from(new Set(tgCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
+      return ["Select...", ...list];
+    }
+    return ["Select..."];
+  };
+
+  // Entered rows based on entries prop (multi-product / grouped) or fallback to inputs
+  const getProductOptionsForType = (typeArea) => {
+    const t = String(typeArea || "").toLowerCase();
+    if (t.includes("dry")) {
+      return DRY_PRODUCT_OPTIONS.filter(x => x !== "Select...");
+    }
+    if (t.includes("wet")) {
+      return WET_PRODUCT_OPTIONS.filter(x => x !== "Select...");
+    }
+    if (t.includes("balcony") || t.includes("tile")) {
+      return BALCONY_OPTIONS.filter(x => x !== "Select...");
+    }
+    const otherOpts = getOtherProductOptions(typeArea).filter(x => x !== "Select...");
+    if (otherOpts.length > 0) return otherOpts;
+    return [
+      ...DRY_PRODUCT_OPTIONS.filter(x => x !== "Select..."),
+      ...WET_PRODUCT_OPTIONS.filter(x => x !== "Select..."),
+      ...BALCONY_OPTIONS.filter(x => x !== "Select...")
+    ];
+  };
+
+  const normalizeHebelTypeArea = (value) => {
+    const raw = String(value || "").trim();
+    const t = raw.toLowerCase();
+    if (t === "dry" || t === "dry area") return "Dry";
+    if (t === "wet" || t === "wet area") return "Wet";
+    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
+    return resolveDropdownValue(raw, OTHER_TYPE_AREA_OPTIONS, { fallback: "" }) || raw;
+  };
+
   // Helper to format 4 decimal digits
   const formatM2_4Digits = (val) => {
     if (val === null || val === undefined || val === "" || val === "-") return "-";
@@ -363,13 +427,6 @@ export default function HebelFlooringTask({
     }
   };
 
-  const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
-
-  const dryCatalogItems = useMemo(() => catalogByGroup(catalogItems, "dry_flooring"), [catalogItems]);
-  const wetCatalogItems = useMemo(() => catalogByGroup(catalogItems, "wet_flooring"), [catalogItems]);
-  const deckingCatalogItems = useMemo(() => catalogByGroup(catalogItems, "decking"), [catalogItems]);
-  const tgCatalogItems = useMemo(() => catalogByGroup(catalogItems, "tg_flooring"), [catalogItems]);
 
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
@@ -429,61 +486,6 @@ export default function HebelFlooringTask({
     if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
   }, [formData]);
 
-  const DRY_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [dryCatalogItems]);
-
-  const WET_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [wetCatalogItems]);
-
-  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set([...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean)))], [deckingCatalogItems, wetCatalogItems]);
-
-  const OTHER_TYPE_AREA_OPTIONS = [
-    "T+G Flooring Area",
-    "Decking Input",
-    "Tile Underlay",
-    "Battens Over Slab Area",
-    "Floor Joist Packers"
-  ];
-
-  const getOtherProductOptions = (type) => {
-    if (type === "Decking Input") {
-      const list = Array.from(new Set(deckingCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
-      return ["Select...", ...list];
-    }
-    if (type === "T+G Flooring Area") {
-      const list = Array.from(new Set(tgCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
-      return ["Select...", ...list];
-    }
-    return ["Select..."];
-  };
-
-  // Entered rows based on entries prop (multi-product / grouped) or fallback to inputs
-  const getProductOptionsForType = (typeArea) => {
-    const t = String(typeArea || "").toLowerCase();
-    if (t.includes("dry")) {
-      return DRY_PRODUCT_OPTIONS.filter(x => x !== "Select...");
-    }
-    if (t.includes("wet")) {
-      return WET_PRODUCT_OPTIONS.filter(x => x !== "Select...");
-    }
-    if (t.includes("balcony") || t.includes("tile")) {
-      return BALCONY_OPTIONS.filter(x => x !== "Select...");
-    }
-    const otherOpts = getOtherProductOptions(typeArea).filter(x => x !== "Select...");
-    if (otherOpts.length > 0) return otherOpts;
-    return [
-      ...DRY_PRODUCT_OPTIONS.filter(x => x !== "Select..."),
-      ...WET_PRODUCT_OPTIONS.filter(x => x !== "Select..."),
-      ...BALCONY_OPTIONS.filter(x => x !== "Select...")
-    ];
-  };
-
-  const normalizeHebelTypeArea = (value) => {
-    const raw = String(value || "").trim();
-    const t = raw.toLowerCase();
-    if (t === "dry" || t === "dry area") return "Dry";
-    if (t === "wet" || t === "wet area") return "Wet";
-    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
-    return resolveDropdownValue(raw, OTHER_TYPE_AREA_OPTIONS, { fallback: "" }) || raw;
-  };
 
   useEffect(() => {
     if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;

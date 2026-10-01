@@ -93,6 +93,70 @@ export default function FlooringDeckingTask({
   const [isBalconyOpen, setIsBalconyOpen] = useState(true);
   const [isOtherOpen, setIsOtherOpen] = useState(true);
 
+  const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
+  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
+
+  // ProcurementApp's Flooring tree is keyed by typed application_type/area_key.
+  // Keep every dropdown scoped to its exact area so products cannot leak between
+  // Dry/Wet/Balcony/T+G/Decking/accessory groups.
+  const dryCatalogItems = useMemo(() => catalogByArea(catalogItems, "dry"), [catalogItems]);
+  const wetCatalogItems = useMemo(() => catalogByArea(catalogItems, "wet"), [catalogItems]);
+  const balconyCatalogItems = useMemo(() => catalogByArea(catalogItems, "balcony_tiles"), [catalogItems]);
+  const tgCatalogItems = useMemo(() => catalogByArea(catalogItems, "tg_flooring"), [catalogItems]);
+  const deckingCatalogItems = useMemo(() => catalogByArea(catalogItems, "decking"), [catalogItems]);
+  const tileUnderlayCatalogItems = useMemo(() => catalogByArea(catalogItems, "tile_underlay_area"), [catalogItems]);
+  const battensSlabCatalogItems = useMemo(() => catalogByArea(catalogItems, "battens_slab"), [catalogItems]);
+  const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
+  const hasProcurementFlooringCatalog = catalogItems.length > 0;
+
+  const flooringValues = (items) => Array.from(new Set(
+    (items || [])
+      .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
+      .filter(Boolean)
+  ));
+
+  const DRY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(dryCatalogItems)], [dryCatalogItems]);
+  const WET_OPTIONS = useMemo(() => ["Select...", ...flooringValues(wetCatalogItems)], [wetCatalogItems]);
+  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(balconyCatalogItems)], [balconyCatalogItems]);
+
+  const OTHER_TYPE_OPTIONS = [
+    "T+G Flooring Area",
+    "Decking Input",
+    "Tile Underlay",
+    "Battens Over Slab Area",
+    "Floor Joist Packers"
+  ];
+
+  const OTHER_CATALOG_BY_TYPE = {
+    "T+G Flooring Area": tgCatalogItems,
+    "Decking Input": deckingCatalogItems,
+    "Tile Underlay": tileUnderlayCatalogItems,
+    "Battens Over Slab Area": battensSlabCatalogItems,
+    "Floor Joist Packers": joistPackersCatalogItems,
+  };
+
+  const getOtherProductOptions = (type) => {
+    const list = flooringValues(OTHER_CATALOG_BY_TYPE[type] || []);
+    return ["Select...", ...list];
+  };
+
+  const getProductOptionsForType = (typeArea) => {
+    const t = String(typeArea || "").toLowerCase();
+    if (t === "dry" || t === "dry area") return DRY_OPTIONS.filter(x => x !== "Select...");
+    if (t === "wet" || t === "wet area") return WET_OPTIONS.filter(x => x !== "Select...");
+    if (t.includes("balcony") || t === "tile deck") return BALCONY_OPTIONS.filter(x => x !== "Select...");
+    return getOtherProductOptions(typeArea).filter(x => x !== "Select...");
+  };
+
+  const normalizeFlooringTypeArea = (value) => {
+    const raw = String(value || "").trim();
+    const t = raw.toLowerCase();
+    if (t === "dry" || t === "dry area") return "Dry";
+    if (t === "wet" || t === "wet area") return "Wet";
+    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
+    return resolveDropdownValue(raw, OTHER_TYPE_OPTIONS, { fallback: "" }) || raw;
+  };
+
   // Helper to format 4 decimal digits
   const formatM2_4Digits = (val) => {
     if (val === null || val === undefined || val === "" || val === "-") return "-";
@@ -593,27 +657,6 @@ export default function FlooringDeckingTask({
     }
   };
 
-  const activeCustomerShortName = getActiveClientShortName ? getActiveClientShortName() : "BUN-NSW-ACT";
-  const { items: catalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
-
-  // ProcurementApp's Flooring tree is keyed by typed application_type/area_key.
-  // Keep every dropdown scoped to its exact area so products cannot leak between
-  // Dry/Wet/Balcony/T+G/Decking/accessory groups.
-  const dryCatalogItems = useMemo(() => catalogByArea(catalogItems, "dry"), [catalogItems]);
-  const wetCatalogItems = useMemo(() => catalogByArea(catalogItems, "wet"), [catalogItems]);
-  const balconyCatalogItems = useMemo(() => catalogByArea(catalogItems, "balcony_tiles"), [catalogItems]);
-  const tgCatalogItems = useMemo(() => catalogByArea(catalogItems, "tg_flooring"), [catalogItems]);
-  const deckingCatalogItems = useMemo(() => catalogByArea(catalogItems, "decking"), [catalogItems]);
-  const tileUnderlayCatalogItems = useMemo(() => catalogByArea(catalogItems, "tile_underlay_area"), [catalogItems]);
-  const battensSlabCatalogItems = useMemo(() => catalogByArea(catalogItems, "battens_slab"), [catalogItems]);
-  const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
-  const hasProcurementFlooringCatalog = catalogItems.length > 0;
-
-  const flooringValues = (items) => Array.from(new Set(
-    (items || [])
-      .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
-      .filter(Boolean)
-  ));
 
   // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
@@ -704,49 +747,6 @@ export default function FlooringDeckingTask({
     if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
   }, [formData]);
 
-  const DRY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(dryCatalogItems)], [dryCatalogItems]);
-
-  const WET_OPTIONS = useMemo(() => ["Select...", ...flooringValues(wetCatalogItems)], [wetCatalogItems]);
-
-  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(balconyCatalogItems)], [balconyCatalogItems]);
-
-  const OTHER_TYPE_OPTIONS = [
-    "T+G Flooring Area",
-    "Decking Input",
-    "Tile Underlay",
-    "Battens Over Slab Area",
-    "Floor Joist Packers"
-  ];
-
-  const OTHER_CATALOG_BY_TYPE = {
-    "T+G Flooring Area": tgCatalogItems,
-    "Decking Input": deckingCatalogItems,
-    "Tile Underlay": tileUnderlayCatalogItems,
-    "Battens Over Slab Area": battensSlabCatalogItems,
-    "Floor Joist Packers": joistPackersCatalogItems,
-  };
-
-  const getOtherProductOptions = (type) => {
-    const list = flooringValues(OTHER_CATALOG_BY_TYPE[type] || []);
-    return ["Select...", ...list];
-  };
-
-  const getProductOptionsForType = (typeArea) => {
-    const t = String(typeArea || "").toLowerCase();
-    if (t === "dry" || t === "dry area") return DRY_OPTIONS.filter(x => x !== "Select...");
-    if (t === "wet" || t === "wet area") return WET_OPTIONS.filter(x => x !== "Select...");
-    if (t.includes("balcony") || t === "tile deck") return BALCONY_OPTIONS.filter(x => x !== "Select...");
-    return getOtherProductOptions(typeArea).filter(x => x !== "Select...");
-  };
-
-  const normalizeFlooringTypeArea = (value) => {
-    const raw = String(value || "").trim();
-    const t = raw.toLowerCase();
-    if (t === "dry" || t === "dry area") return "Dry";
-    if (t === "wet" || t === "wet area") return "Wet";
-    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
-    return resolveDropdownValue(raw, OTHER_TYPE_OPTIONS, { fallback: "" }) || raw;
-  };
 
   // Keep the row state 1:1 with what the Product <select> visibly shows.
   // Important: while the Procurement catalog is still loading, options can be
