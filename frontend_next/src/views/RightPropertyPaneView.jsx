@@ -2130,6 +2130,11 @@ export default function RightPropertyPaneView({
     const taskClientKey = resolveCustomerPackKey(taskListClient || currentTask.client || currentTask.task_client);
     const taskFloors = normalizeTaskFloorCodes(currentTask.floor_levels || task.floor_levels);
     setFlooringTaskFloors(taskFloors);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+        detail: { floor_levels: taskFloors, source: "tasklist-job-api" }
+      }));
+    }
 
     // Persist the clicked job + its exact card Client BEFORE changing the
     // active project name. The project-name effect reads these values; doing

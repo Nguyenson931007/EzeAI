@@ -3,7 +3,7 @@ import React from "react";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices } from "@/utils/floorLevel";
-import { floorNumberFromCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
+import { floorNumberFromCode, normalizeTaskFloorCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
 
 export default function LeftRailView({
   interactionMode,
@@ -57,11 +57,14 @@ export default function LeftRailView({
   const displayLevels = React.useMemo(() => {
     const levelMap = buildArchitecturalFloorLevelMap(currentPages);
     const pageIndexByFloor = new Map();
-    levelMap.forEach((code, pageIndex) => pageIndexByFloor.set(code, pageIndex));
+    levelMap.forEach((code, pageIndex) => {
+      const normalizedCode = normalizeTaskFloorCode(code);
+      if (normalizedCode) pageIndexByFloor.set(normalizedCode, pageIndex);
+    });
 
-    const registered = normalizeTaskFloorCodes(buildingFloorLevels);
-    const actualCodes = Array.from(levelMap.values());
-    const allCodes = normalizeTaskFloorCodes([...registered, ...actualCodes]);
+    // The shared floor registry is the only source of truth. Old saved PDF
+    // pages must not recreate floors that Procurement/TaskList has removed.
+    const allCodes = normalizeTaskFloorCodes(buildingFloorLevels);
 
     return allCodes.map((code) => {
       const originalIndex = pageIndexByFloor.has(code) ? pageIndexByFloor.get(code) : null;
@@ -70,7 +73,7 @@ export default function LeftRailView({
         ...page,
         code,
         originalIndex,
-        isEmptyLevel: originalIndex == null,
+        isEmptyLevel: originalIndex == null || !page.image,
       };
     });
   }, [architecturalPageIndices, buildingFloorLevels, currentPages]);
@@ -81,10 +84,13 @@ export default function LeftRailView({
     () => buildArchitecturalFloorLevelMap(currentPages),
     [currentPages],
   );
-
   const getFloorCode = (p, idx) => {
-    const originalIndex = p?.originalIndex ?? idx;
-    return floorLevelByPage.get(originalIndex) || p?.code || `L${idx + 1}`;
+    // `null` means this registered floor has no page yet. Never replace null
+    // with the rail row index: that index belongs to the registry, not pages,
+    // and previously made GF/SF borrow an existing page's FF code.
+    const originalIndex = p?.originalIndex;
+    const pageCode = originalIndex != null ? floorLevelByPage.get(originalIndex) : null;
+    return normalizeTaskFloorCode(p?.code || pageCode) || `L${idx + 1}`;
   };
 
   const getFloorName = (p, idx) => {
@@ -146,71 +152,87 @@ export default function LeftRailView({
             const name = getFloorName(flr, idx);
 
             return (
-              <button
+              <div
                 key={flr.id || flr.code || originalIdx}
-                type="button"
-                className={`cad-rail-level-btn ${isActive ? "active" : ""}`}
-                onClick={() => {
-                  if (propSetCurrentLevelIndex) propSetCurrentLevelIndex(idx);
-                  if (typeof window !== "undefined") {
-                    window.dispatchEvent(new CustomEvent("building-floor-selected", {
-                      detail: { floor_level: code, level_index: idx, page_index: originalIdx }
-                    }));
-                  }
-                  // Empty levels are still selectable even before a PDF/page is attached.
-                  if (originalIdx == null) {
-                    onEmptyLevelClick?.(code);
-                    return;
-                  }
-                  if (onPageClick) {
-                    onPageClick(originalIdx);
-                  } else if (appModel.setCurrentPage) {
-                    appModel.setCurrentPage(originalIdx);
-                  }
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  const newName = window.prompt("Rename Level:", name);
-                  if (newName && newName.trim() && appModel.setPages) {
-                    const cleanName = newName.trim();
-                    appModel.setPages(prev =>
-                      prev.map((p, pIdx) => pIdx === originalIdx ? { ...p, name: cleanName, floor_name: cleanName } : p)
-                    );
-                  }
-                }}
-                title={`${name}${flr.isEmptyLevel ? " (No plan page)" : ""}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
+                className="cad-rail-level-item"
               >
-                <span className="cad-rail-level-code">
-                  {code}
-                </span>
-                {roomCount > 0 && (
-                  <span className="cad-rail-level-badge">{roomCount}</span>
-                )}
-
-                {/* Nút X xoá tầng (Delete Level) khi import lỗi hoặc muốn xoá tầng */}
-                <span
-                  className="cad-rail-level-del-btn"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings on this level will be deleted.`);
-                    if (confirmed) {
-                      if (onDeleteFloor) {
-                        onDeleteFloor(originalIdx, code);
-                      } else if (appModel.setPages) {
-                        if (originalIdx != null) appModel.setPages(prev => prev.filter((_, pIdx) => pIdx !== originalIdx));
-                      }
+                <button
+                  type="button"
+                  className={`cad-rail-level-btn ${isActive ? "active" : ""}`}
+                  onClick={() => {
+                    if (propSetCurrentLevelIndex) propSetCurrentLevelIndex(idx);
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(new CustomEvent("building-floor-selected", {
+                        detail: { floor_level: code, level_index: idx, page_index: originalIdx }
+                      }));
+                    }
+                    // Empty levels are still selectable even before a PDF/page is attached.
+                    if (originalIdx == null) {
+                      onEmptyLevelClick?.(code);
+                      return;
+                    }
+                    if (onPageClick) {
+                      onPageClick(originalIdx);
+                    } else if (appModel.setCurrentPage) {
+                      appModel.setCurrentPage(originalIdx);
                     }
                   }}
-                  title={`Delete ${name} (${code})`}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    const newName = window.prompt("Rename Level:", name);
+                    if (newName && newName.trim() && appModel.setPages) {
+                      const cleanName = newName.trim();
+                      appModel.setPages(prev =>
+                        prev.map((p, pIdx) => pIdx === originalIdx ? { ...p, name: cleanName, floor_name: cleanName } : p)
+                      );
+                    }
+                  }}
+                  title={`${name}${flr.isEmptyLevel ? " (No plan page)" : ""}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
                 >
-                  ✕
-                </span>
+                  <span className="cad-rail-level-code">{code}</span>
+                  {roomCount > 0 && <span className="cad-rail-level-badge">{roomCount}</span>}
 
-                <span className="tip">
-                  {name} {roomCount > 0 ? `• ${roomCount} rooms` : ""}
-                </span>
-              </button>
+                  <span
+                    className="cad-rail-level-del-btn"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings on this level will be deleted.`);
+                      if (confirmed) {
+                        if (onDeleteFloor) {
+                          await onDeleteFloor(originalIdx, code);
+                        } else if (appModel.setPages) {
+                          if (originalIdx != null) appModel.setPages(prev => prev.filter((_, pIdx) => pIdx !== originalIdx));
+                        }
+                      }
+                    }}
+                    title={`Delete ${name} (${code})`}
+                  >
+                    ✕
+                  </span>
+
+                  <span className="tip">{name} {roomCount > 0 ? `• ${roomCount} rooms` : ""}</span>
+                </button>
+
+                <label
+                  className="cad-rail-level-attach-btn"
+                  title={`Attach or replace plan for ${code}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="file"
+                    accept=".pdf,image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      onAddFloorClick?.(file, null, "level", code);
+                      e.target.value = "";
+                    }}
+                  />
+                  +
+                </label>
+              </div>
             );
           })}
 
@@ -226,26 +248,6 @@ export default function LeftRailView({
             <span className="tip">Add Level / Floor</span>
           </button>
 
-          <label
-            title="Attach Plan to Next Empty Floor"
-            style={{ display: "flex", alignItems: "center", cursor: "pointer", margin: 0 }}
-          >
-            <input
-              type="file"
-              accept=".pdf,image/*"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                if (onAddFloorClick) onAddFloorClick(file, null, "level");
-                e.target.value = "";
-              }}
-            />
-            <div className="cad-rail-level-add-btn" title="Attach Plan to Floor" style={{ fontSize: "10px" }}>
-              <span>PDF</span>
-              <span className="tip">Attach Plan to Floor</span>
-            </div>
-          </label>
         </div>
       </div>
 

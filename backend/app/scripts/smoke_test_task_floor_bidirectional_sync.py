@@ -18,7 +18,9 @@ checks.extend([
     ("Right pane syncs modules to backend", contains("frontend_next/src/views/RightPropertyPaneView.jsx", 'ApiService.updateTaskModules(emsId, normalized)')),
     ("empty floor can be added without file", contains("frontend_next/src/components/App.jsx", 'handleAddEmptyFloorLevel')),
     ("LEVEL plus calls empty-floor handler", contains("frontend_next/src/views/LeftRailView.jsx", 'onClick={() => onAddEmptyFloor?.()}')),
-    ("plan attachment remains optional", contains("frontend_next/src/views/LeftRailView.jsx", 'Attach Plan to Floor')),
+    ("each floor owns its plan attachment control", contains("frontend_next/src/views/LeftRailView.jsx", 'cad-rail-level-attach-btn') and contains("frontend_next/src/views/LeftRailView.jsx", 'onAddFloorClick?.(file, null, "level", code)')),
+    ("global PDF import is not limited to one floor", contains("frontend_next/src/components/App.jsx", 'const isSingleFloorAttach = isLevel && isAddingPagesMode && Boolean(importTargetFloorCode)') and contains("frontend_next/src/components/App.jsx", 'setImportTargetFloorCode(null)')),
+    ("global PDF pages allocate additional floors", contains("frontend_next/src/components/App.jsx", 'floorCodeFromNumber(highest + 1)')),
     ("floor registry still persists to shared API", contains("frontend_next/src/components/App.jsx", 'ApiService.updateTaskFloorLevels(emsId, normalized)')),
 ])
 

@@ -33,7 +33,7 @@ import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
 import { ApiService } from "@/models/api.service";
 import { buildArchitecturalFloorLevelMap } from "@/utils/floorLevel";
-import { floorCodeFromNumber, floorNumberFromCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
+import { floorCodeFromNumber, floorNumberFromCode, normalizeTaskFloorCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
 
 // Helper function to resolve the default hardware type based on room adjacency, walls, and door geometry.
 function getHardwareType(door, pageRooms, pageWalls, realScale) {
@@ -220,9 +220,13 @@ export default function App() {
       return ["GF"];
     }
   });
+  const floorSyncInFlightRef = useRef(false);
+  const lastLocalFloorMutationAtRef = useRef(0);
 
   const syncBuildingFloorLevels = useCallback(async (nextFloors, { persist = true } = {}) => {
     const normalized = normalizeTaskFloorCodes(nextFloors);
+    floorSyncInFlightRef.current = true;
+    lastLocalFloorMutationAtRef.current = Date.now();
     setBuildingFloorLevels((prev) => JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized);
 
     let emsId = null;
@@ -231,6 +235,8 @@ export default function App() {
         const pendingRaw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
         const pending = pendingRaw ? JSON.parse(pendingRaw) : {};
         pending.floor_levels = normalized;
+        // Floors are job-wide in Procurement/TaskList. Always write through
+        // the shared EMS job id so every HW group receives the same list.
         emsId = pending.id_job_ems || pending.ems_id || pending.id || null;
         sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
         localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
@@ -240,12 +246,17 @@ export default function App() {
       } catch (_) { }
     }
 
-    if (persist && emsId) {
-      try {
+    try {
+      if (persist && emsId) {
         await ApiService.updateTaskFloorLevels(emsId, normalized);
-      } catch (err) {
-        console.warn("[building-floor] Could not sync floor levels to TaskList:", err);
       }
+    } catch (err) {
+      console.warn("[building-floor] Could not sync floor levels to TaskList:", err);
+    } finally {
+      floorSyncInFlightRef.current = false;
+      // Give the server/read model a short grace period so the 3-second poll
+      // cannot restore the just-deleted floor from a stale response.
+      lastLocalFloorMutationAtRef.current = Date.now();
     }
     return normalized;
   }, []);
@@ -259,8 +270,108 @@ export default function App() {
     return () => window.removeEventListener("task-floor-levels-updated", onTaskFloorLevelsUpdated);
   }, []);
 
+  // Procurement/TaskList can change floors while EzeFloor is already open in
+  // another tab. Keep the active job in sync without relying on stale browser
+  // storage. The API reads the shared TaskList row directly, so a short poll is
+  // the realtime fallback until the workflow service exposes a websocket.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let disposed = false;
+    let requestInFlight = false;
+
+    const refreshTaskFloorLevels = async () => {
+      if (
+        disposed ||
+        requestInFlight ||
+        document.hidden ||
+        floorSyncInFlightRef.current ||
+        Date.now() - lastLocalFloorMutationAtRef.current < 5000
+      ) return;
+
+      let pending = null;
+      try {
+        const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        pending = raw ? JSON.parse(raw) : null;
+      } catch (_) {
+        return;
+      }
+
+      const pendingProject = String(pending?.job_number || pending?.job_num || "").trim().toLowerCase();
+      const activeProject = String(currentProjectName || "").trim().toLowerCase();
+      if (pendingProject && activeProject && pendingProject !== activeProject) return;
+
+      const emsId = pending?.id_job_ems || pending?.ems_id || pending?.id || pending?.hw_id;
+      if (!emsId) return;
+
+      requestInFlight = true;
+      try {
+        const response = await ApiService.getTaskFloorLevels(emsId);
+        if (disposed || response?.status !== "success" || !response.data) return;
+        // The request may have started immediately before a local delete. Do
+        // not let that now-stale response put the removed floor back.
+        if (
+          floorSyncInFlightRef.current ||
+          Date.now() - lastLocalFloorMutationAtRef.current < 5000
+        ) return;
+
+        const apiFloors = normalizeTaskFloorCodes(response.data.floor_levels);
+        const storedFloors = normalizeTaskFloorCodes(pending.floor_levels);
+        const changed = JSON.stringify(apiFloors) !== JSON.stringify(storedFloors);
+
+        setBuildingFloorLevels((previous) => (
+          JSON.stringify(previous) === JSON.stringify(apiFloors) ? previous : apiFloors
+        ));
+
+        if (changed) {
+          const nextPending = { ...pending, floor_levels: apiFloors };
+          const serialized = JSON.stringify(nextPending);
+          sessionStorage.setItem("pendingEmsJob", serialized);
+          try { localStorage.setItem("pendingEmsJob", serialized); } catch (_) { }
+          window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+            detail: { floor_levels: apiFloors, source: "tasklist-realtime-poll" }
+          }));
+        }
+      } catch (error) {
+        console.warn("[floor-levels] Realtime TaskList refresh failed:", error);
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const refreshOnFocus = () => { void refreshTaskFloorLevels(); };
+    const refreshOnVisibility = () => {
+      if (!document.hidden) void refreshTaskFloorLevels();
+    };
+
+    void refreshTaskFloorLevels();
+    const intervalId = window.setInterval(refreshTaskFloorLevels, 3000);
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+    };
+  }, [currentProjectName]);
+
   // Any real architectural plan page automatically registers its floor in the shared list.
   useEffect(() => {
+    // For an active Procurement/TaskList job, its floor_levels field is the
+    // authority. Do not let old saved plan pages add floors back after the user
+    // unchecked them in Procurement.
+    if (typeof window !== "undefined") {
+      try {
+        const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        const pending = raw ? JSON.parse(raw) : null;
+        const pendingProject = String(pending?.job_number || pending?.job_num || "").trim().toLowerCase();
+        const activeProject = String(currentProjectName || "").trim().toLowerCase();
+        const isActiveTaskListJob = (!pendingProject || !activeProject || pendingProject === activeProject)
+          && Boolean(pending?.id_job_ems || pending?.ems_id || pending?.id || pending?.hw_id);
+        if (isActiveTaskListJob) return;
+      } catch (_) { }
+    }
     const floorMap = buildArchitecturalFloorLevelMap(pages || []);
     const pageFloors = Array.from(new Set(Array.from(floorMap.values())));
     if (!pageFloors.length) return;
@@ -268,12 +379,12 @@ export default function App() {
     if (JSON.stringify(merged) !== JSON.stringify(buildingFloorLevels)) {
       void syncBuildingFloorLevels(merged);
     }
-  }, [pages, buildingFloorLevels, syncBuildingFloorLevels]);
+  }, [pages, buildingFloorLevels, currentProjectName, syncBuildingFloorLevels]);
 
   // Keep the selected LEVEL rail item aligned with the real architectural page.
   useEffect(() => {
     const levelMap = buildArchitecturalFloorLevelMap(pages || []);
-    const currentCode = levelMap.get(Number(currentPage));
+    const currentCode = normalizeTaskFloorCode(levelMap.get(Number(currentPage)));
     if (!currentCode) return;
     const normalized = normalizeTaskFloorCodes(buildingFloorLevels);
     const idx = normalized.indexOf(currentCode);
@@ -394,6 +505,7 @@ export default function App() {
   const [importSelectedPages, setImportSelectedPages] = useState([]);
   const [pendingPages, setPendingPages] = useState([]);
   const [isAddingPagesMode, setIsAddingPagesMode] = useState(false);
+  const [importTargetFloorCode, setImportTargetFloorCode] = useState(null);
 
   // Authentication UI State
   const [authData, setAuthData] = useState({ username: "", password: "", email: "" });
@@ -703,6 +815,18 @@ export default function App() {
         const jobInfo = emsResult.data;
         console.log("[SSO] Job information received:", jobInfo);
 
+        // Apply TaskList floors immediately. Storage is only persistence; the
+        // live LEVEL rail must not wait for another component/effect to reread it.
+        const apiFloorLevels = normalizeTaskFloorCodes(jobInfo.floor_levels);
+        setBuildingFloorLevels((previous) => (
+          JSON.stringify(previous) === JSON.stringify(apiFloorLevels) ? previous : apiFloorLevels
+        ));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+            detail: { floor_levels: apiFloorLevels, source: "open-by-ems-api" }
+          }));
+        }
+
         // Lưu thông tin EMS job vào sessionStorage & localStorage để các modal và export sử dụng (bỏ data bản vẽ nặng để không vượt 5MB quota)
         try {
           const { local_job, ...metaWithoutDrawing } = jobInfo;
@@ -843,7 +967,8 @@ export default function App() {
     setLintelsByPage, setScalesByPage, setWasteByPage, setPdfOffsetsByPage,
     setAnnotationsByPage, setImage, setImgSize, setCurrentPage,
     setSelectedId, setSelectedType, setSelectedWallIds, setSelectedDoorIds,
-    setSelectedRoomIds, setSelectedLintelIds, setHighlightType
+    setSelectedRoomIds, setSelectedLintelIds, setHighlightType,
+    setBuildingFloorLevels
   ]);
 
   // Expose loadEmsJob to window for debug and external integration
@@ -1545,20 +1670,32 @@ export default function App() {
     const hasCategoryAssignments = categoryAssignments && Object.keys(categoryAssignments).length > 0;
     // An import is ONLY for architectural levels if explicitly target is "level" and no category assignments were selected
     const isLevel = effectiveTarget === "level" && !hasCategoryAssignments;
+    const isSingleFloorAttach = isLevel && isAddingPagesMode && Boolean(importTargetFloorCode);
+    // The rail PDF button attaches one chosen PDF page to one selected floor.
+    // It must never use additional selected PDF pages to create more floors.
+    const pagesToImport = isSingleFloorAttach
+      ? uniqueSelectedPages.slice(0, 1)
+      : uniqueSelectedPages;
     const existingArchitecturalMap = isAddingPagesMode
       ? buildArchitecturalFloorLevelMap(pages || [])
       : new Map();
+    const targetPageIndex = isSingleFloorAttach
+      ? (Array.from(existingArchitecturalMap.entries()).find(([, code]) => code === importTargetFloorCode)?.[0] ?? null)
+      : null;
     const usedFloorCodes = new Set(Array.from(existingArchitecturalMap.values()));
     const registryFloors = normalizeTaskFloorCodes(buildingFloorLevels);
     const selectedFloorCodes = [];
     const nextImportFloorCode = () => {
+      if (isSingleFloorAttach && selectedFloorCodes.length === 0) {
+        return importTargetFloorCode;
+      }
       const missingRegistered = registryFloors.find((code) => !usedFloorCodes.has(code) && !selectedFloorCodes.includes(code));
       if (missingRegistered) return missingRegistered;
       const allKnown = [...usedFloorCodes, ...registryFloors, ...selectedFloorCodes];
       const highest = Math.max(0, ...allKnown.map((code) => floorNumberFromCode(code) ?? 0));
       return floorCodeFromNumber(highest + 1) || `${highest + 1}F`;
     };
-    const selectedData = uniqueSelectedPages.map((idx) => {
+    const selectedData = pagesToImport.map((idx) => {
       const p = pendingPages[idx];
       if (isLevel) {
         const levelCode = nextImportFloorCode();
@@ -1592,25 +1729,42 @@ export default function App() {
       }
 
       if (isAddingPagesMode) {
-        const startIdx = pages.length;
-        setPages(prev => [...prev, ...selectedData]);
-        if (defaultScale && setScalesByPage) {
-          setScalesByPage(prev => {
-            const updated = { ...prev };
-            selectedData.forEach((_, idx) => {
-              if (updated[startIdx + idx] === undefined) {
-                updated[startIdx + idx] = defaultScale;
-              }
+        if (isSingleFloorAttach && targetPageIndex != null) {
+          const previousPage = pages[targetPageIndex] || {};
+          const replacement = {
+            ...previousPage,
+            ...selectedData[0],
+            id: previousPage.id || selectedData[0].id,
+            code: importTargetFloorCode,
+            name: previousPage.name,
+            floor_name: previousPage.floor_name,
+            isEmptyLevel: false,
+          };
+          setPages(prev => prev.map((page, pageIndex) => pageIndex === targetPageIndex ? replacement : page));
+          setCurrentPage(targetPageIndex);
+          setImage(replacement.image);
+          setImgSize({ w: replacement.w, h: replacement.h });
+        } else {
+          const startIdx = pages.length;
+          setPages(prev => [...prev, ...selectedData]);
+          if (defaultScale && setScalesByPage) {
+            setScalesByPage(prev => {
+              const updated = { ...prev };
+              selectedData.forEach((_, idx) => {
+                if (updated[startIdx + idx] === undefined) {
+                  updated[startIdx + idx] = defaultScale;
+                }
+              });
+              return updated;
             });
-            return updated;
+          }
+          setCurrentPage(startIdx);
+          setImage(selectedData[0].image);
+          setImgSize({
+            w: selectedData[0].w,
+            h: selectedData[0].h
           });
         }
-        setCurrentPage(startIdx);
-        setImage(selectedData[0].image);
-        setImgSize({
-          w: selectedData[0].w,
-          h: selectedData[0].h
-        });
       } else {
         // Clear previous drawing data when opening a new file for Level/Building
         setRoomsByPage({});
@@ -1680,14 +1834,16 @@ export default function App() {
     setShowImportPageSelector(false);
     setImportSelectedPages([]);
     setIsAddingPagesMode(false);
+    setImportTargetFloorCode(null);
 
     setTimeout(fitToScreen, 100);
   }
 
-  const openAddPagesSelector = (file, targetCategory = null, targetMode = null) => {
+  const openAddPagesSelector = (file, targetCategory = null, targetMode = null, targetFloorCode = null) => {
     if (file) {
       const mode = targetMode || (targetCategory ? "pdf_tools" : (activeTab === "PDF Tools" ? "pdf_tools" : "level"));
       if (setImportTarget) setImportTarget(mode);
+      setImportTargetFloorCode(mode === "level" ? targetFloorCode : null);
       if (targetCategory && setActivePdfCategory) {
         setActivePdfCategory(targetCategory);
       }
@@ -1710,6 +1866,14 @@ export default function App() {
         setShowImportPageSelector(true);
       }
     }
+  };
+
+  const loadBuildingPDF = (file, isAppend = false) => {
+    // The ribbon Import PDF action distributes selected pages from GF upward.
+    // Clear any per-floor target left by a cancelled hover-"+" import so the
+    // global import can never be mistaken for a single-floor attachment.
+    if (!isAppend) setImportTargetFloorCode(null);
+    return loadPDF(file, isAppend);
   };
 
   const handleDeletePage = (eOrIdx, maybeIdx) => {
@@ -1803,7 +1967,147 @@ export default function App() {
     }
   };
 
+  // For an EMS/TaskList job, floor_levels is authoritative 1:1. When a floor
+  // is unchecked in Procurement, remove its stale architectural page and all
+  // page-bound drawing data from EzeFloor as well. PDF-tool workspaces are not
+  // architectural levels and are therefore preserved.
+  useEffect(() => {
+    if (typeof window === "undefined" || !Array.isArray(pages) || !pages.length) return;
 
+    let isLinkedTaskListJob = false;
+    try {
+      const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = raw ? JSON.parse(raw) : null;
+      const pendingProject = String(pending?.job_number || pending?.job_num || "").trim().toLowerCase();
+      const activeProject = String(currentProjectName || "").trim().toLowerCase();
+      isLinkedTaskListJob = (!pendingProject || !activeProject || pendingProject === activeProject)
+        && Boolean(pending?.id_job_ems || pending?.ems_id || pending?.id || pending?.hw_id);
+    } catch (_) { }
+    if (!isLinkedTaskListJob) return;
+
+    const allowedFloors = new Set(normalizeTaskFloorCodes(buildingFloorLevels));
+    const pageFloorMap = buildArchitecturalFloorLevelMap(pages);
+    const removedIndices = new Set();
+    pageFloorMap.forEach((rawCode, pageIndex) => {
+      const code = normalizeTaskFloorCode(rawCode);
+      if (code && !allowedFloors.has(code)) removedIndices.add(Number(pageIndex));
+    });
+    if (!removedIndices.size) return;
+
+    const retainedOldIndices = pages
+      .map((_, pageIndex) => pageIndex)
+      .filter((pageIndex) => !removedIndices.has(pageIndex));
+    const oldToNewIndex = new Map(retainedOldIndices.map((oldIndex, newIndex) => [oldIndex, newIndex]));
+    const nextPages = retainedOldIndices.map((oldIndex) => pages[oldIndex]);
+    const remapPageData = (previous = {}) => {
+      const next = {};
+      oldToNewIndex.forEach((newIndex, oldIndex) => {
+        if (Object.prototype.hasOwnProperty.call(previous, oldIndex)) next[newIndex] = previous[oldIndex];
+      });
+      return next;
+    };
+
+    setPages(nextPages);
+    setRoomsByPage(remapPageData);
+    setWallsByPage(remapPageData);
+    setDoorsByPage(remapPageData);
+    setRoofsByPage(remapPageData);
+    setLintelsByPage(remapPageData);
+    setScalesByPage(remapPageData);
+    setWasteByPage(remapPageData);
+    setPdfOffsetsByPage(remapPageData);
+    if (setAnnotationsByPage) setAnnotationsByPage(remapPageData);
+
+    const nextCurrentPage = oldToNewIndex.has(Number(currentPage))
+      ? oldToNewIndex.get(Number(currentPage))
+      : 0;
+    setCurrentPage(nextCurrentPage);
+    const nextPage = nextPages[nextCurrentPage];
+    setImage(nextPage?.image || null);
+    setImgSize({ w: nextPage?.w || 800, h: nextPage?.h || 600 });
+    setCurrentLevelIndex((previousIndex) => Math.min(
+      Math.max(0, Number(previousIndex) || 0),
+      Math.max(0, allowedFloors.size - 1)
+    ));
+    setSelectedId(null);
+    setSelectedType(null);
+    setSelectedRoofId(null);
+    setSelectedWallIds([]);
+    setSelectedDoorIds([]);
+    setSelectedRoomIds([]);
+    setSelectedLintelIds([]);
+  }, [buildingFloorLevels, pages, currentPage, currentProjectName]);
+
+
+
+  const createAndActivateEmptyFloorPage = (floorCode) => {
+    const normalizedFloorCode = normalizeTaskFloorCode(floorCode);
+    const existingFloorEntry = Array.from(buildArchitecturalFloorLevelMap(pages || []).entries())
+      .find(([, existingCode]) => normalizeTaskFloorCode(existingCode) === normalizedFloorCode);
+    if (existingFloorEntry) {
+      const existingPageIndex = Number(existingFloorEntry[0]);
+      const existingPage = pages[existingPageIndex];
+      setCurrentPage(existingPageIndex);
+      setImage(existingPage?.image || null);
+      setImgSize({ w: existingPage?.w || 800, h: existingPage?.h || 600 });
+      return existingPageIndex;
+    }
+
+    const pageIndex = pages.length;
+    const floorNumber = floorNumberFromCode(normalizedFloorCode);
+    const floorName = floorNumber === 0
+      ? "Ground Floor"
+      : floorNumber === 1
+        ? "First Floor"
+        : floorNumber === 2
+          ? "Second Floor"
+          : `Floor ${floorNumber}`;
+    const emptyPage = {
+      id: `empty_level_${normalizedFloorCode}_${Date.now()}`,
+      code: normalizedFloorCode,
+      name: floorName,
+      floor_name: floorName,
+      category: null,
+      source: "design",
+      image: null,
+      w: 800,
+      h: 600,
+      pageNumber: pageIndex + 1,
+      isEmptyLevel: true,
+    };
+
+    setPages((previous) => [...previous, emptyPage]);
+
+    // A new floor owns a new page index. Explicitly initialize every page-bound
+    // dataset so walls/doors/rooms/etc. from the previously active floor can
+    // never remain visible or be edited as if they belonged to this floor.
+    setRoomsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    setWallsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    setDoorsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    setRoofsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    setLintelsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    setWasteByPage((previous) => ({ ...previous, [pageIndex]: { internal: 10, external: 15 } }));
+    setPdfOffsetsByPage((previous) => ({ ...previous, [pageIndex]: { x: 0, y: 0 } }));
+    setScalesByPage((previous) => ({ ...previous, [pageIndex]: defaultScale || 1 }));
+    if (setAnnotationsByPage) {
+      setAnnotationsByPage((previous) => ({ ...previous, [pageIndex]: [] }));
+    }
+
+    setCurrentPage(pageIndex);
+    setImage(null);
+    setImgSize({ w: 800, h: 600 });
+    setCurrentPoly([]);
+    setCurrentDoor([]);
+    setSelectedId(null);
+    setSelectedType(null);
+    setSelectedRoofId(null);
+    setSelectedWallIds([]);
+    setSelectedDoorIds([]);
+    setSelectedRoomIds([]);
+    setSelectedLintelIds([]);
+    setHighlightType(null);
+    return pageIndex;
+  };
 
   const handleAddEmptyFloorLevel = () => {
     const floors = normalizeTaskFloorCodes(buildingFloorLevels);
@@ -1813,35 +2117,35 @@ export default function App() {
     const nextFloors = normalizeTaskFloorCodes([...floors, nextCode]);
     void syncBuildingFloorLevels(nextFloors);
     const nextIndex = nextFloors.indexOf(nextCode);
+    const newPageIndex = createAndActivateEmptyFloorPage(nextCode);
     if (nextIndex >= 0) setCurrentLevelIndex(nextIndex);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("building-floor-selected", {
-        detail: { floor_level: nextCode, level_index: nextIndex, page_index: null }
+        detail: { floor_level: nextCode, level_index: nextIndex, page_index: newPageIndex }
       }));
     }
   };
 
-  const handleSelectEmptyFloorLevel = () => {
-    // An empty registered level has no architectural page of its own. Clear the
-    // previous level's PDF so selecting (for example) SF cannot keep showing FF.
-    setImage(null);
-    setImgSize({ w: 800, h: 600 });
-    setSelectedId(null);
-    setSelectedType(null);
-    setSelectedRoofId(null);
+  const handleSelectEmptyFloorLevel = (floorCode) => {
+    createAndActivateEmptyFloorPage(floorCode);
   };
 
-  const handleDeleteFloorLevel = (pageIndex, floorCode) => {
+  const handleDeleteFloorLevel = async (pageIndex, floorCode) => {
     if (pageIndex != null && Number.isFinite(Number(pageIndex))) {
       handleDeletePage(Number(pageIndex));
     }
-    const code = String(floorCode || "").toUpperCase().trim();
+    const code = normalizeTaskFloorCode(floorCode);
     const next = normalizeTaskFloorCodes(
-      (buildingFloorLevels || []).filter((item) => String(item).toUpperCase().trim() !== code),
+      (buildingFloorLevels || []).filter((item) => normalizeTaskFloorCode(item) !== code),
       { defaultGF: false }
     );
     // A building always keeps at least GF as the registry baseline.
-    void syncBuildingFloorLevels(next.length ? next : ["GF"]);
+    const remainingFloors = next.length ? next : ["GF"];
+    setCurrentLevelIndex((previousIndex) => Math.min(
+      Math.max(0, Number(previousIndex) || 0),
+      remainingFloors.length - 1
+    ));
+    await syncBuildingFloorLevels(remainingFloors);
   };
 
   function getClassId(type) {
@@ -1978,7 +2282,7 @@ export default function App() {
         isAddingPagesMode={isAddingPagesMode}
         setIsAddingPagesMode={setIsAddingPagesMode}
         fitToScreen={fitToScreen} rotatePlan90={rotatePlan90} goPage={goPage}
-        loadPDF={loadPDF} setImage={setImage} setImgSize={setImgSize}
+        loadPDF={loadBuildingPDF} setImage={setImage} setImgSize={setImgSize}
         searchResultsVisible={searchResultsVisible}
         setSearchResultsVisible={setSearchResultsVisible}
         clearSearch={clearSearch}

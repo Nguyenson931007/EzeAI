@@ -10,6 +10,7 @@ Xem lịch sử chỉnh sửa chéo, và Chia sẻ dự án công khai qua Token
 from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query
 import secrets
 import logging
+import time
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
@@ -1254,6 +1255,70 @@ async def update_job_task_modules(
             except Exception:
                 pass
 
+@router.get("/jobs/ems/{ems_id}/floor-levels")
+async def get_job_floor_levels(
+    ems_id: str,
+    tasklist_token: Optional[str] = Header(None, alias="X-TaskList-Token"),
+    _: str = Depends(validate_session),
+):
+    """Read the one job-wide floor registry shared by TaskList and Procurement."""
+    from app.mssql_db import get_mssql_connection
+
+    workflow_headers = {"Cache-Control": "no-cache"}
+    if TASKLIST_WORKFLOW_API_TOKEN:
+        workflow_headers["X-API-Key"] = TASKLIST_WORKFLOW_API_TOKEN
+    elif tasklist_token:
+        workflow_headers["Authorization"] = f"Bearer {tasklist_token.strip()}"
+
+    if TASKLIST_WORKFLOW_API_URL and len(workflow_headers) > 1:
+        try:
+            import httpx
+            target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/steps"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(target, headers=workflow_headers, params={"_": int(time.time() * 1000)})
+            if response.is_success:
+                data = response.json().get("data") or {}
+                floors = _parse_floor_levels(data.get("floor_levels"))
+                return {
+                    "status": "success",
+                    "success": True,
+                    "data": {"id_job": ems_id, "floor_levels": floors},
+                    "floor_levels": floors,
+                    "sync_source": "tasklist_api",
+                }
+        except Exception as exc:
+            logger.warning("[floor-levels] Không đọc được TaskList API; dùng shared DB: %s", exc)
+
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute(
+            """
+            SELECT TOP 1 floor_levels
+            FROM [emsflow].[dbo].[task_group_hw]
+            WHERE id_job_ems = %s
+              AND ISNULL(is_delete, 0) = 0
+            ORDER BY created_at DESC, id DESC
+            """,
+            (ems_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Không tìm thấy task_group_hw của job.")
+        floors = _parse_floor_levels(row.get("floor_levels"))
+        return {
+            "status": "success",
+            "success": True,
+            "data": {"id_job": ems_id, "floor_levels": floors},
+            "floor_levels": floors,
+            "sync_source": "shared_db",
+        }
+    finally:
+        if conn:
+            conn.close()
+
+
 @router.put("/jobs/ems/{ems_id}/floor-levels")
 async def update_job_floor_levels(
     ems_id: str,
@@ -1374,10 +1439,10 @@ async def get_job_by_ems_id(ems_id: str):
                     t.id_assign_ems,
                     t.floor_levels,
                     t.created_at
-                FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
+                FROM [emsflow].[dbo].[task_group_hw] AS t
                 WHERE t.id_job_ems = lj.IDJob
                   AND ISNULL(t.is_delete, 0) = 0
-                ORDER BY t.created_at DESC
+                ORDER BY t.created_at DESC, t.id DESC
             ) AS tghw
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] AS aj WITH (NOLOCK)
                 ON aj.ID = tghw.id_assign_ems

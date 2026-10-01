@@ -28,6 +28,16 @@ check('Task-side floor changes call shared registry owner', 'onBuildingFloorLeve
 check('Task tabs use floor codes instead of zero-based labels', 'label: `Floor ${floorLevel}`' in levels and 'label: `Floor ${floorNumber}`' not in levels)
 check('Floor selector labels expose GF/FF/SF codes', 'Ground Floor (GF)' in levels and 'First Floor (FF)' in levels and 'Second Floor (SF)' in levels)
 check('Backend floor API persists shared floor_levels', '@router.put("/jobs/ems/{ems_id}/floor-levels")' in api and 'SET floor_levels = %s' in api)
+check('EzeFloor polls active TaskList job floors', 'tasklist-realtime-poll' in app and 'window.setInterval(refreshTaskFloorLevels, 3000)' in app)
+check('TaskList floors remain authoritative over stale saved pages', 'isActiveTaskListJob' in app and 'if (isActiveTaskListJob) return;' in app)
+check('LEVEL rail never merges removed saved-page floors back into registry', 'const allCodes = normalizeTaskFloorCodes(buildingFloorLevels);' in left and '[...registered, ...actualCodes]' not in left)
+check('Removed TaskList floors purge their EzeFloor pages and drawings', 'const removedIndices = new Set();' in app and 'setRoomsByPage(remapPageData);' in app and 'setWallsByPage(remapPageData);' in app and 'setDoorsByPage(remapPageData);' in app)
+check('Legacy TF and current 3F resolve to one canonical floor', 'normalizeTaskFloorCode(rawCode)' in app and 'normalizeTaskFloorCode(p?.code || pageCode)' in left)
+check('Floor API reads the shared EMS job floor registry', 'WHERE t.id_job_ems = lj.IDJob' in api and 'ORDER BY t.created_at DESC, t.id DESC' in api)
+check('Floor API writes every active HW group for the EMS job', 'WHERE id_job_ems = %s' in api and 'AND ISNULL(is_delete, 0) = 0' in api)
+check('Frontend floor sync uses the shared EMS job id', 'pending.id_job_ems || pending.ems_id || pending.id' in app and 'task.id_job_ems || task.ems_id || task.hw_id' in right)
+check('Realtime floor polling bypasses browser and proxy caches', 'cache: "no-store"' in read('frontend_next/src/models/api.service.js') and 'Cache-Control' in read('frontend_next/src/models/api.service.js'))
+check('Realtime floor polling uses the dedicated shared floor endpoint', 'ApiService.getTaskFloorLevels(emsId)' in app and '@router.get("/jobs/ems/{ems_id}/floor-levels")' in api)
 
 failed = [name for name, ok in checks if not ok]
 if failed:

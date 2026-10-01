@@ -132,8 +132,13 @@ export const ApiService = {
 
   async getJobByEmsId(emsId) {
     try {
-      const res = await fetch(`${BASE_URL}/jobs/open-by-ems/${encodeURIComponent(emsId)}`, {
-        headers: getHeaders(),
+      const res = await fetch(`${BASE_URL}/jobs/open-by-ems/${encodeURIComponent(emsId)}?_=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          ...getHeaders(),
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
         credentials: "include",
       });
       if (res.status === 401) {
@@ -181,6 +186,25 @@ export const ApiService = {
       },
       credentials: "include",
       body: JSON.stringify({ floor_levels: floorLevels }),
+    });
+    return handleResponse(res);
+  },
+
+  async getTaskFloorLevels(emsId) {
+    let taskListToken = "";
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      taskListToken = String(user.tasklist_token || localStorage.getItem("tasklist_token") || "").trim();
+    } catch (_) {}
+    const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/floor-levels?_=${Date.now()}`, {
+      cache: "no-store",
+      headers: {
+        ...getHeaders(),
+        ...(taskListToken ? { "X-TaskList-Token": taskListToken } : {}),
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      credentials: "include",
     });
     return handleResponse(res);
   },
