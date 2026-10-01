@@ -2346,6 +2346,7 @@ export default function App() {
                 setIsAddingPagesMode={setIsAddingPagesMode}
                 setShowImportPageSelector={setShowImportPageSelector}
                 pages={pages}
+                currentPdfFile={currentPdfFile}
                 currentPage={currentPage}
                 setCurrentPage={goPage}
                 goPage={goPage}

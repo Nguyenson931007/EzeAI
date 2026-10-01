@@ -307,7 +307,11 @@ export default function FrameHardwareTask({
         sourcePageIndex: g.sourcePageIndex,
         wallClass: g.wallClass,
         isCanvasWall: true,
-        wallIds: g.wallIds
+        wallIds: g.wallIds,
+        ai_generated: existing?.ai_generated ?? true,
+        generatedByAI: existing?.generatedByAI ?? true,
+        autofill_source: existing?.autofill_source || existing?.autoFillSource || "drawing",
+        source: existing?.source || "drawing"
       };
     });
 

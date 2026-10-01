@@ -3,6 +3,9 @@ import TaskTableEnhancer from "@/components/bun-nsw-act/tasks/TaskTableEnhancer"
 
 export default function TaskModulesContainer({
   activeModuleTab,
+  gptTaskRows = {},
+  onSaveGptRows,
+  onClearNonGpt,
   aiGeneratedSuccess,
   handleResetModuleData,
   setActivePaneTab,
@@ -161,6 +164,13 @@ export default function TaskModulesContainer({
     handleModuleFormChange("fixout", "fixout_excluded_window_ids", JSON.stringify(next));
   };
 
+  const gptTaskKey = ({
+    lockup: "lock_up",
+    eaves: "eaves_soffit",
+    power_truss: "power_truss_braces",
+  })[activeModuleId] || activeModuleId;
+  const stagedGptRows = gptTaskRows?.[gptTaskKey] || [];
+
   return (
     <div
       style={{
@@ -255,6 +265,33 @@ export default function TaskModulesContainer({
             ✕
           </button>
         </div>
+
+        {stagedGptRows.length > 0 && (
+          <div style={{ marginTop: "8px", border: "1px solid #c4b5fd", background: "#faf5ff", borderRadius: "8px", padding: "8px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <b style={{ color: "#6d28d9", fontSize: "11px" }}>GPT rows ({stagedGptRows.length})</b>
+              <div style={{ marginLeft: "auto", display: "flex", gap: "5px" }}>
+                <button type="button" onClick={() => onSaveGptRows?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #86efac", color:"#15803d", background:"#f0fdf4", borderRadius:5, padding:"4px 8px" }}>Save GPT</button>
+                <button type="button" onClick={() => onClearNonGpt?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #fed7aa", color:"#c2410c", background:"#fff7ed", borderRadius:5, padding:"4px 8px" }}>Clear non-GPT</button>
+              </div>
+            </div>
+            <div style={{ maxHeight:"150px", overflow:"auto", fontSize:"10px", color:"#334155" }}>
+              {stagedGptRows.map((row, idx) => {
+                const action = String(row?._gptAction || row?.action || "ADD").toUpperCase();
+                const confidence = Number(row?._gptConfidence || 0);
+                return (
+                  <div key={row.id || idx} style={{ padding:"5px 0", borderTop: idx ? "1px solid #e9d5ff" : 0 }}>
+                    <span style={{ display:"inline-block", background:"#ede9fe", color:"#6d28d9", borderRadius:10, padding:"1px 6px", fontWeight:850, marginRight:6 }}>AI</span>
+                    <span style={{ display:"inline-block", background:"#fff", color:"#475569", border:"1px solid #ddd6fe", borderRadius:10, padding:"1px 6px", fontWeight:800, marginRight:6 }}>{action}</span>
+                    {confidence > 0 && <span style={{ color:"#64748b", marginRight:6 }}>{Math.round(confidence * 100)}%</span>}
+                    {Object.entries(row).filter(([k]) => !k.startsWith("_") && !["generatedByAI","ai_generated","generated_by","source","id","action","row_id","target_row_id","source_page","source_text","confidence","reason"].includes(k)).slice(0,5).map(([k,v]) => `${k}: ${String(v)}`).join(" · ")}
+                    {row?._gptSourcePage ? <span style={{ color:"#64748b" }}> · page {row._gptSourcePage}</span> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {aiGeneratedSuccess === activeModuleId && (
           <div

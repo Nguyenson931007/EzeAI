@@ -570,3 +570,22 @@ tr.task-floor-level-row td {
   border-right: 1px solid #cbd5e1 !important;
   text-align: center !important;
 }
+
+
+/* Flooring entered rows can be much taller than the right pane.
+   Keep their own vertical scroll, but allow wheel/trackpad scrolling to chain
+   back to the outer task pane when the table reaches its top/bottom so the
+   schedule/footer below remains reachable. */
+.flooring-entered-table-scroll.task-table-viewport {
+  max-height: min(55vh, 560px) !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.flooring-entered-table-scroll.task-table-viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}

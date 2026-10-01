@@ -1254,6 +1254,22 @@ export const ApiService = {
     });
     return handleResponse(res);
   },
+  async reviewDocumentWithAI({ file, selectedPages = [], customer = "", tasks = {}, model = null }) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("selected_pages", JSON.stringify(selectedPages));
+    fd.append("customer", customer || "");
+    fd.append("tasks", JSON.stringify(tasks || {}));
+    if (model) fd.append("model", model);
+    const res = await fetch(`${BASE_URL}/api/ai/plan/document-review`, {
+      method: "POST",
+      headers: getHeaders(null),
+      body: fd,
+      credentials: "include",
+    });
+    return handleResponse(res);
+  },
+
   async reviewPlanWithAI({
     file,
     pageIndex = 0,

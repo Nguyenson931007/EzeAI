@@ -16,6 +16,7 @@ from fastapi.concurrency import run_in_threadpool
 from api.auth import validate_session
 from services.file_loader import load_images_from_file
 from services.plan_ai_service import review_plan_with_ai
+from services.document_ai_service import review_document_tasks
 from services.plan_feedback_service import save_accepted_plan_feedback
 
 logger = logging.getLogger("ezefloor.plan_ai")
@@ -124,6 +125,41 @@ async def review_plan(
         logger.error("Unexpected plan AI review failure", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+
+@router.post("/document-review")
+async def document_review(
+    file: UploadFile = File(...),
+    selected_pages: str = Form(...),
+    customer: str = Form(...),
+    tasks: str = Form(...),
+    model: Optional[str] = Form(None),
+    username: str = Depends(validate_session),
+):
+    content = await file.read()
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Document AI currently requires a PDF file")
+    pages_obj = _json(selected_pages, [])
+    tasks_obj = _json(tasks, {})
+    if not isinstance(pages_obj, list) or not pages_obj:
+        raise HTTPException(status_code=400, detail="Select at least one PDF page")
+    if not isinstance(tasks_obj, dict) or not tasks_obj:
+        raise HTTPException(status_code=400, detail="tasks must be a non-empty object")
+    try:
+        return await run_in_threadpool(
+            review_document_tasks,
+            pdf_bytes=content,
+            selected_pages=pages_obj,
+            customer=customer,
+            tasks=tasks_obj,
+            model=model,
+        )
+    except RuntimeError as exc:
+        logger.error("Document AI failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Unexpected Document AI failure", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @router.post("/feedback")
 async def accept_plan_for_dataset(

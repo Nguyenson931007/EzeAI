@@ -191,7 +191,11 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = dryProduct !== "Select..." ? dryProduct : (DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP");
+    const prod = dryProduct !== "Select..." ? dryProduct : DRY_OPTIONS[1];
+    if (!prod) {
+      alert("Please select a Dry flooring product.");
+      return;
+    }
     const newEntry = {
       id: `flr-dry-${Date.now()}`,
       floorLevel: currentLevel,
@@ -212,7 +216,11 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = wetProduct !== "Select..." ? wetProduct : (WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592");
+    const prod = wetProduct !== "Select..." ? wetProduct : WET_OPTIONS[1];
+    if (!prod) {
+      alert("Please select a Wet flooring product.");
+      return;
+    }
     const newEntry = {
       id: `flr-wet-${Date.now()}`,
       floorLevel: currentLevel,
@@ -233,7 +241,11 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = balconyProduct !== "Select..." ? balconyProduct : (BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592");
+    const prod = balconyProduct !== "Select..." ? balconyProduct : BALCONY_OPTIONS[1];
+    if (!prod) {
+      alert("Please select a Balcony Tiles product.");
+      return;
+    }
     const newEntry = {
       id: `flr-balc-${Date.now()}`,
       floorLevel: currentLevel,
@@ -254,7 +266,11 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = otherProduct !== "Select..." ? otherProduct : (getOtherProductOptions(otherTypeArea)[1] || otherTypeArea);
+    const prod = otherProduct !== "Select..." ? otherProduct : getOtherProductOptions(otherTypeArea)[1];
+    if (!prod) {
+      alert(`Please select a product for ${otherTypeArea}.`);
+      return;
+    }
     const newEntry = {
       id: `flr-other-${Date.now()}`,
       floorLevel: currentLevel,
@@ -311,17 +327,17 @@ export default function FlooringDeckingTask({
         const rawName = (r.room_name || r.name || `Room ${rIdx + 1}`).trim();
         const name = rawName.toLowerCase();
         let typeArea = "Dry";
-        let defaultProduct = DRY_OPTIONS[1] || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
+        let defaultProduct = DRY_OPTIONS[1] || "";
 
         if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) {
           typeArea = "Wet";
-          defaultProduct = WET_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
+          defaultProduct = WET_OPTIONS[1] || "";
         } else if (t === "timber_deck" || /deck|timber/i.test(name)) {
           typeArea = "Decking Input";
-          defaultProduct = "HARDWOOD DECKING 90X19MM MERBAU";
+          defaultProduct = getOtherProductOptions("Decking Input")[1] || "";
         } else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) {
           typeArea = "Balcony Tiles";
-          defaultProduct = BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
+          defaultProduct = BALCONY_OPTIONS[1] || "";
         }
 
         newRows.push({
@@ -334,7 +350,13 @@ export default function FlooringDeckingTask({
           product: defaultProduct,
           areaM2: areaM2,
           totalM2: formatM2_4Digits(areaM2),
-          roomIds: [r.id]
+          roomIds: [r.id],
+          // Rows derived from plan/room detection are AI-generated. Keep provenance
+          // on the row so TaskRowNumber renders the same AI badge as other tasks.
+          ai_generated: true,
+          generatedByAI: true,
+          autofill_source: "drawing",
+          source: "floor_ceiling_ai"
         });
       });
     });
@@ -377,7 +399,7 @@ export default function FlooringDeckingTask({
       setDryProduct(prev => (prev === "Select..." || !prev) ? DRY_OPTIONS[1] : prev);
       setWetProduct(prev => (prev === "Select..." || !prev) ? WET_OPTIONS[1] : prev);
       setBalconyProduct(prev => (prev === "Select..." || !prev) ? BALCONY_OPTIONS[1] : prev);
-      if (o) setOtherProduct(prev => (prev === "Select..." || !prev) ? "HARDWOOD DECKING 90X19MM MERBAU" : prev);
+      if (o) setOtherProduct(prev => (prev === "Select..." || !prev) ? (getOtherProductOptions(ot || "Decking Input")[1] || "Select...") : prev);
 
       // Auto-generate Card 2 Entered rows across all levels
       if (onSetEntries) {
@@ -385,7 +407,7 @@ export default function FlooringDeckingTask({
           const autoRows = gRooms.filter((r) => normalizeFloorLevelCode(r.floor_level || "GF") === selectedTaskFloor).map((r, rIdx) => {
             const lvl = r.floor_level || "GF";
             const aType = r.floor_area_type === "Tile Deck" ? "Balcony Tiles" : r.floor_area_type;
-            const prod = r.product || getProductOptionsForType(aType)[0] || DRY_OPTIONS[1];
+            const prod = r.product || getProductOptionsForType(aType)[0] || "";
             const netNum = parseFloat(r.calcAreaM2) || 0;
             return {
               id: `flr-auto-${lvl}-${aType}-${rIdx}`,
@@ -394,7 +416,11 @@ export default function FlooringDeckingTask({
               location: `${lvl} ${aType}`,
               product: prod,
               areaM2: netNum,
-              totalM2: formatM2_4Digits(netNum)
+              totalM2: formatM2_4Digits(netNum),
+              ai_generated: true,
+              generatedByAI: true,
+              autofill_source: "drawing",
+              source: "floor_ceiling_ai"
             };
           });
           onSetEntries((prev) => [
@@ -412,7 +438,11 @@ export default function FlooringDeckingTask({
               location: "Dry Area (Habitable Rooms)",
               product: DRY_OPTIONS[1],
               areaM2: numA,
-              totalM2: formatM2_4Digits(numA)
+              totalM2: formatM2_4Digits(numA),
+              ai_generated: true,
+              generatedByAI: true,
+              autofill_source: "drawing",
+              source: "floor_ceiling_ai"
             });
           }
           if (w && parseFloat(w) > 0) {
@@ -424,7 +454,11 @@ export default function FlooringDeckingTask({
               location: "Wet Area (Bath, Ensuite, Laundry)",
               product: WET_OPTIONS[1],
               areaM2: numA,
-              totalM2: formatM2_4Digits(numA)
+              totalM2: formatM2_4Digits(numA),
+              ai_generated: true,
+              generatedByAI: true,
+              autofill_source: "drawing",
+              source: "floor_ceiling_ai"
             });
           }
           if (b && parseFloat(b) > 0) {
@@ -436,7 +470,11 @@ export default function FlooringDeckingTask({
               location: "Balcony / Porch Area",
               product: BALCONY_OPTIONS[1],
               areaM2: numA,
-              totalM2: formatM2_4Digits(numA)
+              totalM2: formatM2_4Digits(numA),
+              ai_generated: true,
+              generatedByAI: true,
+              autofill_source: "drawing",
+              source: "floor_ceiling_ai"
             });
           }
           if (o && parseFloat(o) > 0) {
@@ -446,9 +484,13 @@ export default function FlooringDeckingTask({
               floorLevel: selectedTaskFloor,
               typeArea: ot || "Decking Input",
               location: ot || "Decking Input",
-              product: "HARDWOOD DECKING 90X19MM MERBAU",
+              product: getOtherProductOptions(ot || "Decking Input")[1] || "",
               areaM2: numA,
-              totalM2: formatM2_4Digits(numA)
+              totalM2: formatM2_4Digits(numA),
+              ai_generated: true,
+              generatedByAI: true,
+              autofill_source: "drawing",
+              source: "floor_ceiling_ai"
             });
           }
           if (autoRows.length > 0) {
@@ -481,7 +523,7 @@ export default function FlooringDeckingTask({
             id: `as-loaded-${Date.now()}-${idx}`,
             floorLevel: r.floor_level || "GF",
             typeArea: r.floor_area_type || "Dry",
-            product: r.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+            product: r.product || "",
             totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
             areaM2: parseFloat(r.net_area),
             source: "manual",
@@ -508,15 +550,20 @@ export default function FlooringDeckingTask({
   const tileUnderlayCatalogItems = useMemo(() => catalogByArea(catalogItems, "tile_underlay_area"), [catalogItems]);
   const battensSlabCatalogItems = useMemo(() => catalogByArea(catalogItems, "battens_slab"), [catalogItems]);
   const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
-  const hasProcurementFlooringCatalog = catalogItems.length > 0;
-
+  // ProcurementApp uses the usage row label for each Flooring dropdown, not the
+  // master catalog description. This matters when two usages share one FindCode
+  // but intentionally have different labels (for example Internal vs External).
   const flooringValues = (items) => Array.from(new Set(
     (items || [])
-      .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
+      .map((item) => String(
+        item.usageLabel || item.usage_label || item.displayName || item.display_name ||
+        item.label || item.description || canonicalProductValue(item) || ""
+      ).trim())
       .filter(Boolean)
   ));
 
-  // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
+  // Save Flooring / AreaSummary to ProcurementApp. Keep this handler in the
+  // task component because EnteredTaskActions references it directly.
   const handleSaveToDatabase = async () => {
     const allRowsToSave = (entries || []).map((item, idx) => ({
       ...item,
@@ -531,20 +578,26 @@ export default function FlooringDeckingTask({
     setSaveSuccess(false);
 
     try {
-      const jobId = currentProjectName || currentJobId || activeJobNumber || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
+      const jobId = currentProjectName || currentJobId || activeJobNumber ||
+        (typeof window !== "undefined"
+          ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id"))
+          : "");
       if (!jobId) {
-        console.warn("Chưa chọn Job để lưu Flooring AreaSummary");
+        console.warn("No active Job selected for Flooring AreaSummary save");
       }
-      const shortName = activeCustomerShortName;
 
-      const areasList = allRowsToSave.map(r => {
-        const netNum = parseFloat(String(r.totalM2 !== undefined ? r.totalM2 : (r.areaM2 || 0)).replace(/m²/gi, "").trim()) || 0;
+      const areasList = allRowsToSave.map((row) => {
+        const netNum = parseFloat(
+          String(row.totalM2 !== undefined ? row.totalM2 : (row.areaM2 || 0))
+            .replace(/m²/gi, "")
+            .trim()
+        ) || 0;
         return {
-          floor_level: r.floorLevel || "GF",
-          floor_area_type: r.typeArea || "Dry",
+          floor_level: row.floorLevel || "GF",
+          floor_area_type: row.typeArea || "Dry",
           net_area: netNum,
-          product: r.product || null,
-          short_name: shortName
+          product: row.product || null,
+          short_name: activeCustomerShortName,
         };
       });
 
@@ -552,8 +605,8 @@ export default function FlooringDeckingTask({
         user_update: currentUserUpdate,
         jobs: [{
           id_job_hw: jobId || "default",
-          areas: areasList
-        }]
+          areas: areasList,
+        }],
       };
 
       const res = await ApiService.saveAreaSummaryJobs(payload);
@@ -561,60 +614,35 @@ export default function FlooringDeckingTask({
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert("Lỗi khi lưu: " + (res?.message || "Không thể lưu vào ProcurementApp AreaSummary."));
+        alert(res?.message || "Could not save Flooring data to AreaSummary.");
       }
     } catch (err) {
-      console.error("Lỗi khi lưu AreaSummary từ Task Panel:", err);
-      alert("Lỗi khi lưu AreaSummary: " + (err.message || err));
+      console.error("Save Flooring AreaSummary error:", err);
+      alert("Error saving Flooring data: " + (err?.message || err));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Sync external formData changes
-  useEffect(() => {
-    if (formData.dryArea !== undefined && formData.dryArea !== "" && formData.dryArea !== dryArea) setDryArea(formData.dryArea);
-    if (formData.wetArea !== undefined && formData.wetArea !== "" && formData.wetArea !== wetArea) setWetArea(formData.wetArea);
-    if (formData.balconyArea !== undefined && formData.balconyArea !== "" && formData.balconyArea !== balconyArea) setBalconyArea(formData.balconyArea);
-    if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
-  }, [formData]);
-
-  const DRY_OPTIONS = useMemo(() => {
-    const list = flooringValues(dryCatalogItems);
-    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
-      "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
-      "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
-      "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-    ]))];
-  }, [dryCatalogItems, hasProcurementFlooringCatalog]);
-
-  const WET_OPTIONS = useMemo(() => {
-    const list = flooringValues(wetCatalogItems);
-    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
-      "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-      "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
-      "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
-    ]))];
-  }, [wetCatalogItems, hasProcurementFlooringCatalog]);
-
-  const BALCONY_OPTIONS = useMemo(() => {
-    const list = flooringValues(balconyCatalogItems);
-    return ["Select...", ...(list.length > 0 ? list : (hasProcurementFlooringCatalog ? [] : [
-      "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-      "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-      "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276"
-    ]))];
-  }, [balconyCatalogItems, hasProcurementFlooringCatalog]);
-
-  const OTHER_TYPE_OPTIONS = [
+  // ProcurementApp defines the same Flooring area structure for BUN-NSW-ACT,
+  // BUN-SEQLD and BUN-VIC. Product rows remain customer-specific and come from
+  // that customer's using_find_items catalog.
+  const PROCUREMENT_FLOORING_AREA_TYPES = [
+    "Dry",
+    "Wet",
+    "Balcony Tiles",
     "T+G Flooring Area",
     "Decking Input",
     "Tile Underlay",
     "Battens Over Slab Area",
-    "Floor Joist Packers"
+    "Floor Joist Packers",
   ];
+
+  const DRY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(dryCatalogItems)], [dryCatalogItems]);
+  const WET_OPTIONS = useMemo(() => ["Select...", ...flooringValues(wetCatalogItems)], [wetCatalogItems]);
+  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(balconyCatalogItems)], [balconyCatalogItems]);
+
+  const OTHER_TYPE_OPTIONS = PROCUREMENT_FLOORING_AREA_TYPES.slice(3);
 
   const OTHER_CATALOG_BY_TYPE = {
     "T+G Flooring Area": tgCatalogItems,
@@ -624,44 +652,19 @@ export default function FlooringDeckingTask({
     "Floor Joist Packers": joistPackersCatalogItems,
   };
 
-  const LEGACY_OTHER_FALLBACKS = {
-    "T+G Flooring Area": [
-      "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
-      "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM",
-      "FLOORING SPOTTED GUM++130X19MM L/M PREM S&B T&G EM",
-      "FLOORING BLACKBUTT++130X19MM L/M PREM S&B T&G EM"
-    ],
-    "Decking Input": ["HARDWOOD DECKING 90X19MM MERBAU", "HARDWOOD DECKING 86X19MM SPOTTED GUM", "TREATED PINE DECKING 90X22MM"],
-    "Tile Underlay": ["HARDIE TILE UNDERLAY 1800X900X6MM", "BGC CERAMIC TILE UNDERLAY 1800X900X6MM"],
-    "Battens Over Slab Area": ["PINE BATTEN 70X35MM 4.8M T2", "PINE BATTEN 42X35MM 4.8M T2"],
-    "Floor Joist Packers": ["PLASTIC JOIST PACKERS ASSORTED", "MASONITE FLOOR PACKERS 3.2MM"],
-  };
-
-  const getOtherProductOptions = (type) => {
-    const list = flooringValues(OTHER_CATALOG_BY_TYPE[type] || []);
-    if (list.length > 0) return ["Select...", ...list];
-    if (hasProcurementFlooringCatalog) return ["Select..."];
-    return ["Select...", ...(LEGACY_OTHER_FALLBACKS[type] || LEGACY_OTHER_FALLBACKS["T+G Flooring Area"] || [])];
-  };
+  const getOtherProductOptions = (type) => [
+    "Select...",
+    ...flooringValues(OTHER_CATALOG_BY_TYPE[type] || []),
+  ];
 
   const getProductOptionsForType = (typeArea) => {
-    const t = String(typeArea || "").toLowerCase();
-    if (t.includes("dry")) {
-      return DRY_OPTIONS.filter(x => x !== "Select...");
+    const t = String(typeArea || "").trim().toLowerCase();
+    if (t === "dry" || t.startsWith("dry ")) return DRY_OPTIONS.filter((x) => x !== "Select...");
+    if (t === "wet" || t.startsWith("wet ")) return WET_OPTIONS.filter((x) => x !== "Select...");
+    if (t.includes("balcony") || t === "tile deck" || t === "balcony_tiles") {
+      return BALCONY_OPTIONS.filter((x) => x !== "Select...");
     }
-    if (t.includes("wet")) {
-      return WET_OPTIONS.filter(x => x !== "Select...");
-    }
-    if (t.includes("balcony") || t === "tile deck") {
-      return BALCONY_OPTIONS.filter(x => x !== "Select...");
-    }
-    const otherOpts = getOtherProductOptions(typeArea).filter(x => x !== "Select...");
-    if (otherOpts.length > 0) return otherOpts;
-    return [
-      ...DRY_OPTIONS.filter(x => x !== "Select..."),
-      ...WET_OPTIONS.filter(x => x !== "Select..."),
-      ...BALCONY_OPTIONS.filter(x => x !== "Select...")
-    ];
+    return getOtherProductOptions(typeArea).filter((x) => x !== "Select...");
   };
 
   const LEVEL_SORT_ORDER = {
@@ -774,7 +777,7 @@ export default function FlooringDeckingTask({
         id: item.id || `flr-row-${idx}`,
         floorLevel: item.floorLevel || item.level || "GF",
         typeArea: item.typeArea || item.location || (String(item.id).includes("dry") ? "Dry" : (String(item.id).includes("wet") ? "Wet" : (String(item.id).includes("balc") ? "Balcony Tiles" : "Other"))),
-        product: item.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+        product: item.product || "",
         totalM2: formatM2_4Digits(item.totalM2 !== undefined ? item.totalM2 : item.areaM2)
       }));
     }
@@ -1396,7 +1399,7 @@ export default function FlooringDeckingTask({
           <>
             <div className="task-ui-summary-subsection">
               <div className="task-ui-summary-subsection-title">Room / area details</div>
-              <div style={{ padding: "0px", overflowX: "auto" }}>
+              <div className="flooring-entered-table-scroll" style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>

@@ -77,6 +77,7 @@ import SummaryTakeoffPanel from "./right-property-pane/SummaryTakeoffPanel";
 import TaskGroupsHwPanel from "./right-property-pane/TaskGroupsHwPanel";
 import TaskModulesContainer from "./right-property-pane/TaskModulesContainer";
 import RightPropertyTabBar from "./right-property-pane/RightPropertyTabBar";
+import DocumentAiReviewModal from "@/components/DocumentAiReviewModal";
 import TakeoffExportModal from "./right-property-pane/TakeoffExportModal";
 import WallPropertyPanel from "./right-property-pane/property-panels/WallPropertyPanel";
 import DoorWindowPropertyPanel from "./right-property-pane/property-panels/DoorWindowPropertyPanel";
@@ -309,7 +310,8 @@ export default function RightPropertyPaneView({
   selectWall,
   onEditDoor,
   layerOrder, activeLayerTab, setActiveLayerTab, treeSearchQuery, setTreeSearchQuery, handleAutoGroupWalls,
-  pushTaskHistory
+  pushTaskHistory,
+  currentPdfFile
 }) {
   const [defaultPitchInput, setDefaultPitchInput] = useState(22.5);
   const [defaultOverhangInput, setDefaultOverhangInput] = useState(0);
@@ -848,6 +850,10 @@ export default function RightPropertyPaneView({
   });
 
   const [aiGeneratedSuccess, setAiGeneratedSuccess] = React.useState(null);
+  const [showDocumentAi, setShowDocumentAi] = React.useState(false);
+  const [gptTaskRows, setGptTaskRows] = React.useState({});
+  const [gptFormProposals, setGptFormProposals] = React.useState({});
+  const [gptReport, setGptReport] = React.useState(null);
   const [manuallyClearedTasks, setManuallyClearedTasks] = React.useState({});
   const manuallyClearedTasksRef = React.useRef({});
 
@@ -4880,6 +4886,170 @@ export default function RightPropertyPaneView({
     });
   }, [cadMetrics, effectiveDoorsByPage, roomsByPageProp, rooms]);
 
+
+  const documentAiTaskContext = React.useMemo(() => ({
+    frame_hardware: { mode: "rows", rows: frameWallEntries, form: moduleFormData.frame_hardware || {} },
+    flooring_decking: { mode: "rows", rows: flooringEntries, form: moduleFormData.flooring_decking || {} },
+    hebel_flooring: { mode: "rows", rows: hebelFlooringEntries, form: moduleFormData.hebel_flooring || {} },
+    insulation: { mode: "rows", rows: [...(insulationWallEntries || []), ...(insulationAreaEntries || [])], form: moduleFormData.insulation || {} },
+    eaves_soffit: { mode: "form", rows: eavesEntries, form: moduleFormData.eaves_soffit || {} },
+    cladding: { mode: "rows", rows: claddingWallEntries, form: moduleFormData.cladding || {} },
+    lock_up: { mode: "rows", rows: lockupEntries, form: moduleFormData.lock_up || {} },
+    fixout: { mode: "rows", rows: fixoutDoorEntries, form: moduleFormData.fixout || {} },
+    windows: { mode: "rows", rows: windowEntries, form: {} },
+    shelving: { mode: "rows", rows: shelvingEntries, form: moduleFormData.shelving || {} },
+    timber_posts: { mode: "rows", rows: timberPostEntries, form: moduleFormData.timber_posts || {} },
+    power_truss_braces: { mode: "rows", rows: powerTrussEntries, form: moduleFormData.power_truss_braces || {} },
+    fow_plumbing: { mode: "rows", rows: fowPlumbingEntries, form: moduleFormData.fow_plumbing || {} },
+    final_fit: { mode: "form", rows: [], form: moduleFormData.final_fit || {} },
+    hardies_fire_walls: { mode: "rows", rows: hardiesFireWallEntries, form: moduleFormData.hardies_fire_walls || {} },
+  }), [
+    frameWallEntries, flooringEntries, hebelFlooringEntries, insulationWallEntries, insulationAreaEntries,
+    eavesEntries, claddingWallEntries, lockupEntries, fixoutDoorEntries, windowEntries, shelvingEntries,
+    timberPostEntries, powerTrussEntries, fowPlumbingEntries, hardiesFireWallEntries, moduleFormData
+  ]);
+
+  const handleDocumentAiResult = React.useCallback((result) => {
+    setGptReport(result);
+    const nextRows = {};
+    const nextForms = {};
+    for (const task of result?.task_results || []) {
+      if (task.mode === "rows") {
+        nextRows[task.task_key] = (task.rows || []).map((row, index) => {
+          const action = String(row?.action || "ADD").toUpperCase();
+          const targetRowId = row?.row_id ?? row?.target_row_id ?? null;
+          return {
+            ...row,
+            id: action === "ADD"
+              ? (row.id || `gpt-${task.task_key}-${Date.now()}-${index}`)
+              : (row.id || `gpt-proposal-${task.task_key}-${Date.now()}-${index}`),
+            generatedByAI: true,
+            ai_generated: true,
+            generated_by: "gpt",
+            source: "gpt_document_ai",
+            _gptAction: action,
+            _gptTargetRowId: targetRowId,
+            _gptSourcePage: row?.source_page ?? null,
+            _gptReason: row?.reason || "",
+            _gptConfidence: Number(row?.confidence ?? task.confidence ?? 0) || 0,
+          };
+        });
+      } else if ((task.field_updates || []).length) {
+        nextForms[task.task_key] = task.field_updates;
+        const updates = task.field_updates.filter((x) => x && x.field);
+        if (updates.length) {
+          const ok = typeof window !== "undefined" ? window.confirm(
+            `GPT found ${updates.length} change(s) for ${task.task_key}. Apply them to the form now?`
+          ) : false;
+          if (ok) {
+            setModuleFormData((prev) => {
+              const current = { ...(prev[task.task_key] || {}) };
+              updates.forEach((u) => { current[u.field] = u.new_value; });
+              return { ...prev, [task.task_key]: current };
+            });
+          }
+        }
+      }
+    }
+    setGptTaskRows(nextRows);
+    setGptFormProposals(nextForms);
+  }, []);
+
+  const commitGptRowsToTask = React.useCallback((taskKey) => {
+    const proposals = gptTaskRows?.[taskKey] || [];
+    if (!proposals.length) return;
+
+    const cleanProposal = (row) => {
+      const next = { ...row };
+      [
+        "action", "row_id", "target_row_id", "source_page", "source_text", "confidence", "reason",
+        "_gptAction", "_gptTargetRowId", "_gptSourcePage", "_gptReason", "_gptConfidence",
+      ].forEach((key) => delete next[key]);
+      return next;
+    };
+
+    const applyProposals = (setter) => setter((previous) => {
+      let rows = [...(previous || [])];
+      for (const proposal of proposals) {
+        const action = String(proposal?._gptAction || proposal?.action || "ADD").toUpperCase();
+        const targetId = proposal?._gptTargetRowId ?? proposal?.row_id ?? null;
+        if (action === "KEEP" || action === "UNKNOWN") continue;
+
+        if (action === "UPDATE") {
+          const index = rows.findIndex((row) => String(row?.id ?? "") === String(targetId ?? ""));
+          if (index < 0) continue;
+          rows[index] = {
+            ...rows[index],
+            ...cleanProposal(proposal),
+            id: rows[index]?.id,
+            generatedByAI: true,
+            ai_generated: true,
+            generated_by: "gpt",
+            source: "gpt_document_ai",
+          };
+          continue;
+        }
+
+        if (action === "DELETE") {
+          const ok = typeof window === "undefined" || window.confirm(
+            `GPT proposes deleting row ${targetId || ""} from ${taskKey}. Continue?`
+          );
+          if (ok && targetId != null) {
+            rows = rows.filter((row) => String(row?.id ?? "") !== String(targetId));
+          }
+          continue;
+        }
+
+        const candidate = cleanProposal(proposal);
+        const candidateId = String(candidate?.id ?? "");
+        const alreadyExists = candidateId && rows.some((row) => String(row?.id ?? "") === candidateId);
+        if (!alreadyExists) rows.push(candidate);
+      }
+      return rows;
+    });
+
+    if (taskKey === "frame_hardware") applyProposals(setFrameWallEntries);
+    else if (taskKey === "flooring_decking") applyProposals(setFlooringEntries);
+    else if (taskKey === "hebel_flooring") applyProposals(setHebelFlooringEntries);
+    else if (taskKey === "cladding") applyProposals(setCladdingWallEntries);
+    else if (taskKey === "lock_up") applyProposals(setLockupEntries);
+    else if (taskKey === "fixout") applyProposals(setFixoutDoorEntries);
+    else if (taskKey === "windows") applyProposals(setWindowEntries);
+    else if (taskKey === "shelving") applyProposals(setShelvingEntries);
+    else if (taskKey === "timber_posts") applyProposals(setTimberPostEntries);
+    else if (taskKey === "power_truss_braces") applyProposals(setPowerTrussEntries);
+    else if (taskKey === "fow_plumbing") applyProposals(setFowPlumbingEntries);
+    else if (taskKey === "hardies_fire_walls") applyProposals(setHardiesFireWallEntries);
+    else if (taskKey === "insulation") applyProposals(setInsulationAreaEntries);
+    else return;
+
+    setGptTaskRows((prev) => ({ ...prev, [taskKey]: [] }));
+  }, [gptTaskRows]);
+
+  const clearNonGptTaskData = React.useCallback((taskKey) => {
+    const confirmed = typeof window === "undefined" || window.confirm(
+      `Clear all non-GPT rows from ${taskKey}? This only changes the current form state until you explicitly save the task.`
+    );
+    if (!confirmed) return;
+    const keepAi = (rows) => (rows || []).filter((row) => row?.generatedByAI || row?.ai_generated || row?.generated_by === "gpt" || String(row?.source || "").startsWith("gpt_"));
+    if (taskKey === "frame_hardware") setFrameWallEntries(keepAi);
+    else if (taskKey === "flooring_decking") setFlooringEntries(keepAi);
+    else if (taskKey === "hebel_flooring") setHebelFlooringEntries(keepAi);
+    else if (taskKey === "cladding") setCladdingWallEntries(keepAi);
+    else if (taskKey === "lock_up") setLockupEntries(keepAi);
+    else if (taskKey === "fixout") setFixoutDoorEntries(keepAi);
+    else if (taskKey === "windows") setWindowEntries(keepAi);
+    else if (taskKey === "shelving") setShelvingEntries(keepAi);
+    else if (taskKey === "timber_posts") setTimberPostEntries(keepAi);
+    else if (taskKey === "power_truss_braces") setPowerTrussEntries(keepAi);
+    else if (taskKey === "fow_plumbing") setFowPlumbingEntries(keepAi);
+    else if (taskKey === "hardies_fire_walls") setHardiesFireWallEntries(keepAi);
+    else if (taskKey === "insulation") {
+      setInsulationWallEntries(keepAi);
+      setInsulationAreaEntries(keepAi);
+    }
+  }, []);
+
   return (
     <div
       className="cad-panel"
@@ -5400,6 +5570,9 @@ export default function RightPropertyPaneView({
       {isTaskModuleActive && activeModuleTab && activePaneTab !== "collapsed" && (
         <TaskModulesContainer
           activeModuleTab={activeModuleTab}
+          gptTaskRows={gptTaskRows}
+          onSaveGptRows={commitGptRowsToTask}
+          onClearNonGpt={clearNonGptTaskData}
           aiGeneratedSuccess={aiGeneratedSuccess}
           handleResetModuleData={handleResetModuleData}
           setActivePaneTab={setActivePaneTab}
@@ -5500,9 +5673,20 @@ export default function RightPropertyPaneView({
         customerModuleIds={customerModuleIds}
         flooringTaskFloors={flooringTaskFloors}
         onFlooringTaskFloorsChange={persistFlooringTaskFloors}
+        onOpenDocumentAi={() => setShowDocumentAi(true)}
       />
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
+      <DocumentAiReviewModal
+        open={showDocumentAi}
+        onClose={() => setShowDocumentAi(false)}
+        pdfFile={currentPdfFile}
+        planPages={pages}
+        customer={selectedCustomerClient}
+        taskContext={documentAiTaskContext}
+        onResult={handleDocumentAiResult}
+      />
+
       <TakeoffExportModal
         showTakeoffModal={showTakeoffModal}
         setShowTakeoffModal={setShowTakeoffModal}
