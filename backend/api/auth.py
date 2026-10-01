@@ -545,7 +545,7 @@ def validate_session_endpoint(
     if not session_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Thiếu session token."
+            detail="Authentication required: Missing session token."
         )
 
     conn = get_db_connection()
@@ -557,7 +557,7 @@ def validate_session_endpoint(
         if not row or row["session_token"] != session_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Phiên đăng nhập không hợp lệ hoặc đã bị thay thế."
+                detail="The session is invalid or has been replaced."
             )
 
         # Check 5-hour inactivity timeout
@@ -567,7 +567,7 @@ def validate_session_endpoint(
             conn.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Phiên đăng nhập đã hết hạn."
+                detail="The session has expired."
             )
 
         bophanlogin = ""
@@ -644,7 +644,7 @@ def validate_session(
         logger.warning(f"[AUTH] Thiếu session token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Yêu cầu chưa được xác thực: Thiếu session token."
+            detail="Authentication required: Missing session token."
         )
         
     conn = get_db_connection()
@@ -660,7 +660,7 @@ def validate_session(
             logger.warning(f"[AUTH] Không tìm thấy phiên làm việc trong cơ sở dữ liệu")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
-                detail="Phiên làm việc không hợp lệ: Không tìm thấy người dùng."
+                detail="Invalid session: User not found."
             )
             
         auth_username = row["username"]
@@ -670,7 +670,7 @@ def validate_session(
             logger.warning(f"[AUTH] Token không khớp cho người dùng {auth_username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
-                detail="Phiên đăng nhập đã bị vô hiệu hóa (Tài khoản đã đăng nhập ở thiết bị khác)."
+                detail="The session has been revoked because this account signed in on another device."
             )
             
         logger.debug(f"[AUTH] Xác thực thành công cho người dùng: {auth_username}")
@@ -682,7 +682,7 @@ def validate_session(
             conn.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
-                detail="Phiên làm việc đã hết hạn do không hoạt động trong 5 giờ."
+                detail="The session expired after 5 hours of inactivity."
             )
         
         # Cập nhật mốc thời gian hoạt động mới nhất

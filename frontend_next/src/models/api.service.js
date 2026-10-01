@@ -206,6 +206,9 @@ export const ApiService = {
       },
       credentials: "include",
     });
+    // This is a background poll. During login/logout there can briefly be no
+    // session, which must not trigger the global 401 dialog or force a reload.
+    if (res.status === 401) return { status: "unauthorized", data: null };
     return handleResponse(res);
   },
 

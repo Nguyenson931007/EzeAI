@@ -275,7 +275,9 @@ export default function App() {
   // storage. The API reads the shared TaskList row directly, so a short poll is
   // the realtime fallback until the workflow service exposes a websocket.
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
+    // Do not call protected background APIs while the login screen is open.
+    // A stale pendingEmsJob may still exist in storage from the last session.
+    if (typeof window === "undefined" || !isLoggedIn) return undefined;
     let disposed = false;
     let requestInFlight = false;
 
@@ -354,7 +356,7 @@ export default function App() {
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshOnVisibility);
     };
-  }, [currentProjectName]);
+  }, [currentProjectName, isLoggedIn]);
 
   // Any real architectural plan page automatically registers its floor in the shared list.
   useEffect(() => {
