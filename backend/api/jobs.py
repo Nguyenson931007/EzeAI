@@ -111,6 +111,9 @@ def _parse_floor_levels(value, default_gf=True):
 class FloorLevelsUpdate(BaseModel):
     floor_levels: List[str]
 
+class TaskModulesUpdate(BaseModel):
+    task_modules: List[str]
+
 def _is_cairns_customer(customer: str) -> bool:
     return "CAIRNS" in str(customer or "").strip().upper()
 
@@ -1139,6 +1142,117 @@ def get_shared_job(token: str):
     finally:
         conn.close()
 
+
+
+@router.put("/jobs/ems/{ems_id}/task-modules")
+async def update_job_task_modules(
+    ems_id: str,
+    req: TaskModulesUpdate,
+    _: str = Depends(validate_session),
+):
+    """Persist Task HW sheet visibility to the shared TaskList workflow table.
+
+    EzeFloor and Procurement both use ``task_group_hw_steps.is_visible`` as the
+    source of truth. This endpoint is called only from an explicit Manage
+    Modules click; it never changes workflow visibility on page load/refresh.
+    """
+    from app.mssql_db import get_mssql_connection
+
+    module_to_step = {module_id: step for step, module_id in KATHERINE_STEP_TO_MODULE.items()}
+    requested = []
+    invalid = []
+    for raw in req.task_modules or []:
+        module_id = str(raw or "").strip()
+        if not module_id:
+            continue
+        if module_id not in module_to_step:
+            invalid.append(module_id)
+        elif module_id not in requested:
+            requested.append(module_id)
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Task module không hợp lệ: {invalid}")
+
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute(
+            """
+            SELECT CAST(id AS nvarchar(100)) AS hw_id
+            FROM [emsflow].[dbo].[task_group_hw]
+            WHERE id_job_ems = %s
+              AND ISNULL(is_delete, 0) = 0
+            """,
+            (ems_id,),
+        )
+        hw_ids = [str(row.get("hw_id") or "").strip() for row in cursor.fetchall()]
+        hw_ids = [value for value in hw_ids if value]
+        if not hw_ids:
+            raise HTTPException(status_code=404, detail="Không tìm thấy task_group_hw của job để cập nhật task modules.")
+
+        # Protect unrelated/non-HW workflows. The standard Katherine HW contract
+        # is the group containing step 12 or 13, matching the read-side guard.
+        target_hw_ids = []
+        for hw_id in hw_ids:
+            cursor.execute(
+                """
+                SELECT step_number
+                FROM [emsflow].[dbo].[task_group_hw_steps]
+                WHERE task_group_hw_id = %s
+                  AND step_number BETWEEN 1 AND 13
+                """,
+                (hw_id,),
+            )
+            step_numbers = {int(row.get("step_number") or 0) for row in cursor.fetchall()}
+            if 12 in step_numbers or 13 in step_numbers:
+                target_hw_ids.append(hw_id)
+
+        if not target_hw_ids:
+            raise HTTPException(status_code=409, detail="Job không có standard HW task workflow để cập nhật modules.")
+
+        selected_steps = {module_to_step[module_id] for module_id in requested}
+        updated_rows = 0
+        for hw_id in target_hw_ids:
+            for step_number in range(1, 14):
+                cursor.execute(
+                    """
+                    UPDATE [emsflow].[dbo].[task_group_hw_steps]
+                    SET is_visible = %s
+                    WHERE task_group_hw_id = %s
+                      AND step_number = %s
+                    """,
+                    (1 if step_number in selected_steps else 0, hw_id, step_number),
+                )
+                updated_rows += int(cursor.rowcount or 0)
+
+        conn.commit()
+        return {
+            "status": "success",
+            "success": True,
+            "data": {
+                "id_job": ems_id,
+                "task_modules": requested,
+                "selected_modules": requested,
+            },
+            "task_modules": requested,
+            "updated_rows": updated_rows,
+            "sync_source": "shared_db",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 @router.put("/jobs/ems/{ems_id}/floor-levels")
 async def update_job_floor_levels(

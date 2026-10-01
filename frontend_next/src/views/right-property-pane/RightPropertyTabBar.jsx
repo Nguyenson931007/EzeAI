@@ -14,6 +14,7 @@ export default function RightPropertyTabBar({
   setShowAddModulePopup,
   addModulePopupRef,
   setEnabledModuleIds,
+  onModuleIdsChange,
   selectedCustomerClient,
   customerModuleTabs = [],
   customerModuleIds = [],
@@ -162,6 +163,7 @@ export default function RightPropertyTabBar({
               addModulePopupRef={addModulePopupRef}
               enabledModuleIds={enabledModuleIds}
               setEnabledModuleIds={setEnabledModuleIds}
+              onModuleIdsChange={onModuleIdsChange}
               selectedCustomerClient={selectedCustomerClient}
               customerModuleTabs={customerModuleTabs}
               customerModuleIds={customerModuleIds}

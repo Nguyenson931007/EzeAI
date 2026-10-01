@@ -3,6 +3,7 @@ import React from "react";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices } from "@/utils/floorLevel";
+import { floorNumberFromCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
 
 export default function LeftRailView({
   interactionMode,
@@ -30,7 +31,10 @@ export default function LeftRailView({
   onPageClick,
   roomsByPage = {},
   onAddFloorClick,
+  onAddEmptyFloor,
+  onEmptyLevelClick,
   onDeleteFloor,
+  buildingFloorLevels = ["GF"],
   levels: propLevels,
   setLevels: propSetLevels,
   currentLevelIndex: propCurrentLevelIndex,
@@ -50,13 +54,26 @@ export default function LeftRailView({
     () => getArchitecturalPageIndices(currentPages),
     [currentPages],
   );
-  const displayLevels = React.useMemo(
-    () => architecturalPageIndices.map((originalIndex) => ({
-      ...(currentPages[originalIndex] || {}),
-      originalIndex,
-    })),
-    [architecturalPageIndices, currentPages],
-  );
+  const displayLevels = React.useMemo(() => {
+    const levelMap = buildArchitecturalFloorLevelMap(currentPages);
+    const pageIndexByFloor = new Map();
+    levelMap.forEach((code, pageIndex) => pageIndexByFloor.set(code, pageIndex));
+
+    const registered = normalizeTaskFloorCodes(buildingFloorLevels);
+    const actualCodes = Array.from(levelMap.values());
+    const allCodes = normalizeTaskFloorCodes([...registered, ...actualCodes]);
+
+    return allCodes.map((code) => {
+      const originalIndex = pageIndexByFloor.has(code) ? pageIndexByFloor.get(code) : null;
+      const page = originalIndex != null ? (currentPages[originalIndex] || {}) : {};
+      return {
+        ...page,
+        code,
+        originalIndex,
+        isEmptyLevel: originalIndex == null,
+      };
+    });
+  }, [architecturalPageIndices, buildingFloorLevels, currentPages]);
   // The level rail and every task table must resolve page -> floor code from
   // exactly the same map; otherwise the rail can show GF/FF while a task
   // silently groups both pages under GF.
@@ -73,9 +90,13 @@ export default function LeftRailView({
   const getFloorName = (p, idx) => {
     const raw = (p.floor_name || p.name || p.player_name || "").trim();
     if (raw) return raw;
-    if (idx === 0) return "Ground Floor (Level 1)";
-    if (idx === 1) return "First Floor (Level 2)";
-    return `Level ${idx + 1}`;
+    const code = p?.code || getFloorCode(p, idx);
+    const floorNumber = floorNumberFromCode(code);
+    if (floorNumber === 0) return "Ground Floor";
+    if (floorNumber === 1) return "First Floor";
+    if (floorNumber === 2) return "Second Floor";
+    if (Number.isFinite(floorNumber)) return `Floor ${floorNumber}`;
+    return code || `Level ${idx + 1}`;
   };
 
   // Helper to reset all drawing/measuring modes
@@ -118,19 +139,30 @@ export default function LeftRailView({
         <div className="cad-rail-level-header">LEVEL</div>
         <div className="cad-rail-level-list">
           {displayLevels.map((flr, idx) => {
-            const originalIdx = flr.originalIndex !== undefined ? flr.originalIndex : idx;
-            const isActive = originalIdx === activeCurrentPage;
-            const roomCount = (activeRoomsByPage[originalIdx] || []).length;
+            const originalIdx = flr.originalIndex;
+            const isActive = Number(propCurrentLevelIndex) === idx;
+            const roomCount = originalIdx != null ? (activeRoomsByPage[originalIdx] || []).length : 0;
             const code = getFloorCode(flr, idx);
             const name = getFloorName(flr, idx);
 
             return (
               <button
-                key={flr.id || originalIdx}
+                key={flr.id || flr.code || originalIdx}
                 type="button"
                 className={`cad-rail-level-btn ${isActive ? "active" : ""}`}
                 onClick={() => {
-                  if (onPageClick && originalIdx !== undefined) {
+                  if (propSetCurrentLevelIndex) propSetCurrentLevelIndex(idx);
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("building-floor-selected", {
+                      detail: { floor_level: code, level_index: idx, page_index: originalIdx }
+                    }));
+                  }
+                  // Empty levels are still selectable even before a PDF/page is attached.
+                  if (originalIdx == null) {
+                    onEmptyLevelClick?.(code);
+                    return;
+                  }
+                  if (onPageClick) {
                     onPageClick(originalIdx);
                   } else if (appModel.setCurrentPage) {
                     appModel.setCurrentPage(originalIdx);
@@ -146,7 +178,7 @@ export default function LeftRailView({
                     );
                   }
                 }}
-                title={`${name}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
+                title={`${name}${flr.isEmptyLevel ? " (No plan page)" : ""}${roomCount > 0 ? ` (${roomCount} rooms)` : ""}`}
               >
                 <span className="cad-rail-level-code">
                   {code}
@@ -164,9 +196,9 @@ export default function LeftRailView({
                     const confirmed = await showConfirm(`Delete level ${name} (${code})?\nAll drawings on this level will be deleted.`);
                     if (confirmed) {
                       if (onDeleteFloor) {
-                        onDeleteFloor(originalIdx);
+                        onDeleteFloor(originalIdx, code);
                       } else if (appModel.setPages) {
-                        appModel.setPages(prev => prev.filter((_, pIdx) => pIdx !== originalIdx));
+                        if (originalIdx != null) appModel.setPages(prev => prev.filter((_, pIdx) => pIdx !== originalIdx));
                       }
                     }
                   }}
@@ -182,9 +214,20 @@ export default function LeftRailView({
             );
           })}
 
-          {/* Add Floor / Level (+) Button with File Input */}
+          {/* Add an empty floor first; attaching a plan file is optional. */}
+          <button
+            type="button"
+            className="cad-rail-level-add-btn"
+            title="Add Level / Floor (+)"
+            onClick={() => onAddEmptyFloor?.()}
+            style={{ display: "flex", alignItems: "center", cursor: "pointer", margin: 0 }}
+          >
+            <span>+</span>
+            <span className="tip">Add Level / Floor</span>
+          </button>
+
           <label
-            title="Add New Level / Floor (+)"
+            title="Attach Plan to Next Empty Floor"
             style={{ display: "flex", alignItems: "center", cursor: "pointer", margin: 0 }}
           >
             <input
@@ -198,9 +241,9 @@ export default function LeftRailView({
                 e.target.value = "";
               }}
             />
-            <div className="cad-rail-level-add-btn" title="Add Level / Floor (+)">
-              <span>+</span>
-              <span className="tip">Add Level / Floor</span>
+            <div className="cad-rail-level-add-btn" title="Attach Plan to Floor" style={{ fontSize: "10px" }}>
+              <span>PDF</span>
+              <span className="tip">Attach Plan to Floor</span>
             </div>
           </label>
         </div>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import EnteredTaskActions from "./EnteredTaskActions";
-import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
@@ -577,16 +576,40 @@ export default function FlooringDeckingTask({
       }
       const shortName = activeCustomerShortName;
 
-      const areasList = allRowsToSave.map(r => {
+      const invalidProductRows = [];
+      const areasList = allRowsToSave.map((r, idx) => {
         const netNum = parseFloat(String(r.totalM2 !== undefined ? r.totalM2 : (r.areaM2 || 0)).replace(/m²/gi, "").trim()) || 0;
+        const typeArea = normalizeFlooringTypeArea(r.typeArea || r.floor_area_type || r.location || "Dry");
+        const productOptions = getProductOptionsForType(typeArea);
+        const rawProduct = String(r.product || r.product_candidate || "").trim();
+        const resolvedProduct = rawProduct
+          ? resolveDropdownValue(rawProduct, productOptions, { fallback: "" })
+          : firstDropdownValue(productOptions);
+
+        if (!resolvedProduct) {
+          invalidProductRows.push({ index: idx + 1, typeArea, rawProduct });
+        }
+
         return {
           floor_level: r.floorLevel || "GF",
-          floor_area_type: r.typeArea || "Dry",
+          floor_area_type: typeArea,
           net_area: netNum,
-          product: r.product || null,
+          product: resolvedProduct || null,
           short_name: shortName
         };
       });
+
+      // Never archive good AreaSummary rows and replace them with Product=NULL.
+      // A Flooring row is only saveable when its Product resolves to the active
+      // customer's current dropdown/catalog for that exact area type.
+      if (invalidProductRows.length > 0) {
+        const details = invalidProductRows
+          .slice(0, 5)
+          .map(({ index, typeArea }) => `Row ${index} (${typeArea})`)
+          .join(", ");
+        alert(`Cannot save Flooring: ${invalidProductRows.length} row(s) do not have a valid Product from the current dropdown. ${details}${invalidProductRows.length > 5 ? ", ..." : ""}`);
+        return;
+      }
 
       const payload = {
         user_update: currentUserUpdate,
@@ -663,83 +686,34 @@ export default function FlooringDeckingTask({
     return resolveDropdownValue(raw, OTHER_TYPE_OPTIONS, { fallback: "" }) || raw;
   };
 
-  // Strict generated-row rule: dropdown-backed values must resolve through the
-  // exact dropdown options for the active customer. Any stale/manual string
-  // from cache, GPT, plan properties or legacy Auto Fill is cleared instead of
-  // silently creating a value that the dropdown itself cannot select.
+  // Keep the row state 1:1 with what the Product <select> visibly shows.
+  // Important: while the Procurement catalog is still loading, options can be
+  // temporarily empty. Never erase an existing Product during that window.
+  // Once options arrive, a blank row adopts the dropdown's first real option;
+  // a non-blank stale value must still resolve exactly or it is cleared.
   useEffect(() => {
     if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
     const next = entries.map((row) => {
       const typeArea = normalizeFlooringTypeArea(row.typeArea || row.floor_area_type || "Dry");
       const options = getProductOptionsForType(typeArea);
-      const product = resolveDropdownValue(row.product || row.product_candidate, options, { fallback: "" });
+      const rawProduct = String(row.product || row.product_candidate || "").trim();
+
+      if (options.length === 0) {
+        // Catalog has not arrived yet: preserve the row exactly as-is instead
+        // of turning Product into an empty string/NULL before Save.
+        if (typeArea === row.typeArea) return row;
+        return { ...row, typeArea };
+      }
+
+      const product = rawProduct
+        ? resolveDropdownValue(rawProduct, options, { fallback: "" })
+        : firstDropdownValue(options);
+
       if (typeArea === row.typeArea && product === (row.product || "")) return row;
       return { ...row, typeArea, product };
     });
     if (next.some((row, index) => row !== entries[index])) onSetEntries(next);
   }, [entries, onSetEntries, dryCatalogItems, wetCatalogItems, balconyCatalogItems, tgCatalogItems, deckingCatalogItems, tileUnderlayCatalogItems, battensSlabCatalogItems, joistPackersCatalogItems]);
-
-  const LEVEL_SORT_ORDER = {
-    GF: 1,
-    "G/F": 1,
-    "GROUND FLOOR": 1,
-    GROUND: 1,
-    "LEVEL 1": 1,
-    "0F": 1,
-    FF: 2,
-    "1/F": 2,
-    "1F": 2,
-    "FIRST FLOOR": 2,
-    FIRST: 2,
-    "LEVEL 2": 2,
-    SF: 3,
-    "2/F": 3,
-    "2F": 3,
-    "SECOND FLOOR": 3,
-    SECOND: 3,
-    "LEVEL 3": 3,
-    TF: 4,
-    "3/F": 4,
-    "3F": 4,
-    "THIRD FLOOR": 4,
-    THIRD: 4,
-    "LEVEL 4": 4,
-    "4F": 5,
-    "4/F": 5,
-    "FOURTH FLOOR": 5,
-    FOURTH: 5,
-    "LEVEL 5": 5,
-    "5F": 6,
-    "5/F": 6,
-    "FIFTH FLOOR": 6,
-    FIFTH: 6,
-    "LEVEL 6": 6,
-    "6F": 7,
-    "6/F": 7,
-    "SIXTH FLOOR": 7,
-    SIXTH: 7,
-    "LEVEL 7": 7,
-    "7F": 8,
-    "7/F": 8,
-    "SEVENTH FLOOR": 8,
-    SEVENTH: 8,
-    "LEVEL 8": 8,
-    "8F": 9,
-    "8/F": 9,
-    "EIGHTH FLOOR": 9,
-    EIGHTH: 9,
-    "LEVEL 9": 9,
-    "9F": 10,
-    "9/F": 10,
-    "NINTH FLOOR": 10,
-    NINTH: 10,
-    "LEVEL 10": 10,
-    "10F": 11,
-    "10/F": 11,
-    "TENTH FLOOR": 11,
-    TENTH: 11,
-    "LEVEL 11": 11
-  };
 
   const getFloorLevelDisplayName = (lvl) => {
     const raw = String(lvl || "").trim().toUpperCase();
@@ -816,28 +790,6 @@ export default function FlooringDeckingTask({
       if (byType !== 0) return byType;
       return a.product.localeCompare(b.product, undefined, { sensitivity: "base" });
     });
-  }, [enteredRows]);
-
-  const groupedFlooringByLevel = React.useMemo(() => {
-    const groups = {};
-    (enteredRows || []).forEach(item => {
-      const lvl = normalizeFloorLevelCode(item.floorLevel || item.floor_level || "GF");
-      if (!groups[lvl]) {
-        groups[lvl] = [];
-      }
-      groups[lvl].push(item);
-    });
-
-    const sortedLevels = Object.keys(groups).sort((a, b) => {
-      const orderA = LEVEL_SORT_ORDER[a] || 99;
-      const orderB = LEVEL_SORT_ORDER[b] || 99;
-      return orderA - orderB;
-    });
-
-    return sortedLevels.map(lvl => ({
-      level: lvl,
-      items: groups[lvl]
-    }));
   }, [enteredRows]);
 
   const handleProductChange = (item, newProduct) => {
@@ -1430,11 +1382,7 @@ export default function FlooringDeckingTask({
                   </td>
                 </tr>
               ) : (
-                groupedFlooringByLevel.map(({ level, items }) => {
-                  return (
-                    <React.Fragment key={level}>
-                      <FloorLevelGroupRow level={level} colSpan={5} count={items.length} unitLabel="area" unitLabelPlural="areas" />
-                      {items.map((item) => {
+                enteredRows.map((item) => {
                         const globalIdx = enteredRows.findIndex(r => r.id === item.id);
                         const idx = globalIdx >= 0 ? globalIdx : 0;
                         const isSelected = selectedEntryId === (item.id || item.typeArea) ||
@@ -1658,9 +1606,6 @@ export default function FlooringDeckingTask({
                             </td>
                           </tr>
                         );
-                      })}
-                    </React.Fragment>
-                  );
                 })
               )}
             </tbody>

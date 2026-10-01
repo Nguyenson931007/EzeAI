@@ -15,6 +15,7 @@ export default function ManageModulesPopup({
   addModulePopupRef,
   enabledModuleIds = [],
   setEnabledModuleIds,
+  onModuleIdsChange,
   selectedCustomerClient = "bun-nsw-act",
   customerModuleTabs = [],
   customerModuleIds = [],
@@ -114,16 +115,11 @@ export default function ManageModulesPopup({
                     if (setActivePaneTab) setActivePaneTab(flooringTaskId(normalizedFlooringFloors[0] || "GF"));
                   } else if (setActivePaneTab) setActivePaneTab(mod.id);
                 }
-                if (setEnabledModuleIds) setEnabledModuleIds(next);
-                try {
-                  sessionStorage.setItem("selectedModules", JSON.stringify(next));
-                  const pendingStr = sessionStorage.getItem("pendingEmsJob");
-                  if (pendingStr) {
-                    const pJob = JSON.parse(pendingStr);
-                    pJob.task_modules = next;
-                    sessionStorage.setItem("pendingEmsJob", JSON.stringify(pJob));
-                  }
-                } catch (_) {}
+                if (onModuleIdsChange) {
+                  void onModuleIdsChange(next);
+                } else if (setEnabledModuleIds) {
+                  setEnabledModuleIds(next);
+                }
               }}
               style={{
                 display: "flex",
@@ -214,11 +210,11 @@ export default function ManageModulesPopup({
       >
         <button
           onClick={() => {
-            if (setEnabledModuleIds) setEnabledModuleIds(customerModuleIds);
-            try {
-              sessionStorage.setItem("selectedModules", JSON.stringify(customerModuleIds));
-              localStorage.setItem("selectedModules", JSON.stringify(customerModuleIds));
-            } catch (_) {}
+            if (onModuleIdsChange) {
+              void onModuleIdsChange(customerModuleIds);
+            } else if (setEnabledModuleIds) {
+              setEnabledModuleIds(customerModuleIds);
+            }
           }}
           style={{
             flex: 1,
@@ -255,7 +251,11 @@ export default function ManageModulesPopup({
                 }
               }
             } catch (_) {}
-            if (setEnabledModuleIds) setEnabledModuleIds(defaultMods);
+            if (onModuleIdsChange) {
+              void onModuleIdsChange(defaultMods);
+            } else if (setEnabledModuleIds) {
+              setEnabledModuleIds(defaultMods);
+            }
           }}
           style={{
             flex: 1,

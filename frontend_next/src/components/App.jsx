@@ -32,6 +32,8 @@ import DoorTypePanel from "@/components/DoorTypePanel";
 import TrainButton from "@/components/TrainButton";
 import AIConfidenceBar from "@/features/ai/AIConfidenceBar";
 import { ApiService } from "@/models/api.service";
+import { buildArchitecturalFloorLevelMap } from "@/utils/floorLevel";
+import { floorCodeFromNumber, floorNumberFromCode, normalizeTaskFloorCodes } from "@/utils/taskFloorLevels";
 
 // Helper function to resolve the default hardware type based on room adjacency, walls, and door geometry.
 function getHardwareType(door, pageRooms, pageWalls, realScale) {
@@ -205,6 +207,84 @@ export default function App() {
     showFloorCeilingModal, setShowFloorCeilingModal,
     floorCeilingTakeoffData, setFloorCeilingTakeoffData
   } = useAppModel();
+
+  // === ONE SHARED BUILDING FLOOR REGISTRY ===
+  // This is the single floor list shared by the LEVEL rail, task tabs and TaskList API.
+  const [buildingFloorLevels, setBuildingFloorLevels] = useState(() => {
+    if (typeof window === "undefined") return ["GF"];
+    try {
+      const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = raw ? JSON.parse(raw) : null;
+      return normalizeTaskFloorCodes(pending?.floor_levels);
+    } catch (_) {
+      return ["GF"];
+    }
+  });
+
+  const syncBuildingFloorLevels = useCallback(async (nextFloors, { persist = true } = {}) => {
+    const normalized = normalizeTaskFloorCodes(nextFloors);
+    setBuildingFloorLevels((prev) => JSON.stringify(prev) === JSON.stringify(normalized) ? prev : normalized);
+
+    let emsId = null;
+    if (typeof window !== "undefined") {
+      try {
+        const pendingRaw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        const pending = pendingRaw ? JSON.parse(pendingRaw) : {};
+        pending.floor_levels = normalized;
+        emsId = pending.id_job_ems || pending.ems_id || pending.id || null;
+        sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+        localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+        window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+          detail: { floor_levels: normalized, source: "building-floor-registry" }
+        }));
+      } catch (_) { }
+    }
+
+    if (persist && emsId) {
+      try {
+        await ApiService.updateTaskFloorLevels(emsId, normalized);
+      } catch (err) {
+        console.warn("[building-floor] Could not sync floor levels to TaskList:", err);
+      }
+    }
+    return normalized;
+  }, []);
+
+  useEffect(() => {
+    const onTaskFloorLevelsUpdated = (event) => {
+      const next = normalizeTaskFloorCodes(event?.detail?.floor_levels);
+      setBuildingFloorLevels((prev) => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    };
+    window.addEventListener("task-floor-levels-updated", onTaskFloorLevelsUpdated);
+    return () => window.removeEventListener("task-floor-levels-updated", onTaskFloorLevelsUpdated);
+  }, []);
+
+  // Any real architectural plan page automatically registers its floor in the shared list.
+  useEffect(() => {
+    const floorMap = buildArchitecturalFloorLevelMap(pages || []);
+    const pageFloors = Array.from(new Set(Array.from(floorMap.values())));
+    if (!pageFloors.length) return;
+    const merged = normalizeTaskFloorCodes([...(buildingFloorLevels || []), ...pageFloors]);
+    if (JSON.stringify(merged) !== JSON.stringify(buildingFloorLevels)) {
+      void syncBuildingFloorLevels(merged);
+    }
+  }, [pages, buildingFloorLevels, syncBuildingFloorLevels]);
+
+  // Keep the selected LEVEL rail item aligned with the real architectural page.
+  useEffect(() => {
+    const levelMap = buildArchitecturalFloorLevelMap(pages || []);
+    const currentCode = levelMap.get(Number(currentPage));
+    if (!currentCode) return;
+    const normalized = normalizeTaskFloorCodes(buildingFloorLevels);
+    const idx = normalized.indexOf(currentCode);
+    if (idx >= 0) {
+      // Only real page changes should drive the rail selection. Using a
+      // functional update avoids subscribing this effect to rail-only changes,
+      // so an empty level (for example SF without an attached plan) stays
+      // selected instead of immediately snapping back to the current PDF page.
+      setCurrentLevelIndex((previousIndex) => previousIndex === idx ? previousIndex : idx);
+    }
+  }, [pages, currentPage, buildingFloorLevels, setCurrentLevelIndex]);
 
   // === LOCAL UI STATE (View-specific) ===
   // One central invalidation path for Floor & Ceiling scan/cache.
@@ -1465,14 +1545,24 @@ export default function App() {
     const hasCategoryAssignments = categoryAssignments && Object.keys(categoryAssignments).length > 0;
     // An import is ONLY for architectural levels if explicitly target is "level" and no category assignments were selected
     const isLevel = effectiveTarget === "level" && !hasCategoryAssignments;
-    const existingArchitecturalCount = isAddingPagesMode
-      ? (pages || []).filter((page) => !page?.category && page?.source !== "pdf_tools" && !page?.isFloorCeilingWorkspace && page?.source !== "floor_ceiling_workspace" && page?.source !== "floor_ceiling_page" && !page?.isWorkspace).length
-      : 0;
-    const selectedData = uniqueSelectedPages.map((idx, selectedOrder) => {
+    const existingArchitecturalMap = isAddingPagesMode
+      ? buildArchitecturalFloorLevelMap(pages || [])
+      : new Map();
+    const usedFloorCodes = new Set(Array.from(existingArchitecturalMap.values()));
+    const registryFloors = normalizeTaskFloorCodes(buildingFloorLevels);
+    const selectedFloorCodes = [];
+    const nextImportFloorCode = () => {
+      const missingRegistered = registryFloors.find((code) => !usedFloorCodes.has(code) && !selectedFloorCodes.includes(code));
+      if (missingRegistered) return missingRegistered;
+      const allKnown = [...usedFloorCodes, ...registryFloors, ...selectedFloorCodes];
+      const highest = Math.max(0, ...allKnown.map((code) => floorNumberFromCode(code) ?? 0));
+      return floorCodeFromNumber(highest + 1) || `${highest + 1}F`;
+    };
+    const selectedData = uniqueSelectedPages.map((idx) => {
       const p = pendingPages[idx];
       if (isLevel) {
-        const architecturalOrder = existingArchitecturalCount + selectedOrder;
-        const levelCode = ["GF", "FF", "SF", "TF"][architecturalOrder] || `${architecturalOrder}F`;
+        const levelCode = nextImportFloorCode();
+        selectedFloorCodes.push(levelCode);
         return {
           ...p,
           id: p?.id || `level_pg_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1544,6 +1634,11 @@ export default function App() {
           w: selectedData[0].w,
           h: selectedData[0].h
         });
+      }
+
+      // Imported architectural pages and Task floors share one registry/API list.
+      if (selectedFloorCodes.length) {
+        void syncBuildingFloorLevels([...(buildingFloorLevels || []), ...selectedFloorCodes]);
       }
     } else {
       // PDF Tools Import: ALWAYS preserve architectural level pages!
@@ -1709,6 +1804,45 @@ export default function App() {
   };
 
 
+
+  const handleAddEmptyFloorLevel = () => {
+    const floors = normalizeTaskFloorCodes(buildingFloorLevels);
+    const highest = Math.max(0, ...floors.map((code) => floorNumberFromCode(code) ?? 0));
+    const nextCode = floorCodeFromNumber(highest + 1);
+    if (!nextCode) return;
+    const nextFloors = normalizeTaskFloorCodes([...floors, nextCode]);
+    void syncBuildingFloorLevels(nextFloors);
+    const nextIndex = nextFloors.indexOf(nextCode);
+    if (nextIndex >= 0) setCurrentLevelIndex(nextIndex);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("building-floor-selected", {
+        detail: { floor_level: nextCode, level_index: nextIndex, page_index: null }
+      }));
+    }
+  };
+
+  const handleSelectEmptyFloorLevel = () => {
+    // An empty registered level has no architectural page of its own. Clear the
+    // previous level's PDF so selecting (for example) SF cannot keep showing FF.
+    setImage(null);
+    setImgSize({ w: 800, h: 600 });
+    setSelectedId(null);
+    setSelectedType(null);
+    setSelectedRoofId(null);
+  };
+
+  const handleDeleteFloorLevel = (pageIndex, floorCode) => {
+    if (pageIndex != null && Number.isFinite(Number(pageIndex))) {
+      handleDeletePage(Number(pageIndex));
+    }
+    const code = String(floorCode || "").toUpperCase().trim();
+    const next = normalizeTaskFloorCodes(
+      (buildingFloorLevels || []).filter((item) => String(item).toUpperCase().trim() !== code),
+      { defaultGF: false }
+    );
+    // A building always keeps at least GF as the registry baseline.
+    void syncBuildingFloorLevels(next.length ? next : ["GF"]);
+  };
 
   function getClassId(type) {
     if (type === "dry") return 0;
@@ -1894,7 +2028,10 @@ export default function App() {
               onPageClick={goPage}
               roomsByPage={roomsByPage}
               onAddFloorClick={openAddPagesSelector}
-              onDeleteFloor={handleDeletePage}
+              onAddEmptyFloor={handleAddEmptyFloorLevel}
+              onEmptyLevelClick={handleSelectEmptyFloorLevel}
+              onDeleteFloor={handleDeleteFloorLevel}
+              buildingFloorLevels={buildingFloorLevels}
               levels={levels}
               setLevels={setLevels}
               currentLevelIndex={currentLevelIndex}
@@ -2346,6 +2483,8 @@ export default function App() {
                 setIsAddingPagesMode={setIsAddingPagesMode}
                 setShowImportPageSelector={setShowImportPageSelector}
                 pages={pages}
+                buildingFloorLevels={buildingFloorLevels}
+                onBuildingFloorLevelsChange={syncBuildingFloorLevels}
                 currentPdfFile={currentPdfFile}
                 currentPage={currentPage}
                 setCurrentPage={goPage}

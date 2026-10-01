@@ -153,6 +153,19 @@ export const ApiService = {
     }
   },
 
+  async updateTaskModules(emsId, taskModules = []) {
+    const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/task-modules`, {
+      method: "PUT",
+      headers: {
+        ...getHeaders(),
+        "Content-Type": "application/json"
+      },
+      credentials: "include",
+      body: JSON.stringify({ task_modules: taskModules }),
+    });
+    return handleResponse(res);
+  },
+
   async updateTaskFloorLevels(emsId, floorLevels = ["GF"]) {
     let taskListToken = "";
     try {

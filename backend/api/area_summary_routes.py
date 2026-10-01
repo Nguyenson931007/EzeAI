@@ -154,6 +154,35 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
     """
     conn = None
     try:
+        # DB safety guard: never version/archive current Flooring rows if the
+        # replacement payload contains positive-area rows without Product.
+        # The frontend normally resolves Product from the active dropdown, but
+        # this backend check prevents Product=NULL corruption from any caller.
+        missing_product_rows = []
+        for job_index, job in enumerate(payload.jobs):
+            for area_index, item in enumerate(job.areas):
+                net_val = float(item.net_area) if item.net_area is not None else 0.0
+                if net_val > 0 and not (item.product or "").strip():
+                    missing_product_rows.append({
+                        "job_index": job_index,
+                        "area_index": area_index,
+                        "floor_level": item.floor_level or "GF",
+                        "floor_area_type": item.floor_area_type or "Dry",
+                    })
+
+        if missing_product_rows:
+            preview = ", ".join(
+                f"{row['floor_level']} {row['floor_area_type']}"
+                for row in missing_product_rows[:5]
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cannot save AreaSummary: {len(missing_product_rows)} positive-area row(s) "
+                    f"have no Product. Missing: {preview}"
+                ),
+            )
+
         conn = get_mssql_connection()
         cursor = conn.cursor()
 
@@ -295,6 +324,13 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
             "jobs_saved": saved_summary
         }
 
+    except HTTPException:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
     except Exception as e:
         if conn:
             try:

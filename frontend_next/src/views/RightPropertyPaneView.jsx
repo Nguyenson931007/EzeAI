@@ -291,6 +291,8 @@ export default function RightPropertyPaneView({
   setShowImportPageSelector,
   pages: pagesProp = [],
   setPages: setPagesProp,
+  buildingFloorLevels: buildingFloorLevelsProp = ["GF"],
+  onBuildingFloorLevelsChange,
   currentPage: currentPageProp,
   setCurrentPage: setCurrentPageProp,
   goPage,
@@ -608,16 +610,14 @@ export default function RightPropertyPaneView({
   );
   const [showAddModulePopup, setShowAddModulePopup] = React.useState(false);
   const addModulePopupRef = React.useRef(null);
-  const [flooringTaskFloors, setFlooringTaskFloors] = React.useState(() => {
-    if (typeof window === "undefined") return ["GF"];
-    try {
-      const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
-      const pending = raw ? JSON.parse(raw) : null;
-      return normalizeTaskFloorCodes(pending?.floor_levels);
-    } catch (_) {
-      return ["GF"];
-    }
-  });
+  const [flooringTaskFloors, setFlooringTaskFloors] = React.useState(() =>
+    normalizeTaskFloorCodes(buildingFloorLevelsProp)
+  );
+
+  React.useEffect(() => {
+    const next = normalizeTaskFloorCodes(buildingFloorLevelsProp);
+    setFlooringTaskFloors((prev) => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+  }, [buildingFloorLevelsProp]);
 
   const flooringBaseTab = React.useMemo(
     () => EXTRA_MODULE_TABS.find((mod) => mod.id === "flooring_decking"),
@@ -636,6 +636,21 @@ export default function RightPropertyPaneView({
   }, [flooringTaskFloors]);
 
   React.useEffect(() => {
+    const onBuildingFloorSelected = (event) => {
+      const floorLevel = normalizeTaskFloorCodes([event?.detail?.floor_level], { defaultGF: false })[0];
+      if (!floorLevel) return;
+      const flooring = parseFlooringTaskId(activePaneTab);
+      if (activePaneTab === "flooring_decking" || flooring) {
+        if (flooringTaskFloors.includes(floorLevel)) {
+          setActivePaneTab(flooringTaskId(floorLevel));
+        }
+      }
+    };
+    window.addEventListener("building-floor-selected", onBuildingFloorSelected);
+    return () => window.removeEventListener("building-floor-selected", onBuildingFloorSelected);
+  }, [activePaneTab, flooringTaskFloors]);
+
+  React.useEffect(() => {
     if (activePaneTab === "flooring_decking") {
       setActivePaneTab(flooringTaskId(flooringTaskFloors[0] || "GF"));
     } else {
@@ -646,9 +661,50 @@ export default function RightPropertyPaneView({
     }
   }, [activePaneTab, flooringTaskFloors]);
 
+  const persistEnabledModules = React.useCallback(async (nextModuleIds) => {
+    const normalized = sanitizeModuleIds(nextModuleIds, selectedCustomerClient);
+    setEnabledModuleIds(normalized);
+
+    let emsId = null;
+    try {
+      sessionStorage.setItem("selectedModules", JSON.stringify(normalized));
+      localStorage.setItem("selectedModules", JSON.stringify(normalized));
+      const pendingRaw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : {};
+      pending.task_modules = normalized;
+      pending.selected_modules = normalized;
+      emsId = pending.id_job_ems || pending.ems_id || pending.id || null;
+      sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+      localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+      window.dispatchEvent(new CustomEvent("task-modules-updated", {
+        detail: { ...pending, task_modules: normalized, selected_modules: normalized, source: "ezefloor-manage-modules" }
+      }));
+    } catch (_) { }
+
+    if (emsId) {
+      try {
+        const result = await ApiService.updateTaskModules(emsId, normalized);
+        const serverModules = Array.isArray(result?.task_modules)
+          ? result.task_modules
+          : (Array.isArray(result?.data?.task_modules) ? result.data.task_modules : normalized);
+        const confirmed = sanitizeModuleIds(serverModules, selectedCustomerClient);
+        if (JSON.stringify(confirmed) !== JSON.stringify(normalized)) setEnabledModuleIds(confirmed);
+      } catch (err) {
+        console.warn("[task-modules] Could not sync module selection to shared TaskList workflow:", err);
+      }
+    }
+    return normalized;
+  }, [selectedCustomerClient]);
+
   const persistFlooringTaskFloors = React.useCallback(async (nextFloors) => {
     const normalized = normalizeTaskFloorCodes(nextFloors);
     setFlooringTaskFloors(normalized);
+
+    if (onBuildingFloorLevelsChange) {
+      await onBuildingFloorLevelsChange(normalized);
+      return normalized;
+    }
+
     let emsId = null;
     try {
       const pendingRaw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
@@ -663,7 +719,7 @@ export default function RightPropertyPaneView({
       try { await ApiService.updateTaskFloorLevels(emsId, normalized); } catch (err) { console.warn("[floor-task] Không thể đồng bộ floor levels về TaskList:", err); }
     }
     return normalized;
-  }, []);
+  }, [onBuildingFloorLevelsChange]);
 
   const activeCustomerTasks = React.useMemo(() => {
     const pack = CUSTOMER_TASK_PACKS[selectedCustomerClient]?.tasks || BunNswActTasks;
@@ -724,6 +780,11 @@ export default function RightPropertyPaneView({
       if (pendingJob) {
         const nextFloors = normalizeTaskFloorCodes(pendingJob.floor_levels);
         setFlooringTaskFloors((prev) => JSON.stringify(prev) === JSON.stringify(nextFloors) ? prev : nextFloors);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+            detail: { floor_levels: nextFloors, source: "pending-ems-job" }
+          }));
+        }
       }
 
       // Kiểm tra xem pendingJob có trùng khớp với project đang mở hay không
@@ -5675,6 +5736,7 @@ export default function RightPropertyPaneView({
         setShowAddModulePopup={setShowAddModulePopup}
         addModulePopupRef={addModulePopupRef}
         setEnabledModuleIds={setEnabledModuleIds}
+        onModuleIdsChange={persistEnabledModules}
         selectedCustomerClient={selectedCustomerClient}
         customerModuleTabs={customerModuleTabs}
         customerModuleIds={customerModuleIds}

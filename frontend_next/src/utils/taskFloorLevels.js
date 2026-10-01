@@ -4,22 +4,22 @@ export const TASK_FLOOR_CODES = [
 ];
 
 export const TASK_FLOOR_OPTIONS = [
-  { value: "GF", label: "Ground Floor (0)" },
-  { value: "FF", label: "First Floor (1)" },
-  { value: "SF", label: "Second Floor (2)" },
-  { value: "3F", label: "Third Floor (3)" },
-  { value: "4F", label: "Fourth Floor (4)" },
-  { value: "5F", label: "Fifth Floor (5)" },
-  { value: "6F", label: "Sixth Floor (6)" },
-  { value: "7F", label: "Seventh Floor (7)" },
-  { value: "8F", label: "Eighth Floor (8)" },
-  { value: "9F", label: "Ninth Floor (9)" },
-  { value: "10F", label: "Tenth Floor (10)" },
-  { value: "11F", label: "Eleventh Floor (11)" },
-  { value: "12F", label: "Twelfth Floor (12)" },
-  { value: "13F", label: "Thirteenth Floor (13)" },
-  { value: "14F", label: "Fourteenth Floor (14)" },
-  { value: "15F", label: "Fifteenth Floor (15)" }
+  { value: "GF", label: "Ground Floor (GF)" },
+  { value: "FF", label: "First Floor (FF)" },
+  { value: "SF", label: "Second Floor (SF)" },
+  { value: "3F", label: "Third Floor (3F)" },
+  { value: "4F", label: "Fourth Floor (4F)" },
+  { value: "5F", label: "Fifth Floor (5F)" },
+  { value: "6F", label: "Sixth Floor (6F)" },
+  { value: "7F", label: "Seventh Floor (7F)" },
+  { value: "8F", label: "Eighth Floor (8F)" },
+  { value: "9F", label: "Ninth Floor (9F)" },
+  { value: "10F", label: "Tenth Floor (10F)" },
+  { value: "11F", label: "Eleventh Floor (11F)" },
+  { value: "12F", label: "Twelfth Floor (12F)" },
+  { value: "13F", label: "Thirteenth Floor (13F)" },
+  { value: "14F", label: "Fourteenth Floor (14F)" },
+  { value: "15F", label: "Fifteenth Floor (15F)" }
 ];
 
 export function floorCodeFromNumber(value) {
@@ -98,7 +98,7 @@ export function makeFlooringTaskTabs(baseTab, floors) {
       baseId: "flooring_decking",
       floorLevel,
       floorNumber,
-      label: `Floor ${floorNumber}`,
+      label: `Floor ${floorLevel}`,
       title: `Flooring & Decking - ${floorLevel}`
     };
   });
