@@ -1,0 +1,835 @@
+{
+  "version": 1,
+  "customers": [
+    "BUN-NSW-ACT",
+    "BUN-SEQLD",
+    "BUN-VIC"
+  ],
+  "tasks": {
+    "frame_hardware": {
+      "label": "Frame Hardware",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "wallId",
+        "floorLevel"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "wallClass": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "wallClass"
+        },
+        "baseType": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "baseType"
+        },
+        "rodSize": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "rodSize"
+        },
+        "height": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "length": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "spacing": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        }
+      },
+      "customer_overrides": {
+        "BUN-VIC": {
+          "notes": "VIC uses the same task contract with a reduced/variant field presentation in the UI."
+        }
+      }
+    },
+    "flooring_decking": {
+      "label": "Flooring & Decking",
+      "mode": "rows",
+      "output_mode": "aggregate",
+      "identity_fields": [
+        "id",
+        "roomId",
+        "floorLevel",
+        "location"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "location": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "location"
+        },
+        "typeArea": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "typeArea"
+        },
+        "product": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "product"
+        },
+        "areaM2": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "totalM2": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "calculated"
+        }
+      }
+    },
+    "hebel_flooring": {
+      "label": "Hebel Flooring",
+      "mode": "rows",
+      "output_mode": "aggregate",
+      "identity_fields": [
+        "id",
+        "roomId",
+        "floorLevel",
+        "location"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "location": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "location"
+        },
+        "typeArea": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "typeArea"
+        },
+        "product": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "product"
+        },
+        "areaM2": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "totalM2": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "calculated"
+        }
+      }
+    },
+    "insulation": {
+      "label": "Insulation",
+      "mode": "rows",
+      "output_mode": "aggregate",
+      "identity_fields": [
+        "id",
+        "wallId",
+        "floorLevel",
+        "type"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "type"
+        },
+        "areaType": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "areaType"
+        },
+        "rValue": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "rValue"
+        },
+        "product": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "product"
+        },
+        "productName": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "productName"
+        },
+        "height": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "length": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "netArea": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "calculated"
+        },
+        "insulationArea": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        }
+      }
+    },
+    "eaves_soffit": {
+      "label": "Eaves / Soffit",
+      "mode": "form",
+      "output_mode": "single_form",
+      "identity_fields": [],
+      "fields": {
+        "building_level": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "eave_width": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "eave_width"
+        },
+        "total_eave_length": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "soffit_material": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "soffit_material"
+        }
+      }
+    },
+    "cladding": {
+      "label": "Cladding",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "wallId",
+        "label",
+        "floorLevel"
+      ],
+      "fields": {
+        "label": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "claddingType": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "claddingType"
+        },
+        "product": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "product"
+        },
+        "height": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "length": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "openings": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "waste": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        },
+        "totalArea": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "calculated"
+        }
+      }
+    },
+    "lock_up": {
+      "label": "Lockup",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "doorId",
+        "label",
+        "floorLevel"
+      ],
+      "fields": {
+        "label": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "name": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "category": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "category"
+        },
+        "door_type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "door_type"
+        },
+        "height": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "height"
+        },
+        "width": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "width"
+        },
+        "jamb_size": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "jamb_size"
+        },
+        "jamb_or_wall": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "jamb_or_wall"
+        },
+        "internal_type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "internal_type"
+        },
+        "finish": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "finish"
+        },
+        "color": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "color"
+        },
+        "door_stop": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "door_stop"
+        },
+        "handing": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "handing"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      },
+      "customer_overrides": {
+        "BUN-VIC": {
+          "field_labels": {
+            "internal_type": "HO/HL"
+          }
+        },
+        "BUN-NSW-ACT": {
+          "field_labels": {
+            "internal_type": "HO/HF"
+          }
+        },
+        "BUN-SEQLD": {
+          "field_labels": {
+            "internal_type": "HO/HF"
+          }
+        }
+      }
+    },
+    "fixout": {
+      "label": "Fixout",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "label",
+        "fixout_id",
+        "floorLevel"
+      ],
+      "fields": {
+        "label": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "category": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "category"
+        },
+        "door_type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "door_type"
+        },
+        "height": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "height"
+        },
+        "width": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "width"
+        },
+        "wall_width": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "wall_width"
+        },
+        "door_frame": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "door_frame"
+        },
+        "door_furniture": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "door_furniture"
+        },
+        "door_stop": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "door_stop"
+        },
+        "finish": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "finish"
+        },
+        "handing": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "handing"
+        },
+        "hung": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "hung"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      },
+      "customer_overrides": {
+        "BUN-VIC": {
+          "notes": "Use VIC dropdown/options; field contract remains shared."
+        }
+      }
+    },
+    "windows": {
+      "label": "Windows",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "label",
+        "floorLevel"
+      ],
+      "fields": {
+        "label": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "name": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "type"
+        },
+        "height": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        },
+        "width": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      }
+    },
+    "shelving": {
+      "label": "Shelving",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "shelving_id",
+        "floorLevel",
+        "type",
+        "size"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "type"
+        },
+        "size": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "size"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      }
+    },
+    "timber_posts": {
+      "label": "Timber Posts",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "label",
+        "floorLevel",
+        "postType",
+        "postSize"
+      ],
+      "fields": {
+        "label": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "identity"
+        },
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "postType": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "postType"
+        },
+        "postSize": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "postSize"
+        },
+        "postOver": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "postOver"
+        },
+        "height": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        },
+        "galPostSupports": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        },
+        "product": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "product"
+        }
+      }
+    },
+    "power_truss_braces": {
+      "label": "Power Truss Braces",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "floorLevel",
+        "type"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "type": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "type"
+        },
+        "length": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "document_spec"
+        },
+        "wallHeight": {
+          "type": "number",
+          "allow_gpt": false,
+          "role": "canvas_geometry"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      }
+    },
+    "fow_plumbing": {
+      "label": "FOW Plumbing",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "floorLevel",
+        "usage_label",
+        "code"
+      ],
+      "fields": {
+        "floorLevel": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "level"
+        },
+        "usage_label": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "usage_label"
+        },
+        "code": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product_code",
+          "option_key": "code"
+        },
+        "item_name": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "item_name"
+        },
+        "qty": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        },
+        "note": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "note"
+        }
+      }
+    },
+    "final_fit": {
+      "label": "Final Fit",
+      "mode": "form",
+      "output_mode": "single_form",
+      "identity_fields": [],
+      "fields": {
+        "final_fit_enabled": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "final_fit_enabled"
+        },
+        "entry_lock": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "product",
+          "option_key": "entry_lock"
+        },
+        "passage_handles": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        },
+        "door_stops": {
+          "type": "number",
+          "allow_gpt": true,
+          "role": "quantity"
+        }
+      }
+    },
+    "hardies_fire_walls": {
+      "label": "Hardies Fire Walls",
+      "mode": "rows",
+      "output_mode": "row",
+      "identity_fields": [
+        "id",
+        "location"
+      ],
+      "fields": {
+        "location": {
+          "type": "text",
+          "allow_gpt": true,
+          "role": "location"
+        },
+        "systemType": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "classification",
+          "option_key": "systemType"
+        },
+        "liningSpec": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "liningSpec"
+        },
+        "framing": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "framing"
+        },
+        "sealant": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "sealant"
+        },
+        "angle": {
+          "type": "dropdown",
+          "allow_gpt": true,
+          "role": "document_spec",
+          "option_key": "angle"
+        }
+      }
+    }
+  }
+}

@@ -19,6 +19,7 @@ function actionCounts(task) {
 
 export default function DocumentAiReportModal({ open, result, onClose, onReviewResults, onOpenTask }) {
   const tasks = Array.isArray(result?.task_results) ? result.task_results : [];
+  const failed = result?.success === false || Boolean(result?.error);
   const totals = useMemo(() => {
     const next = Object.fromEntries(ACTIONS.map((key) => [key, 0]));
     tasks.forEach((task) => {
@@ -48,12 +49,24 @@ export default function DocumentAiReportModal({ open, result, onClose, onReviewR
           <div style={{ width: 38, height: 38, borderRadius: 10, background: "#f3e8ff", color: "#7c3aed", display: "grid", placeItems: "center", fontSize: 20, fontWeight: 900 }}>✦</div>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 850, color: "#0f172a" }}>GPT Review Report</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{result?.summary || "Document review completed."}</div>
+            <div style={{ fontSize: 12, color: failed ? "#b91c1c" : "#64748b", marginTop: 2 }}>
+              {failed ? (result?.error || result?.summary || "GPT review failed.") : (result?.summary || "Document review completed.")}
+            </div>
           </div>
           <button onClick={onClose} title="Close" style={{ marginLeft: "auto", border: 0, background: "transparent", color: "#94a3b8", fontSize: 22, cursor: "pointer" }}>×</button>
         </div>
 
         <div style={{ padding: "14px 20px", overflowY: "auto" }}>
+          <div style={{
+            border: `1px solid ${failed ? "#fecaca" : "#bbf7d0"}`,
+            background: failed ? "#fef2f2" : "#f0fdf4",
+            color: failed ? "#991b1b" : "#166534",
+            borderRadius: 9, padding: "8px 10px", marginBottom: 12, fontSize: 11.5, fontWeight: 750
+          }}>
+            {failed
+              ? "GPT finished with an error. No task data was changed."
+              : `GPT review completed. ${tasks.length} task(s) returned for review.`}
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
             {ACTIONS.map((action) => totals[action] > 0 && (
               <span key={action} style={{ border: "1px solid #ddd6fe", background: "#faf5ff", color: "#6d28d9", borderRadius: 999, padding: "5px 9px", fontSize: 11, fontWeight: 800 }}>
@@ -80,6 +93,7 @@ export default function DocumentAiReportModal({ open, result, onClose, onReviewR
                     {ACTIONS.map((action) => counts[action] > 0 && <span key={action} style={{ fontSize: 9, fontWeight: 800, padding: "2px 5px", borderRadius: 999, background: "#ede9fe", color: "#6d28d9" }}>{action} {counts[action]}</span>)}
                     <button
                       type="button"
+                      disabled={failed}
                       onClick={() => onOpenTask?.(task.task_key)}
                       style={{ marginLeft: 4, border: "1px solid #c4b5fd", background: "#fff", color: "#6d28d9", borderRadius: 6, padding: "3px 7px", fontSize: 10, fontWeight: 800, cursor: "pointer" }}
                     >
@@ -109,8 +123,10 @@ export default function DocumentAiReportModal({ open, result, onClose, onReviewR
         </div>
 
         <div style={{ borderTop: "1px solid #e2e8f0", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 10 }}>
-          <button onClick={onClose} style={{ padding: "8px 16px", border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, color: "#475569", fontWeight: 700, cursor: "pointer" }}>Close</button>
-          <button onClick={onReviewResults} style={{ padding: "8px 16px", border: 0, background: "#7c3aed", borderRadius: 8, color: "#fff", fontWeight: 800, cursor: "pointer" }}>Review Results</button>
+          <button onClick={onClose} style={{ padding: "8px 16px", border: "1px solid #cbd5e1", background: "#fff", borderRadius: 8, color: "#475569", fontWeight: 700, cursor: "pointer" }}>Acknowledge</button>
+          {!failed && tasks.length > 0 ? (
+            <button onClick={onReviewResults} style={{ padding: "8px 16px", border: 0, background: "#7c3aed", borderRadius: 8, color: "#fff", fontWeight: 800, cursor: "pointer" }}>Review Results</button>
+          ) : null}
         </div>
       </div>
     </>

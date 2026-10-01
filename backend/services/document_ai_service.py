@@ -15,6 +15,13 @@ import fitz
 from PIL import Image
 
 from services.openai_client import extract_response_text, get_openai_model, openai_response
+from services.document_ai_task_options import resolve_option_value
+from services.document_ai_task_schema import (
+    build_task_contracts,
+    get_task_schema,
+    gpt_allowed_fields,
+    normalize_task_key,
+)
 
 
 def _native_page_text(doc: fitz.Document, page_index: int) -> Dict[str, Any]:
@@ -132,32 +139,55 @@ SYSTEM_PROMPT = """You are EzeFloor Document AI.
 
 ROLE
 - Read text extracted locally from selected PDF pages.
-- Understand construction/document information.
-- Compare it with the COMPLETE current EzeFloor task/form data supplied to you.
-- Return useful proposed data for every task you can support.
+- Compare document evidence with the COMPLETE current EzeFloor task/form data supplied to you.
+- The supplied task schema is the form contract. Only fill keys that exist in schema.fields.
 
 STRICT SCOPE
 - NEVER detect, add, remove, edit, classify or reason about plan geometry.
 - NEVER propose wall/door/window coordinates, polygons, lines or canvas edits.
-- Do not use YOLO or geometry concepts.
-- Use only the supplied document text, page metadata, task data and task field keys.
+- Never invent product codes, SKUs, database IDs, dropdown values, row ids, or field names.
+- For every dropdown/enum field, use ONLY a value supplied in that task's CONTEXT.tasks[task].options[field].
+- If the document text does not match one of those values, do not approximate it; return UNRESOLVED.
+- Fields with allow_gpt=false are read-only context and MUST NOT be proposed.
+
+COVERAGE RULE
+- Return exactly one task_result for EVERY task supplied in CONTEXT.tasks.
+- If useful evidence exists, return only what the evidence supports.
+- If the current data already agrees with the evidence, status=KEEP.
+- If there is no useful evidence for a task, status=NO_EVIDENCE with empty rows/field_updates.
+- If evidence exists but cannot be mapped safely to the supplied schema/options, status=UNRESOLVED.
+- Do not omit a task just because it has no change. Do not invent data merely to fill a task.
 
 TASK RULES
-- For row-based tasks, return proposed GPT rows separately. Do not overwrite existing user rows.
-- Every proposed row must include action: ADD, UPDATE, DELETE, KEEP, or UNKNOWN.
-- UPDATE/DELETE must include row_id that matches an existing supplied row id. Never invent a row_id.
-- For form-based tasks, return field updates that require user confirmation before overwrite.
-- Only use field names/keys that already exist in the supplied task context when possible.
-- Never invent product codes, SKUs or database IDs.
-- Each proposed change should include source_page, source_text, confidence, and reason when evidence exists.
-- If evidence is weak, use UNKNOWN/unresolved instead of guessing.
+- row/aggregate tasks: return proposed rows separately; do not silently overwrite current user rows.
+- Every proposed row action is ADD, UPDATE, DELETE, KEEP, or UNKNOWN.
+- UPDATE/DELETE must use a row_id already present in current_data.rows. Never invent row_id.
+- single_form tasks: return field_updates and require user confirmation before overwrite.
+- A row may be flat using schema field keys, or may put proposed field values under a `values` object.
+- Every proposed change should include source_page, source_text, confidence, and reason when evidence exists.
+- If evidence is weak, use UNKNOWN/UNRESOLVED instead of guessing.
 - Page evidence behavior is controlled by use_plan_context/evidence_mode, not by in_plan alone.
-- When use_plan_context=true, you may use the explicitly supplied plan_page_index/floor_level as contextual location.
-- When use_plan_context=false or evidence_mode=text_only, read the document text without inferring a plan location or level.
-- in_plan only tells you whether the page was automatically matched to the current plan; the user may explicitly override the evidence rule.
+- When use_plan_context=true, plan_page_index/floor_level may be used only as supplied context.
+- When use_plan_context=false, do not infer a plan location or level.
 - Return JSON only.
-"""
 
+EXPECTED OUTPUT
+{
+  "summary": "...",
+  "task_results": [
+    {
+      "task_key": "exact supplied key",
+      "status": "CHANGE|KEEP|NO_EVIDENCE|UNRESOLVED",
+      "summary": "...",
+      "confidence": 0.0,
+      "rows": [],
+      "field_updates": [{"field": "exact schema key", "value": "supported value", "source_page": 1, "source_text": "evidence", "confidence": 0.9, "reason": "why"}],
+      "unresolved": []
+    }
+  ],
+  "unresolved": []
+}
+"""
 
 
 _GPT_META_KEYS = {
@@ -178,34 +208,56 @@ def _action(value: Any) -> str:
     v = str(value or "ADD").strip().upper()
     return v if v in {"ADD", "UPDATE", "DELETE", "KEEP", "UNKNOWN"} else "UNKNOWN"
 
-def _allowed_row_fields(task: Dict[str, Any]) -> set[str]:
-    allowed: set[str] = set()
-    for row in task.get("rows") or []:
-        if isinstance(row, dict):
-            allowed.update(str(k) for k in row.keys() if not str(k).startswith("_"))
-    form = task.get("form")
-    if isinstance(form, dict):
-        allowed.update(str(k) for k in form.keys() if not str(k).startswith("_"))
-    return allowed
+def _allowed_row_fields(task_key: str, customer: str) -> set[str]:
+    return set(gpt_allowed_fields(task_key, customer))
 
-def _clean_proposed_rows(rows: Any, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _normalize_gpt_field_value(*, field: str, value: Any, task_contract: Dict[str, Any]) -> tuple[bool, Any, str]:
+    field_spec = ((task_contract.get("schema") or {}).get("fields") or {}).get(field) or {}
+    if field_spec.get("type") not in {"dropdown", "enum"}:
+        return True, value, ""
+    options = (task_contract.get("options") or {}).get(field) or []
+    if not options:
+        return False, None, f"{field}: no runtime dropdown options were available"
+    resolved = resolve_option_value(value, options)
+    if resolved is None:
+        return False, None, f"{field}: {value!r} is not an allowed dropdown value"
+    return True, resolved, ""
+
+def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, customer: str, task_contract: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not isinstance(rows, list):
         return []
-    allowed = _allowed_row_fields(task)
+    allowed = _allowed_row_fields(task_key, customer)
+    existing_ids = {str(row.get("id")) for row in (task.get("rows") or []) if isinstance(row, dict) and row.get("id") is not None}
     result: List[Dict[str, Any]] = []
     for raw in rows:
         if not isinstance(raw, dict):
             continue
         clean: Dict[str, Any] = {}
-        for key, value in raw.items():
+        proposed_values = raw.get("values") if isinstance(raw.get("values"), dict) else {}
+        combined = {**proposed_values, **{k: v for k, v in raw.items() if k != "values"}}
+        for key, value in combined.items():
             key = str(key)
             if key in _FORBIDDEN_GEOMETRY_KEYS or key.startswith("geometry_"):
                 continue
-            if key in _GPT_META_KEYS or not allowed or key in allowed:
+            if key in _GPT_META_KEYS:
                 clean[key] = value
+            elif key in allowed:
+                valid, normalized, validation_error = _normalize_gpt_field_value(
+                    field=key, value=value, task_contract=task_contract
+                )
+                if valid:
+                    clean[key] = normalized
+                else:
+                    clean.setdefault("_gpt_validation_errors", []).append(validation_error)
         clean["action"] = _action(raw.get("action"))
-        if clean["action"] in {"UPDATE", "DELETE"} and not str(raw.get("row_id") or "").strip():
+        if clean.get("_gpt_validation_errors"):
             clean["action"] = "UNKNOWN"
+        row_id = str(raw.get("row_id") or "").strip()
+        if clean["action"] in {"UPDATE", "DELETE"}:
+            if not row_id or row_id not in existing_ids:
+                clean["action"] = "UNKNOWN"
+            else:
+                clean["row_id"] = row_id
         clean["confidence"] = _confidence(raw.get("confidence"))
         result.append(clean)
     return result
@@ -216,10 +268,13 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
         raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
 
     pages = extract_selected_pages(pdf_bytes, selected_pages)
+    task_contracts = build_task_contracts(tasks, customer)
+    if not task_contracts:
+        raise RuntimeError("No supported Document AI task schemas were supplied")
     context = {
         "customer": customer,
         "selected_pages": pages,
-        "tasks": tasks,
+        "tasks": task_contracts,
     }
     prompt = SYSTEM_PROMPT + "\n\nCONTEXT\n" + json.dumps(context, ensure_ascii=False, default=str)
     timeout = int(os.getenv("OPENAI_AGENT_TIMEOUT_SEC", os.getenv("OPENAI_TIMEOUT_SEC", "180")))
@@ -241,18 +296,22 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
     if not isinstance(task_results, list):
         task_results = []
     cleaned = []
-    known_tasks = set(tasks.keys())
+    known_tasks = set(task_contracts.keys())
+    returned_tasks: set[str] = set()
     for result in task_results:
         if not isinstance(result, dict):
             continue
-        task_key = str(result.get("task_key") or "")
-        if task_key not in known_tasks:
+        task_key = normalize_task_key(str(result.get("task_key") or ""))
+        if task_key not in known_tasks or task_key in returned_tasks:
             continue
-        task_mode = str((tasks.get(task_key) or {}).get("mode") or "rows")
+        returned_tasks.add(task_key)
+        task_schema = get_task_schema(task_key, customer)
+        task_mode = str(task_schema.get("mode") or "rows")
         mode = "form" if task_mode == "form" else "rows"
-        task_context = tasks.get(task_key) or {}
+        output_mode = str(task_schema.get("output_mode") or ("single_form" if mode == "form" else "row"))
+        task_context = tasks.get(task_key) or tasks.get("lockup" if task_key == "lock_up" else task_key) or {}
         field_updates = result.get("field_updates") if isinstance(result.get("field_updates"), list) else []
-        allowed_form_fields = set((task_context.get("form") or {}).keys()) if isinstance(task_context.get("form"), dict) else set()
+        allowed_form_fields = set(gpt_allowed_fields(task_key, customer))
         cleaned_field_updates = []
         for update in field_updates:
             if not isinstance(update, dict):
@@ -260,20 +319,51 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             field = str(update.get("field") or "").strip()
             if not field or (allowed_form_fields and field not in allowed_form_fields):
                 continue
+            task_contract = task_contracts.get(task_key) or {}
+            valid, normalized, validation_error = _normalize_gpt_field_value(
+                field=field, value=update.get("value"), task_contract=task_contract
+            )
+            if not valid:
+                continue
             cleaned_field_updates.append({
                 **update,
                 "field": field,
+                "value": normalized,
                 "confidence": _confidence(update.get("confidence")),
             })
+        raw_status = str(result.get("status") or "").strip().upper()
+        status = raw_status if raw_status in {"CHANGE", "KEEP", "NO_EVIDENCE", "UNRESOLVED"} else "CHANGE"
         cleaned.append({
             "task_key": task_key,
             "mode": mode,
+            "output_mode": output_mode,
+            "status": status,
             "summary": str(result.get("summary") or ""),
             "confidence": _confidence(result.get("confidence")),
-            "rows": _clean_proposed_rows(result.get("rows"), task_context),
+            "rows": _clean_proposed_rows(result.get("rows"), task_context, task_key, customer, task_contracts.get(task_key) or {}),
             "field_updates": cleaned_field_updates,
             "unresolved": result.get("unresolved") if isinstance(result.get("unresolved"), list) else [],
         })
+
+    # Coverage is a backend invariant. If the model omits a task, retain an
+    # explicit result instead of silently turning a partial response into a
+    # misleading success with fewer tasks.
+    for task_key in sorted(known_tasks - returned_tasks):
+        task_schema = get_task_schema(task_key, customer)
+        mode = "form" if task_schema.get("mode") == "form" else "rows"
+        cleaned.append({
+            "task_key": task_key,
+            "mode": mode,
+            "output_mode": task_schema.get("output_mode") or ("single_form" if mode == "form" else "row"),
+            "status": "NO_EVIDENCE",
+            "summary": "No supported result was returned for this task.",
+            "confidence": 0.0,
+            "rows": [],
+            "field_updates": [],
+            "unresolved": ["Model returned no task result; kept empty by the backend coverage contract."],
+        })
+
+    cleaned.sort(key=lambda item: list(task_contracts.keys()).index(item["task_key"]) if item["task_key"] in task_contracts else 9999)
 
     return {
         "status": "success",
@@ -294,5 +384,20 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             if k in p
         } for p in pages],
         "task_results": cleaned,
+        "coverage": {
+            "expected_tasks": len(task_contracts),
+            "returned_tasks": len(cleaned),
+            "model_returned_tasks": len(returned_tasks),
+            "complete": len(cleaned) == len(task_contracts),
+        },
+        "diagnostics": {
+            "schema_version": 1,
+            "task_keys": list(task_contracts.keys()),
+            "option_counts": {
+                task_key: {field: len(values) for field, values in (contract.get("options") or {}).items()}
+                for task_key, contract in task_contracts.items()
+            },
+            "page_char_counts": {str(p.get("page_number")): len(str(p.get("text") or "")) for p in pages},
+        },
         "unresolved": parsed.get("unresolved") if isinstance(parsed.get("unresolved"), list) else [],
     }

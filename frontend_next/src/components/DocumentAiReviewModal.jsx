@@ -10,16 +10,37 @@ if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
 
 const card = { border: "1px solid #e2e8f0", borderRadius: "10px", background: "#fff" };
 
+const TASK_LABELS = {
+  frame_hardware: "Frame Hardware",
+  flooring_decking: "Flooring & Decking",
+  hebel_flooring: "Hebel Flooring",
+  insulation: "Insulation",
+  eaves_soffit: "Eaves & Soffit",
+  cladding: "Cladding",
+  lock_up: "Lockup",
+  fixout: "Fixout",
+  windows: "Windows",
+  shelving: "Shelving",
+  timber_posts: "Timber Posts",
+  power_truss_braces: "Power Truss Braces",
+  fow_plumbing: "FOW Plumbing",
+  final_fit: "Final Fit",
+  hardies_fire_walls: "Hardies Fire Walls",
+};
+
 export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPages = [], customer, taskContext, onResult }) {
   const [reviewFile, setReviewFile] = useState(null);
   const [reviewFileSource, setReviewFileSource] = useState("current");
   const [pages, setPages] = useState([]);
   const [selected, setSelected] = useState(new Set());
+  const [selectedTasks, setSelectedTasks] = useState(new Set());
   const [pageRules, setPageRules] = useState({});
   const [loadingPages, setLoadingPages] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+
+  const taskKeys = useMemo(() => Object.keys(taskContext || {}), [taskContext]);
 
   const fileStem = useMemo(
     () => String(reviewFile?.name || "").replace(/\.[^/.]+$/, "").toLowerCase(),
@@ -32,10 +53,11 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
     setReviewFileSource("current");
     setPages([]);
     setSelected(new Set());
+    setSelectedTasks(new Set(taskKeys));
     setPageRules({});
     setResult(null);
     setError("");
-  }, [open, pdfFile]);
+  }, [open, pdfFile, taskKeys]);
 
   useEffect(() => {
     if (!open || !reviewFile) return;
@@ -91,6 +113,13 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
 
   if (!open || typeof document === "undefined") return null;
   const toggle = (n) => setSelected((prev) => { const next = new Set(prev); next.has(n) ? next.delete(n) : next.add(n); return next; });
+  const toggleTask = (taskKey) => setSelectedTasks((prev) => {
+    const next = new Set(prev);
+    next.has(taskKey) ? next.delete(taskKey) : next.add(taskKey);
+    return next;
+  });
+  const allTasksSelected = taskKeys.length > 0 && selectedTasks.size === taskKeys.length;
+  const toggleAllTasks = () => setSelectedTasks(allTasksSelected ? new Set() : new Set(taskKeys));
 
   const openReviewPdf = (event) => {
     const file = event.target.files?.[0];
@@ -156,7 +185,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
   };
 
   const run = async () => {
-    if (!reviewFile || selected.size === 0) return;
+    if (!reviewFile || selected.size === 0 || selectedTasks.size === 0) return;
     setRunning(true);
     setError("");
     try {
@@ -175,16 +204,27 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
           };
         });
 
+      const selectedTaskContext = Object.fromEntries(
+        Object.entries(taskContext || {}).filter(([taskKey]) => selectedTasks.has(taskKey))
+      );
+
       const res = await ApiService.reviewDocumentWithAI({
         file: reviewFile,
         selectedPages,
         customer,
-        tasks: taskContext,
+        tasks: selectedTaskContext,
       });
       setResult(res);
       onResult?.(res);
     } catch (e) {
-      setError(e?.message || "Document AI failed.");
+      const message = e?.message || "Document AI failed.";
+      setError(message);
+      onResult?.({
+        success: false,
+        summary: "GPT review failed.",
+        error: message,
+        task_results: [],
+      });
     } finally {
       setRunning(false);
     }
@@ -346,6 +386,76 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
           >
             ✕
           </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          ...card,
+          padding: 12,
+          marginBottom: 14,
+          background: "#f8fafc",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>Tasks to review</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+              Selected: <b>{selectedTasks.size}</b> / {taskKeys.length}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleAllTasks}
+            disabled={running || taskKeys.length === 0}
+            style={{
+              background: allTasksSelected ? "#dbeafe" : "#ffffff",
+              border: "1px solid #93c5fd",
+              color: "#1d4ed8",
+              borderRadius: 7,
+              padding: "6px 10px",
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: running ? "not-allowed" : "pointer",
+            }}
+          >
+            {allTasksSelected ? "Clear All Tasks" : "All Tasks"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {taskKeys.map((taskKey) => {
+            const checked = selectedTasks.has(taskKey);
+            return (
+              <label
+                key={`gpt-task-${taskKey}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 9px",
+                  borderRadius: 999,
+                  border: checked ? "1px solid #60a5fa" : "1px solid #cbd5e1",
+                  background: checked ? "#eff6ff" : "#ffffff",
+                  color: checked ? "#1d4ed8" : "#475569",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: running ? "not-allowed" : "pointer",
+                  userSelect: "none",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={running}
+                  onChange={() => toggleTask(taskKey)}
+                  style={{ accentColor: "#2563eb" }}
+                />
+                {TASK_LABELS[taskKey] || taskKey}
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -648,7 +758,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
             <span style={{ color: "#b91c1c", fontSize: 12 }}>{error}</span>
           ) : (
             <span style={{ fontSize: 13, color: "#64748b" }}>
-              Ready to review: <b>{selected.size}</b> page(s)
+              Ready to review: <b>{selected.size}</b> page(s) • <b>{selectedTasks.size}</b> task(s)
             </span>
           )}
         </div>
@@ -673,25 +783,25 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
 
           <button
             onClick={run}
-            disabled={running || !reviewFile || selected.size === 0}
+            disabled={running || !reviewFile || selected.size === 0 || selectedTasks.size === 0}
             style={{
               padding: "8px 20px",
               background:
-                running || !reviewFile || selected.size === 0
+                running || !reviewFile || selected.size === 0 || selectedTasks.size === 0
                   ? "#94a3b8"
                   : "#2563eb",
               color: "#fff",
               border: "none",
               borderRadius: 8,
               cursor:
-                running || !reviewFile || selected.size === 0
+                running || !reviewFile || selected.size === 0 || selectedTasks.size === 0
                   ? "not-allowed"
                   : "pointer",
               fontSize: 13,
               fontWeight: 600,
             }}
           >
-            {running ? "Reviewing..." : `Run GPT Review (${selected.size})`}
+            {running ? "Reviewing..." : `Run GPT Review (${selected.size} page${selected.size === 1 ? "" : "s"}, ${selectedTasks.size} task${selectedTasks.size === 1 ? "" : "s"})`}
           </button>
         </div>
       </div>
