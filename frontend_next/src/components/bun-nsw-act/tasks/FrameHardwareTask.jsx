@@ -10,6 +10,7 @@ import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalize
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import {
   EnteredDataCard,
   TaskCard,
@@ -308,10 +309,13 @@ export default function FrameHardwareTask({
         wallClass: g.wallClass,
         isCanvasWall: true,
         wallIds: g.wallIds,
+        // Preserve AI provenance whenever canvas-derived rows are rebuilt.
+        // This effect runs again when switching tasks / restoring cache; without
+        // these markers the shared TaskRowNumber loses the AI badge.
         ai_generated: existing?.ai_generated ?? true,
         generatedByAI: existing?.generatedByAI ?? true,
-        autofill_source: existing?.autofill_source || existing?.autoFillSource || "drawing",
-        source: existing?.source || "drawing"
+        autofill_source: existing?.autofill_source || "drawing",
+        source: existing?.source || "frame_hardware_ai"
       };
     });
 
@@ -587,58 +591,24 @@ export default function FrameHardwareTask({
           height: `${g.heightMm} mm`,
           length: `${Math.round(g.totalMm)} mm`,
           spacing: `${spacingMm} mm`,
-          rodSize: "M12",
+          rodSize: resolveDropdownValue("M12", ROD_SIZE_OPTIONS, { fallback: "" }),
           rodDemand: demand,
           rodMapping: `${rodCount} x M12 Rod ${rodLength}`,
           rodsQty: `${rodCount} pcs`,
-          floorLevel: g.floorLevel || "GF",
+          floorLevel: resolveDropdownValue(g.floorLevel || "GF", LEVEL_OPTIONS, { getValue: (option) => option.value, fallback: "" }),
           sourcePageIndex: g.sourcePageIndex,
-          wallClass: g.wallClass,
+          wallClass: resolveDropdownValue(g.wallClass, WALL_CLASS_OPTIONS, { getValue: (option) => option.value, fallback: "" }),
           isCanvasWall: true,
           wallIds: g.wallIds,
-          autofill_source: "drawing"
+          ai_generated: true,
+          generatedByAI: true,
+          autofill_source: "drawing",
+          source: "frame_hardware_ai"
         };
       });
     } else {
-      // Fallback: nếu chưa vẽ centerline, dùng grandTotalLength hoặc giá trị ước tính
-      const totalMm = cadMetrics?.grandTotalLength
-        ? Math.round(cadMetrics.grandTotalLength * 1000)
-        : 138922;
-      const timberMm = Math.round(totalMm * 0.85);
-      const slabMm = totalMm - timberMm;
-
-      generatedEntries = [
-        {
-          id: "tmb-" + Date.now() + "-1",
-          baseType: "Timber Floor",
-          theWallAbove: "ON TIMBER FLOOR",
-          height: "2700 mm",
-          length: `${timberMm} mm`,
-          spacing: "900 mm",
-          rodSize: "M12",
-          rodDemand: (timberMm / 900).toFixed(2),
-          rodMapping: `${Math.ceil(timberMm / 900)} x M12 Rod 3000`,
-          rodsQty: `${Math.ceil(timberMm / 900)} pcs`,
-          floorLevel: "GF",
-          wallClass: "exterior_wall",
-          autofill_source: "drawing"
-        },
-        {
-          id: "slab-" + Date.now() + "-2",
-          baseType: "Concrete Slab",
-          theWallAbove: "ON CONCRETE SLAB FLOOR",
-          height: "3000 mm",
-          length: `${slabMm} mm`,
-          spacing: "900 mm",
-          rodSize: "M12",
-          rodDemand: (slabMm / 900).toFixed(2),
-          rodMapping: `${Math.ceil(slabMm / 900)} x M12 Rod 3600`,
-          rodsQty: `${Math.ceil(slabMm / 900)} pcs`,
-          floorLevel: "GF",
-          wallClass: "exterior_wall",
-          autofill_source: "drawing"
-        }
-      ];
+      // No verified drawing rows -> do not invent Frame Hardware rows.
+      generatedEntries = [];
     }
 
     if (onSetEntries) {

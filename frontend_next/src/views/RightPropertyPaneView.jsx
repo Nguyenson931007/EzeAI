@@ -78,6 +78,7 @@ import TaskGroupsHwPanel from "./right-property-pane/TaskGroupsHwPanel";
 import TaskModulesContainer from "./right-property-pane/TaskModulesContainer";
 import RightPropertyTabBar from "./right-property-pane/RightPropertyTabBar";
 import DocumentAiReviewModal from "@/components/DocumentAiReviewModal";
+import DocumentAiReportModal from "@/components/DocumentAiReportModal";
 import TakeoffExportModal from "./right-property-pane/TakeoffExportModal";
 import WallPropertyPanel from "./right-property-pane/property-panels/WallPropertyPanel";
 import DoorWindowPropertyPanel from "./right-property-pane/property-panels/DoorWindowPropertyPanel";
@@ -854,6 +855,7 @@ export default function RightPropertyPaneView({
   const [gptTaskRows, setGptTaskRows] = React.useState({});
   const [gptFormProposals, setGptFormProposals] = React.useState({});
   const [gptReport, setGptReport] = React.useState(null);
+  const [showGptReport, setShowGptReport] = React.useState(false);
   const [manuallyClearedTasks, setManuallyClearedTasks] = React.useState({});
   const manuallyClearedTasksRef = React.useRef({});
 
@@ -2351,7 +2353,8 @@ export default function RightPropertyPaneView({
 
   // ── CHECK USER ACCESS FOR HW TASK MENU (Full Admin, HW roles, or bophanlogin "HW"/"All") ──
   const userBophan = String(user?.bophanlogin || user?.bophan || "").trim().toLowerCase();
-  const isHwOrAllUser = isFullAdmin(user) || hasHwAccess(user) || userBophan === "hw" || userBophan === "all" || userBophan === "admin";
+  const isGptAdmin = isFullAdmin(user);
+  const isHwOrAllUser = isGptAdmin || hasHwAccess(user) || userBophan === "hw" || userBophan === "all" || userBophan === "admin";
 
   // Auto-switch to explorer if task tabs are not allowed for this user
   React.useEffect(() => {
@@ -2658,13 +2661,10 @@ export default function RightPropertyPaneView({
           const defaultType = isWet ? "Wet" : (isBalcony ? "Balcony Tiles" : (isDeck ? "Decking Input" : "Dry"));
           const typeArea = override.typeArea || defaultType;
 
-          let defaultProd = "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
-          if (typeArea === "Wet") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
-          else if (typeArea === "Balcony Tiles") defaultProd = "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
-          else if (typeArea === "Decking Input") defaultProd = "HARDWOOD DECKING 90X19MM MERBAU";
-          else if (typeArea === "T+G Flooring Area") defaultProd = "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM";
-
-          const product = override.product || r.product || defaultProd;
+          // Product is a Procurement dropdown value. Never invent one here.
+          // Keep only an explicit override/candidate; FlooringDeckingTask will
+          // validate it against the active customer's dropdown catalog.
+          const product = override.product || r.product || "";
           const groupKey = `${typeArea}___${product}`;
 
           if (!groupsMap[groupKey]) {
@@ -2693,8 +2693,8 @@ export default function RightPropertyPaneView({
             areaM2: Number(g.areaM2.toFixed(2)),
             wastePercent: 10,
             totalM2: Number(g.areaM2.toFixed(1)),
-            glueType: "FLOORING ADHESIVE 600ML SAUSAGE",
-            glueQty: Math.ceil((g.areaM2 * 1.1) / 12)
+            glueType: "",
+            glueQty: 0
           });
         });
 
@@ -2707,8 +2707,8 @@ export default function RightPropertyPaneView({
           setHebelFlooringEntries(newFlrEntries.map(e => ({
             ...e,
             id: e.id.replace("flr-", "hebel-"),
-            product: "HEBEL POWERFLOOR PANEL 1800X600X75MM",
-            hebelQty: Math.ceil((e.totalM2 || e.areaM2) / 1.08)
+            product: "",
+            hebelQty: 0
           })));
         }
       }
@@ -2843,14 +2843,14 @@ export default function RightPropertyPaneView({
   const [insWallType, setInsWallType] = React.useState("external");
   const [insWallHeight, setInsWallHeight] = React.useState("2700");
   const [insWallLength, setInsWallLength] = React.useState("");
-  const [insWallRValue, setInsWallRValue] = React.useState("R2.0");
-  const [insWallProduct, setInsWallProduct] = React.useState("0810608 - INS BATT R2.0 430MM");
+  const [insWallRValue, setInsWallRValue] = React.useState("");
+  const [insWallProduct, setInsWallProduct] = React.useState("");
   const [insWallRaked, setInsWallRaked] = React.useState("0");
   const [insWallDoor, setInsWallDoor] = React.useState("0");
 
   const [insAreaType, setInsAreaType] = React.useState("ceiling");
-  const [insAreaRValue, setInsAreaRValue] = React.useState("R4.0");
-  const [insAreaProduct, setInsAreaProduct] = React.useState("0810620 - INS CEILING BATT R4.0 430MM");
+  const [insAreaRValue, setInsAreaRValue] = React.useState("");
+  const [insAreaProduct, setInsAreaProduct] = React.useState("");
   const [insAreaValue, setInsAreaValue] = React.useState("");
 
   const handleAddInsulationWall = (typeKey) => {
@@ -2863,7 +2863,7 @@ export default function RightPropertyPaneView({
     if (!l && !raked) return;
 
     const codeMatch = insWallProduct.match(/^(\d+)/);
-    const code = codeMatch ? codeMatch[1] : "0810608";
+    const code = codeMatch ? codeMatch[1] : "";
 
     const newEntry = {
       id: `ins-w-${Date.now()}`,
@@ -2890,7 +2890,7 @@ export default function RightPropertyPaneView({
     const a = Number(insAreaValue);
     if (!a || a <= 0) return;
     const codeMatch = insAreaProduct.match(/^(\d+)/);
-    const code = codeMatch ? codeMatch[1] : "0810620";
+    const code = codeMatch ? codeMatch[1] : "";
 
     const newEntry = {
       id: `ins-a-${Date.now()}`,
@@ -2965,7 +2965,7 @@ export default function RightPropertyPaneView({
   // 3. Flooring Quick Form State
   const [flrLevel, setFlrLevel] = React.useState("Ground Floor GF");
   const [flrRoom, setFlrRoom] = React.useState("");
-  const [flrType, setFlrType] = React.useState("Hybrid / Vinyl Plank");
+  const [flrType, setFlrType] = React.useState("");
   const [flrArea, setFlrArea] = React.useState("");
   const [flrWaste, setFlrWaste] = React.useState("10");
 
@@ -3003,7 +3003,7 @@ export default function RightPropertyPaneView({
           otherArea: o ? String(o) : prev.flooring_decking?.otherArea || "",
           otherTypeArea: ot || prev.flooring_decking?.otherTypeArea || "Decking Input",
           location: "Ground Floor",
-          flooring_type: "Hybrid / Vinyl Plank",
+          flooring_type: prev.flooring_decking?.flooring_type || "",
           floor_area: d ? String(d) : String(w || 54.2),
           waste_allowance: "10"
         },
@@ -3028,27 +3028,24 @@ export default function RightPropertyPaneView({
           } else if (r.area && !isNaN(r.area)) {
             areaNum = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
           } else {
-            areaNum = 14.5;
+            areaNum = 0;
           }
           areaNum = Number(areaNum.toFixed(2));
 
           const isWet = /bath|ensuite|wc|powder|laundry|shower/i.test(roomName) || r.type === "wet";
           const isDeck = /deck|porch|verandah|patio/i.test(roomName) || (r.type && r.type.includes("timber"));
           const isBalcony = /balcony|alfresco|terrace/i.test(roomName) || (r.type && r.type.includes("tile"));
-          const isGarage = /garage/i.test(roomName);
-
-          const flType = isWet ? "Wet Area Ceramic Tile" : (isDeck ? "90mm Merbau Decking" : (isBalcony ? "Exterior Non-Slip Tile" : (isGarage ? "Concrete Epoxy / Sealed" : "Hybrid / Vinyl Plank")));
+          const typeArea = isWet ? "Wet" : (isDeck ? "Decking Input" : (isBalcony ? "Balcony Tiles" : "Dry"));
 
           return {
             id: `flr-ai-${r.id || idx}-${Date.now()}`,
             roomId: r.id,
             roomIds: r.id ? [r.id] : [],
-            level: "Ground Floor GF",
-            room: roomName,
-            type: r.floor_type || flType,
-            area: `${areaNum} m²`,
-            waste: "10%",
-            totalArea: `${Number((areaNum * 1.1).toFixed(2))} m²`,
+            floorLevel: floorLevelForPage(currentPage),
+            typeArea,
+            location: roomName,
+            product: "",
+            product_candidate: r.product || "",
             areaM2: areaNum,
             totalM2: areaNum,
             autofill_source: "drawing",
@@ -3078,68 +3075,15 @@ export default function RightPropertyPaneView({
       });
       const { doors: rawDoors = [], lockoutRows = [] } = e.detail;
 
-      const sourceList = (lockoutRows.length > 0 ? lockoutRows : rawDoors).filter((door) => !isWindowOpening(door));
+      const sourceList = (lockoutRows.length > 0 ? lockoutRows : rawDoors)
+        .filter((door) => !isWindowOpening(door))
+        .map((door) => ({ ...door, procurement_task: "lock_up", procurementTask: "lock_up" }));
       if (sourceList.length > 0) {
-        const generated = sourceList.map((d, idx) => {
-          const dLabel = (d.door_name || d.doorName || d.doorLabel || (d.label && !/single|sliding|window|door/i.test(d.label) ? d.label : null) || `D${idx + 1}`).trim();
-          const dW = d.width || 820;
-          const dH = d.height || 2040;
-          const isExt = d.scope === "external" || d.isExternal || /entry|front|back|patio|balcony|sliding/i.test(dLabel);
-          const isLoose = !isExt && (d.mode === "Loose" || d.category === "Loose Jamb");
-
-          const dHinge = String(d.hingeSide || d.hinge_side || d.handing || d.hung || "").toLowerCase();
-          const isRight = dHinge.includes("right") || dHinge.includes("rh") || dHinge === "hung a";
-          const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
-          const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
-
-          return {
-            id: `lck-ai-${d.id || idx}-${Date.now()}`,
-            doorId: d.doorId || d.door_id || d.id,
-            // NSW ACT columns
-            category: isExt ? "Prehung" : (isLoose ? "Loose Jamb" : (d.category || "Prehung")),
-            location: isExt ? "External" : "Internal",
-            door: d.door || d.product || "",
-            size: `${dH}×${dW}`,
-            thicks: `${d.thickness || (isExt ? 40 : 35)}mm`,
-            jambWall: d.jamb_or_wall || "90mm Wall",
-            jambSize: isLoose ? (d.jamb_size || d.jambSize || "112×19mm 5.4m Loose Jamb") : "",
-            hung: hungVal,
-            type: "-",
-            hfHo: d.internal_type || "HF",
-            color: d.color || "CHR",
-            stop: d.door_stop || "Cushion",
-            qty: d.default_qty || d.qty || 1,
-
-            // Cairns Hardware columns
-            doorLabel: dLabel,
-            configuration: isExt ? "Single Leaf External Entry" : "Single Swing Internal",
-            frameMaterial: d.jamb_or_wall || "90mm Timber Stud Frame",
-            weatherstrip: isExt ? "Raven RP4 Door Bottom Seal" : "Internal Draught Strip",
-            autofill_source: "drawing",
-          };
-        });
-
+        // Use the same shared builders as the task Auto Fill path. Dynamic
+        // dropdown fields (Door Type/Jamb Size/Furniture) are staged as
+        // candidates and only become values after task dropdown validation.
+        const generated = buildLockupRows(sourceList, []);
         setLockupEntries(generated);
-        setFixoutDoorEntries(generated.map(g => ({
-          id: `fix-${g.id}`,
-          doorId: g.doorId,
-          category: g.category === "Cavity" ? "cavity" : (g.mode === "Loose" ? "loose-jamb" : "prehung"),
-          door_label: g.doorLabel || g.door || "",
-          door_type: g.product || g.type || "ASC",
-          height: g.height || 2040,
-          width: g.width || 820,
-          thicks: String(g.thickness || 35),
-          wall_width: "90",
-          door_frame: g.jambWall || "Timber Jamb",
-          lift_off_pivot: "",
-          handing: g.hung || "",
-          hole: g.hfHo || "HF",
-          finish: g.color || "CHR",
-          door_furniture: "passage",
-          door_stop: g.stop || "cushion",
-          qty: g.qty || 1,
-          autofill_source: "drawing",
-        })));
       }
 
       setEnabledModuleIds(prev => prev.includes("lockup") ? prev : [...prev, "lockup"]);
@@ -3184,10 +3128,10 @@ export default function RightPropertyPaneView({
             id: `ins-w-ai-${Date.now()}-${idx}`,
             wallId: r.wallId || r.wall_id || r.id,
             wallIds: (r.wallId || r.wall_id || r.id) ? [r.wallId || r.wall_id || r.id] : [],
-            type: isExt ? "external" : "internal",
-            rValue: isExt ? "R2.5" : "R2.0",
-            productCode: isExt ? "0810610" : "0810608",
-            productName: isExt ? "0810610 - INS BATT R2.5 430MM" : "0810608 - INS BATT R2.0 430MM",
+            type: isExt ? "Ext wall" : "Int wall",
+            rValue: "",
+            productCode: "",
+            productName: "",
             height: r.wall_height || 2700,
             length: r.wall_length || 0,
             rakedArea: r.total_area_raked || 0,
@@ -3388,27 +3332,34 @@ export default function RightPropertyPaneView({
         const isLeft = dHinge.includes("left") || dHinge.includes("lh") || dHinge === "hung b";
         const hungVal = isRight ? "Hung A" : (isLeft ? "Hung B" : (isExt ? "Hung B" : "Hung A"));
 
-        return {
-          id: `lck-door-${d.id || Date.now()}-${idx}`,
-          doorId: d.id,
-          mode: lockupMode,
-          lockup_mode: lockupMode,
+        const [built] = buildLockupRows([{
+          ...d,
           scope: isExt ? "external" : "internal",
           location: isExt ? "External" : "Internal",
+          mode: lockupMode,
+          lockup_mode: lockupMode,
+          procurement_task: "lock_up",
+          procurementTask: "lock_up",
+          width: dWidth,
+          height: dHeight,
+          wall_thickness: wallThick,
+          hung: override.hung || d.hung || d.handing || hungVal,
+          door_stop: override.stop || d.door_stop,
+          internal_type: override.hfHo || d.internal_type,
+          color: override.color || d.color,
+          door_type: override.door_type || d.door_type || d.lockup_door_type || "",
+          jamb_size: override.jambSize || d.jamb_size || d.jambSize || "",
+        }], []);
+        return {
+          ...(built || {}),
+          id: `lck-door-${d.id || Date.now()}-${idx}`,
+          doorId: d.id,
           label: dLabel,
           door_name: dLabel,
-          height: dHeight,
-          width: dWidth,
-          thickness: isExt ? 40 : 35,
-          jamb_or_wall: `${wallThick}mm Wall`,
-          jamb_size: isLoose ? (override.jambSize || "112×19mm 5.4m Loose Jamb") : "",
-          hung: hungVal,
-          door_type: override.door_type || d.door_type || d.lockup_door_type || "",
-          type: "-",
-          door_stop: override.stop || (isExt ? "DS2 with Riser" : "Cushion"),
-          internal_type: override.hfHo || (isExt ? null : "HF"),
-          color: override.color || (isExt ? null : "CHR"),
-          default_qty: override.qty || 1
+          door_type_candidate: override.door_type || d.door_type || d.lockup_door_type || built?.door_type_candidate || "",
+          jamb_size_candidate: override.jambSize || d.jamb_size || d.jambSize || built?.jamb_size_candidate || "",
+          default_qty: override.qty || built?.default_qty || 1,
+          autofill_source: "drawing",
         };
       };
 
@@ -3428,11 +3379,11 @@ export default function RightPropertyPaneView({
           const isExt = getDoorIsExt(matchingDoor, dLabel, rawType);
           const expectedScope = isExt ? "external" : "internal";
           const expectedLoc = isExt ? "External" : "Internal";
-          const expectedModel = override.door_type || matchingDoor.door_type || matchingDoor.lockup_door_type || entry.door_type || "";
+          const expectedModelCandidate = override.door_type || matchingDoor.door_type || matchingDoor.lockup_door_type || entry.door_type_candidate || "";
           const expectedMode = getLockupMode(matchingDoor, isExt, override);
 
           const isScopeDiff = entry.scope !== expectedScope || entry.location !== expectedLoc;
-          const isModelDiff = !override.door_type && matchingDoor.door_type && entry.door_type !== matchingDoor.door_type;
+          const isModelDiff = String(entry.door_type_candidate || "") !== String(expectedModelCandidate || "");
           const isModeDiff = String(entry.mode || "").trim().toLowerCase() !== expectedMode.toLowerCase();
 
           if (isScopeDiff || isModelDiff || isModeDiff) {
@@ -3443,11 +3394,11 @@ export default function RightPropertyPaneView({
               lockup_mode: expectedMode,
               scope: expectedScope,
               location: expectedLoc,
-              door_type: isModelDiff ? expectedModel : entry.door_type,
+              door_type: entry.door_type || "",
+              door_type_candidate: expectedModelCandidate,
               thickness: expectedMode === "Loose" ? 38 : (isExt ? 40 : 35),
-              jamb_size: expectedMode === "Loose"
-                ? (entry.jamb_size || "112×19mm 5.4m Loose Jamb")
-                : null,
+              jamb_size: expectedMode === "Loose" ? (entry.jamb_size || "") : "",
+              jamb_size_candidate: expectedMode === "Loose" ? (entry.jamb_size_candidate || matchingDoor.jamb_size || matchingDoor.jambSize || "") : "",
               label: dLabel || entry.label,
               door_name: dLabel || entry.door_name
             };
@@ -4911,6 +4862,8 @@ export default function RightPropertyPaneView({
 
   const handleDocumentAiResult = React.useCallback((result) => {
     setGptReport(result);
+    setShowDocumentAi(false);
+    setShowGptReport(true);
     const nextRows = {};
     const nextForms = {};
     for (const task of result?.task_results || []) {
@@ -4935,20 +4888,9 @@ export default function RightPropertyPaneView({
           };
         });
       } else if ((task.field_updates || []).length) {
+        // Stage single-form updates for review. Do not interrupt the report flow
+        // with confirm dialogs or overwrite form data before the user reviews it.
         nextForms[task.task_key] = task.field_updates;
-        const updates = task.field_updates.filter((x) => x && x.field);
-        if (updates.length) {
-          const ok = typeof window !== "undefined" ? window.confirm(
-            `GPT found ${updates.length} change(s) for ${task.task_key}. Apply them to the form now?`
-          ) : false;
-          if (ok) {
-            setModuleFormData((prev) => {
-              const current = { ...(prev[task.task_key] || {}) };
-              updates.forEach((u) => { current[u.field] = u.new_value; });
-              return { ...prev, [task.task_key]: current };
-            });
-          }
-        }
       }
     }
     setGptTaskRows(nextRows);
@@ -5049,6 +4991,69 @@ export default function RightPropertyPaneView({
       setInsulationAreaEntries(keepAi);
     }
   }, []);
+
+  const applyGptFormProposal = React.useCallback((taskKey, proposalIndex, useGptValue) => {
+    const proposals = gptFormProposals?.[taskKey] || [];
+    const proposal = proposals[proposalIndex];
+    if (!proposal) return;
+
+    if (useGptValue && proposal.field) {
+      const fieldPath = String(proposal.field).split(".").filter(Boolean);
+      if (fieldPath.length) {
+        setModuleFormData((prev) => {
+          const next = { ...prev };
+          const taskForm = { ...(next[taskKey] || {}) };
+          let cursor = taskForm;
+          for (let i = 0; i < fieldPath.length - 1; i += 1) {
+            const part = fieldPath[i];
+            cursor[part] = { ...(cursor[part] || {}) };
+            cursor = cursor[part];
+          }
+          cursor[fieldPath[fieldPath.length - 1]] = proposal.new_value;
+          next[taskKey] = taskForm;
+          return next;
+        });
+      }
+    }
+
+    setGptFormProposals((prev) => ({
+      ...prev,
+      [taskKey]: (prev?.[taskKey] || []).filter((_, idx) => idx !== proposalIndex),
+    }));
+  }, [gptFormProposals]);
+
+  const openGptTask = React.useCallback((taskKey) => {
+    const normalized = ({
+      lockup: "lock_up",
+      eaves: "eaves_soffit",
+      power_truss: "power_truss_braces",
+      flooring: "flooring_decking",
+      frame: "frame_hardware",
+    })[taskKey] || taskKey;
+
+    const targetTab = normalized === "flooring_decking"
+      ? flooringTaskId(flooringTaskFloors[0] || "GF")
+      : normalized;
+
+    setEnabledModuleIds((prev) => {
+      const baseId = normalized;
+      return prev.includes(baseId) ? prev : [...prev, baseId];
+    });
+    setShowGptReport(false);
+    setActivePaneTab(targetTab);
+  }, [flooringTaskFloors]);
+
+  const reviewFirstGptResult = React.useCallback(() => {
+    const firstTask = (gptReport?.task_results || []).find((task) => {
+      if (task?.mode === "rows") return (task?.rows || []).length > 0;
+      return (task?.field_updates || []).length > 0;
+    });
+    if (!firstTask) {
+      setShowGptReport(false);
+      return;
+    }
+    openGptTask(firstTask.task_key);
+  }, [gptReport, openGptTask]);
 
   return (
     <div
@@ -5571,7 +5576,9 @@ export default function RightPropertyPaneView({
         <TaskModulesContainer
           activeModuleTab={activeModuleTab}
           gptTaskRows={gptTaskRows}
+          gptFormProposals={gptFormProposals}
           onSaveGptRows={commitGptRowsToTask}
+          onApplyGptFormProposal={applyGptFormProposal}
           onClearNonGpt={clearNonGptTaskData}
           aiGeneratedSuccess={aiGeneratedSuccess}
           handleResetModuleData={handleResetModuleData}
@@ -5673,19 +5680,34 @@ export default function RightPropertyPaneView({
         customerModuleIds={customerModuleIds}
         flooringTaskFloors={flooringTaskFloors}
         onFlooringTaskFloorsChange={persistFlooringTaskFloors}
-        onOpenDocumentAi={() => setShowDocumentAi(true)}
+        showGptFeature={isGptAdmin}
+        onOpenDocumentAi={() => {
+          if (isGptAdmin) setShowDocumentAi(true);
+        }}
       />
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
-      <DocumentAiReviewModal
-        open={showDocumentAi}
-        onClose={() => setShowDocumentAi(false)}
-        pdfFile={currentPdfFile}
-        planPages={pages}
-        customer={selectedCustomerClient}
-        taskContext={documentAiTaskContext}
-        onResult={handleDocumentAiResult}
-      />
+      {isGptAdmin && (
+        <>
+          <DocumentAiReviewModal
+            open={showDocumentAi}
+            onClose={() => setShowDocumentAi(false)}
+            pdfFile={currentPdfFile}
+            planPages={pages}
+            customer={selectedCustomerClient}
+            taskContext={documentAiTaskContext}
+            onResult={handleDocumentAiResult}
+          />
+
+          <DocumentAiReportModal
+            open={showGptReport}
+            result={gptReport}
+            onClose={() => setShowGptReport(false)}
+            onOpenTask={openGptTask}
+            onReviewResults={reviewFirstGptResult}
+          />
+        </>
+      )}
 
       <TakeoffExportModal
         showTakeoffModal={showTakeoffModal}

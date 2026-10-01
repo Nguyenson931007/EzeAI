@@ -61,13 +61,14 @@ export default function InsulationTask({
 
   const handleAddInsulationWall = (subType) => {
     const height = parseFloat(insWallHeight) || 2700;
-    const length = parseFloat(insWallLength) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 12000);
+    const length = parseFloat(insWallLength) || 0;
+    if (!length || !insWallProduct || !wallProductOptions.includes(insWallProduct)) return;
     const grossM2 = (height / 1000) * (length / 1000);
     const raked = parseFloat(insWallRaked) || 0;
     const door = parseFloat(insWallDoor) || 0;
     const netM2 = Number(Math.max(0, grossM2 + raked - door).toFixed(2));
 
-    const code = insWallProduct.split(" - ")[0] || "0810608";
+    const code = insWallProduct.split(" - ")[0] || "";
     const name = insWallProduct.split(" - ")[1] || insWallProduct;
 
     const newWall = {
@@ -103,8 +104,9 @@ export default function InsulationTask({
   };
 
   const handleAddInsulationArea = () => {
-    const area = parseFloat(insAreaValue) || (cadMetrics.totalFloorArea ? Number(cadMetrics.totalFloorArea.toFixed(2)) : 112.5);
-    const code = insAreaProduct.split(" - ")[0] || "0810620";
+    const area = parseFloat(insAreaValue) || 0;
+    if (!area || !insAreaProduct || !areaProductOptions.includes(insAreaProduct)) return;
+    const code = insAreaProduct.split(" - ")[0] || "";
     const name = insAreaProduct.split(" - ")[1] || insAreaProduct;
 
     const newArea = {
@@ -167,9 +169,9 @@ export default function InsulationTask({
 
         <div style={{ padding: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
           {[
-            { key: "external", label: "▼ Ext wall", defaultR: "R2.0", defaultProd: "0810608 - INS BATT R2.0 430MM" },
-            { key: "internal", label: "▼ Int Wall", defaultR: "R1.5", defaultProd: "0810611 - INS SOUNDBATT R1.5" },
-            { key: "partiwall", label: "▼ Partiwall", defaultR: "R2.5", defaultProd: "0810609 - INS BATT R2.5 430MM" }
+            { key: "external", label: "▼ Ext wall", defaultR: "R2.0" },
+            { key: "internal", label: "▼ Int Wall", defaultR: "R1.5" },
+            { key: "partiwall", label: "▼ Partiwall", defaultR: "R2.5" }
           ].map(sub => (
             <div key={sub.key} style={{ border: "1px solid #e2e8f0", borderRadius: "6px", overflow: "hidden", background: "#fafafa" }}>
               <div style={{ padding: "6px 10px", fontSize: "11px", fontWeight: "700", color: "#1e293b", background: "#f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

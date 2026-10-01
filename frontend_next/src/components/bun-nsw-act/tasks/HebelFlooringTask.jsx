@@ -7,6 +7,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 export default function HebelFlooringTask({
   formData = {},
@@ -127,17 +128,17 @@ export default function HebelFlooringTask({
         const rawName = (r.room_name || r.name || `Room ${rIdx + 1}`).trim();
         const name = rawName.toLowerCase();
         let typeArea = "Dry";
-        let defaultProduct = DRY_PRODUCT_OPTIONS[1] || "HEBEL POWERFLOOR 1800X600X75MM STANDARD PANEL";
+        let defaultProduct = firstDropdownValue(DRY_PRODUCT_OPTIONS);
 
         if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) {
           typeArea = "Wet";
-          defaultProduct = WET_PRODUCT_OPTIONS[1] || "HEBEL POWERFLOOR 1800X600X75MM STANDARD PANEL";
+          defaultProduct = firstDropdownValue(WET_PRODUCT_OPTIONS);
         } else if (t === "timber_deck" || /deck|timber/i.test(name)) {
           typeArea = "Decking Input";
-          defaultProduct = "HARDWOOD DECKING 90X19MM MERBAU";
+          defaultProduct = firstDropdownValue(getProductOptionsForType("Decking Input"));
         } else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) {
           typeArea = "Balcony Tiles";
-          defaultProduct = BALCONY_OPTIONS[1] || "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
+          defaultProduct = firstDropdownValue(BALCONY_OPTIONS);
         }
 
         newRows.push({
@@ -187,10 +188,10 @@ export default function HebelFlooringTask({
       }
 
       // Auto-select standard default product if still "Select..."
-      setDryProduct(prev => (prev === "Select..." || !prev) ? DRY_PRODUCT_OPTIONS[1] : prev);
-      setWetProduct(prev => (prev === "Select..." || !prev) ? WET_PRODUCT_OPTIONS[1] : prev);
-      setBalconyProduct(prev => (prev === "Select..." || !prev) ? BALCONY_OPTIONS[1] : prev);
-      if (o) setOtherProduct(prev => (prev === "Select..." || !prev) ? "HARDWOOD DECKING 90X19MM MERBAU" : prev);
+      setDryProduct(prev => resolveDropdownValue(prev, DRY_PRODUCT_OPTIONS, { fallback: "" }) || firstDropdownValue(DRY_PRODUCT_OPTIONS) || "Select...");
+      setWetProduct(prev => resolveDropdownValue(prev, WET_PRODUCT_OPTIONS, { fallback: "" }) || firstDropdownValue(WET_PRODUCT_OPTIONS) || "Select...");
+      setBalconyProduct(prev => resolveDropdownValue(prev, BALCONY_OPTIONS, { fallback: "" }) || firstDropdownValue(BALCONY_OPTIONS) || "Select...");
+      if (o) setOtherProduct(prev => resolveDropdownValue(prev, getOtherProductOptions(ot || "Decking Input"), { fallback: "" }) || firstDropdownValue(getOtherProductOptions(ot || "Decking Input")) || "Select...");
 
       // Auto-generate Card 2 Entered rows across all levels
       if (onSetEntries) {
@@ -198,7 +199,8 @@ export default function HebelFlooringTask({
           const autoRows = gRooms.map((r, rIdx) => {
             const lvl = r.floor_level || "GF";
             const aType = r.floor_area_type === "Tile Deck" ? "Balcony Tiles" : r.floor_area_type;
-            const prod = r.product || getProductOptionsForType(aType)[0] || DRY_PRODUCT_OPTIONS[1];
+            const productOptions = getProductOptionsForType(aType);
+            const prod = resolveDropdownValue(r.product, productOptions, { fallback: "" }) || firstDropdownValue(productOptions);
             const netNum = parseFloat(r.calcAreaM2) || 0;
             return {
               id: `hebel-auto-${lvl}-${aType}-${rIdx}`,
@@ -220,7 +222,7 @@ export default function HebelFlooringTask({
               floorLevel: "GF",
               typeArea: "Dry",
               location: "Dry Area (Habitable Rooms)",
-              product: DRY_PRODUCT_OPTIONS[1],
+              product: firstDropdownValue(DRY_PRODUCT_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA)
             });
@@ -232,7 +234,7 @@ export default function HebelFlooringTask({
               floorLevel: "GF",
               typeArea: "Wet",
               location: "Wet Area (Bath, Ensuite, Laundry)",
-              product: WET_PRODUCT_OPTIONS[1],
+              product: firstDropdownValue(WET_PRODUCT_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA)
             });
@@ -244,7 +246,7 @@ export default function HebelFlooringTask({
               floorLevel: "GF",
               typeArea: "Balcony Tiles",
               location: "Balcony / Porch Area",
-              product: BALCONY_OPTIONS[1],
+              product: firstDropdownValue(BALCONY_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA)
             });
@@ -256,7 +258,7 @@ export default function HebelFlooringTask({
               floorLevel: "GF",
               typeArea: ot || "Decking Input",
               location: ot || "Decking Input",
-              product: "HARDWOOD DECKING 90X19MM MERBAU",
+              product: firstDropdownValue(getProductOptionsForType(ot || "Decking Input")),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA)
             });
@@ -288,7 +290,7 @@ export default function HebelFlooringTask({
             id: `as-loaded-${Date.now()}-${idx}`,
             floorLevel: r.floor_level || "GF",
             typeArea: r.floor_area_type || "Dry",
-            product: r.product || "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
+            product: resolveDropdownValue(r.product, getProductOptionsForType(r.floor_area_type || "Dry"), { fallback: "" }),
             totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
             areaM2: parseFloat(r.net_area),
             source: "manual",
@@ -365,36 +367,11 @@ export default function HebelFlooringTask({
     if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
   }, [formData]);
 
-  const DRY_PRODUCT_OPTIONS = useMemo(() => {
-    const list = Array.from(new Set(dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
-    return ["Select...", ...(list.length > 0 ? list : [
-      "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-      "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
-      "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
-      "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-    ])];
-  }, [dryCatalogItems]);
+  const DRY_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(dryCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [dryCatalogItems]);
 
-  const WET_PRODUCT_OPTIONS = useMemo(() => {
-    const list = Array.from(new Set(wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
-    return ["Select...", ...(list.length > 0 ? list : [
-      "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-      "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
-      "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
-    ])];
-  }, [wetCatalogItems]);
+  const WET_PRODUCT_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set(wetCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)))], [wetCatalogItems]);
 
-  const BALCONY_OPTIONS = useMemo(() => {
-    const list = Array.from(new Set(
-      [...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean)
-    ));
-    return ["Select...", ...(list.length > 0 ? list : [
-      "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-      "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-      "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276"
-    ])];
-  }, [deckingCatalogItems, wetCatalogItems]);
+  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...Array.from(new Set([...deckingCatalogItems, ...wetCatalogItems].map(i => canonicalProductValue(i)).filter(Boolean)))], [deckingCatalogItems, wetCatalogItems]);
 
   const OTHER_TYPE_AREA_OPTIONS = [
     "T+G Flooring Area",
@@ -405,47 +382,15 @@ export default function HebelFlooringTask({
   ];
 
   const getOtherProductOptions = (type) => {
-    switch (type) {
-      case "T+G Flooring Area":
-        return [
-          "Select...",
-          "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING SPOTTED GUM++130X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++130X19MM L/M PREM S&B T&G EM"
-        ];
-      case "Decking Input":
-        return [
-          "Select...",
-          "HARDWOOD DECKING 90X19MM MERBAU",
-          "HARDWOOD DECKING 86X19MM SPOTTED GUM",
-          "TREATED PINE DECKING 90X22MM"
-        ];
-      case "Tile Underlay":
-        return [
-          "Select...",
-          "HARDIE TILE UNDERLAY 1800X900X6MM",
-          "BGC CERAMIC TILE UNDERLAY 1800X900X6MM"
-        ];
-      case "Battens Over Slab Area":
-        return [
-          "Select...",
-          "PINE BATTEN 70X35MM 4.8M T2",
-          "PINE BATTEN 42X35MM 4.8M T2"
-        ];
-      case "Floor Joist Packers":
-        return [
-          "Select...",
-          "PLASTIC JOIST PACKERS ASSORTED",
-          "MASONITE FLOOR PACKERS 3.2MM"
-        ];
-      default:
-        return [
-          "Select...",
-          "FLOORING SPOTTED GUM++85X19MM L/M PREM S&B T&G EM",
-          "FLOORING BLACKBUTT++85X19MM L/M PREM S&B T&G EM"
-        ];
+    if (type === "Decking Input") {
+      const list = Array.from(new Set(deckingCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
+      return ["Select...", ...list];
     }
+    if (type === "T+G Flooring Area") {
+      const list = Array.from(new Set(tgCatalogItems.map(i => canonicalProductValue(i)).filter(Boolean)));
+      return ["Select...", ...list];
+    }
+    return ["Select..."];
   };
 
   // Entered rows based on entries prop (multi-product / grouped) or fallback to inputs
@@ -469,6 +414,27 @@ export default function HebelFlooringTask({
     ];
   };
 
+  const normalizeHebelTypeArea = (value) => {
+    const raw = String(value || "").trim();
+    const t = raw.toLowerCase();
+    if (t === "dry" || t === "dry area") return "Dry";
+    if (t === "wet" || t === "wet area") return "Wet";
+    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
+    return resolveDropdownValue(raw, OTHER_TYPE_AREA_OPTIONS, { fallback: "" }) || raw;
+  };
+
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    const next = entries.map((row) => {
+      const typeArea = normalizeHebelTypeArea(row.typeArea || row.floor_area_type || "Dry");
+      const options = getProductOptionsForType(typeArea);
+      const product = resolveDropdownValue(row.product || row.product_candidate, options, { fallback: "" });
+      if (typeArea === row.typeArea && product === (row.product || "")) return row;
+      return { ...row, typeArea, product };
+    });
+    if (next.some((row, index) => row !== entries[index])) onSetEntries(next);
+  }, [entries, onSetEntries, dryCatalogItems, wetCatalogItems, deckingCatalogItems, tgCatalogItems]);
+
   // Entered rows based on entries prop (only populated when Auto Fill or added)
   const enteredRows = React.useMemo(() => {
     if (entries && entries.length > 0) {
@@ -477,7 +443,7 @@ export default function HebelFlooringTask({
         id: item.id || `hebel-row-${idx}`,
         floorLevel: item.floorLevel || item.level || "GF",
         typeArea: item.typeArea || item.location || (String(item.id).includes("dry") ? "Dry" : (String(item.id).includes("wet") ? "Wet" : (String(item.id).includes("balc") ? "Balcony Tiles" : "Other"))),
-        product: item.product || "HEBEL POWERFLOOR PANEL 1800X600X75MM",
+        product: resolveDropdownValue(item.product, getProductOptionsForType(item.typeArea), { fallback: "" }),
         totalM2: formatM2_4Digits(item.totalM2 !== undefined ? item.totalM2 : item.areaM2)
       }));
     }

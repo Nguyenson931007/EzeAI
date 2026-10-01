@@ -4,6 +4,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import EnteredTaskActions from "./EnteredTaskActions";
 import { TaskRowNumber } from "./TaskUi";
 
@@ -107,6 +108,30 @@ export default function HardiesFireWallsTask({
   // ── SAVING STATE ──
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+
+  // Generated/GPT/cache rows may only contain values exposed by these task dropdowns.
+  useEffect(() => {
+    if (!wallEntries.length) return;
+    let changed = false;
+    const next = wallEntries.map((row) => {
+      const isGenerated = row?.ai_generated || row?.generatedByAI || row?.generated_by === "gpt" || String(row?.autofill_source || "").includes("drawing");
+      if (!isGenerated) return row;
+      const systemType = resolveDropdownValue(row?.systemType || row?.system_type, SYSTEM_TYPE_OPTIONS, { fallback: "" });
+      const liningSpec = resolveDropdownValue(row?.liningSpec || row?.lining_spec, LINING_SPEC_OPTIONS, { fallback: "" });
+      const framing = resolveDropdownValue(row?.framing, FRAMING_OPTIONS, { fallback: "" });
+      const sealant = resolveDropdownValue(row?.sealant, SEALANT_OPTIONS, { fallback: "" });
+      const angle = resolveDropdownValue(row?.angle, ANGLE_OPTIONS, { fallback: "" });
+      const same = systemType === (row?.systemType || row?.system_type || "")
+        && liningSpec === (row?.liningSpec || row?.lining_spec || "")
+        && framing === (row?.framing || "")
+        && sealant === (row?.sealant || "")
+        && angle === (row?.angle || "");
+      if (same) return row;
+      changed = true;
+      return { ...row, systemType, liningSpec, framing, sealant, angle };
+    });
+    if (changed) setEntries(next);
+  }, [wallEntries]);
 
   // ── LOAD SAVED DATA FROM LOCALSTORAGE ON MOUNT ──
   useEffect(() => {

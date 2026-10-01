@@ -6,6 +6,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import { normalizeFloorLevel, replaceAutoFillRows, shouldIncludeWallInInsulation } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
@@ -323,40 +324,67 @@ export default function InsulationTask({
     [floorCatalogItems, ceilingCatalogItems, areaInsType, areaRValue, hasProcurementInsulationCatalog]
   );
 
-  // Floor/Ceiling scan owns geometry + area only. Resolve R-value/product from
-  // the current customer's Procurement catalog so generated rows match the form.
+  // Floor/Ceiling/GPT/cache generated rows own geometry + area only. Resolve
+  // all select-backed R-value/product fields from the current task dropdowns.
   useEffect(() => {
-    if (!onSetAreaEntries || !(areaEntries || []).some((row) => row?.source === "floor_ceiling_sync")) return;
+    if (!onSetAreaEntries || !Array.isArray(areaEntries) || areaEntries.length === 0) return;
 
     let changed = false;
-    const next = (areaEntries || []).map((row) => {
-      if (row?.source !== "floor_ceiling_sync") return row;
+    const next = areaEntries.map((row) => {
+      const generated = row?.source === "floor_ceiling_sync"
+        || row?.ai_generated === true
+        || row?.generatedByAI === true
+        || row?.generated_by === "gpt"
+        || String(row?.autofill_source || "").includes("drawing");
+      if (!generated) return row;
 
-      const isFloor = String(row?.type || "").toLowerCase() === "floor";
+      const isFloor = String(row?.type || row?.areaType || "").toLowerCase() === "floor";
+      const normalizedType = isFloor ? "Floor" : "Ceiling";
       const catalog = isFloor ? floorCatalogItems : ceilingCatalogItems;
       const rOptions = getRValueOptions(catalog);
       const preferredR = isFloor ? "R2.5" : "R3.5";
-      const currentR = normalizeRValue(row?.rValue);
+      const rawR = row?.rValue || row?.r_value || row?.rValue_candidate || row?.r_value_candidate || "";
+      const currentR = normalizeRValue(rawR);
       const resolvedR =
-        (rOptions.includes(preferredR) && preferredR) ||
-        (currentR && rOptions.includes(currentR) && currentR) ||
-        rOptions[0] ||
-        currentR ||
-        preferredR;
+        resolveDropdownValue(currentR, rOptions, { fallback: "" }) ||
+        resolveDropdownValue(preferredR, rOptions, { fallback: "" }) ||
+        firstDropdownValue(rOptions);
 
-      const productOptions = getProductOptionsForAreaAndR(isFloor ? "Floor" : "Ceiling", resolvedR);
-      const currentProduct = String(row?.product || "").trim();
+      const productOptions = getProductOptionsForAreaAndR(normalizedType, resolvedR);
+      const currentProduct = String(row?.product || row?.productName || row?.product_candidate || "").trim();
       const resolvedProduct =
-        (currentProduct && productOptions.includes(currentProduct) ? currentProduct : "") ||
-        productOptions[0] ||
-        currentProduct;
+        resolveDropdownValue(currentProduct, productOptions, { fallback: "" }) ||
+        firstDropdownValue(productOptions);
 
-      if (resolvedR !== currentR || resolvedProduct !== currentProduct) changed = true;
-      return { ...row, rValue: resolvedR, product: resolvedProduct };
+      if (normalizedType !== row?.type || resolvedR !== normalizeRValue(row?.rValue) || resolvedProduct !== String(row?.product || "").trim()) changed = true;
+      return { ...row, type: normalizedType, areaType: normalizedType, rValue: resolvedR, product: resolvedProduct };
     });
 
     if (changed) onSetAreaEntries(next);
   }, [areaEntries, onSetAreaEntries, floorCatalogItems, ceilingCatalogItems, hasProcurementInsulationCatalog]);
+
+  // Generated wall rows obey the exact R-value/Product dropdowns for the
+  // active customer. Invalid legacy/GPT/cache strings are never kept as row
+  // values just because they arrived from another source.
+  useEffect(() => {
+    if (!onSetWallEntries || !Array.isArray(wallEntries) || wallEntries.length === 0) return;
+    let changed = false;
+    const next = wallEntries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const typeText = String(row.type || row.wall_type || "").toLowerCase();
+      const type = typeText.includes("ext") ? "Ext wall" : (typeText.includes("party") ? "Partywall" : "Int wall");
+      const rOptions = type === "Ext wall" ? extRValueOptions : (type === "Partywall" ? partyRValueOptions : intRValueOptions);
+      const rValue = resolveDropdownValue(normalizeRValue(row.rValue || row.r_value), rOptions, { fallback: "" }) || firstDropdownValue(rOptions);
+      const productOptions = getProductOptionsForWallTypeAndR(type, rValue);
+      const product = resolveDropdownValue(row.product || row.productName || row.product_name, productOptions, { fallback: "" }) || firstDropdownValue(productOptions);
+      const patch = { ...row, type, rValue, product, productName: product };
+      if (type !== row.type || rValue !== (row.rValue || "") || product !== String(row.product || row.productName || "")) changed = true;
+      return patch;
+    });
+    if (changed) onSetWallEntries(next);
+  }, [wallEntries, onSetWallEntries, extRValueOptions, intRValueOptions, partyRValueOptions, extCatalogItems, intCatalogItems, partyCatalogItems, hasProcurementInsulationCatalog]);
 
   useEffect(() => {
     if (extRValueOptions.length && !extRValueOptions.includes(extRValue)) setExtRValue(extRValueOptions[0]);

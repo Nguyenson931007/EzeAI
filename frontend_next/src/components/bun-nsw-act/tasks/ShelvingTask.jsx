@@ -6,6 +6,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { SHELVING_TYPES, SHELVING_SIZES, SHELVING_EXTRA_FIELDS } from "@/constants/procurementFormParity";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 const parseShelvingExtras = (value) => {
   try { if (value && typeof value === "object") return value; return value ? JSON.parse(value) : {}; } catch { return {}; }
@@ -285,6 +286,23 @@ export default function ShelvingTask({
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  // Generated/GPT/cache rows must stay inside the same dropdown values used by the form.
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const isGenerated = row?.ai_generated || row?.generatedByAI || row?.generated_by === "gpt" || String(row?.autofill_source || "").includes("drawing");
+      if (!isGenerated) return row;
+      const type = resolveDropdownValue(row?.type, SHELVING_TYPES, { fallback: "" });
+      const size = resolveDropdownValue(row?.size, SHELVING_SIZES, { fallback: "" });
+      const floor = resolveDropdownValue(normalizeFloorLevelCode(row?.floorLevel || row?.floor_level || "GF"), FLOOR_LEVEL_OPTIONS, { fallback: "" });
+      if (type === row?.type && size === row?.size && floor === (row?.floorLevel || row?.floor_level)) return row;
+      changed = true;
+      return { ...row, type, size, floorLevel: floor };
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries]);
 
   // Group entries by FloorLevel
   const groupedShelvingByLevel = useMemo(() => {

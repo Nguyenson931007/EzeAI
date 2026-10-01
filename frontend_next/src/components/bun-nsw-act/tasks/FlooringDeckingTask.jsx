@@ -9,6 +9,18 @@ import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByArea, canonicalProductValue } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
+
+const isFlooringAiRow = (row) => {
+  if (!row || typeof row !== "object") return false;
+  if (row.ai_generated === true || row.aiGenerated === true || row.generatedByAI === true) return true;
+  const source = String(row.source || row.autofill_source || row.autoFillSource || "").toLowerCase();
+  if (["floor_ceiling_ai", "drawing", "ai", "autofill", "auto_fill"].includes(source)) return true;
+  const id = String(row.id || "").toLowerCase();
+  if (id.startsWith("flr-auto-")) return true;
+  // Rows generated directly from detected rooms carry a roomId. Manual/Add-data rows do not.
+  return row.roomId !== undefined && row.roomId !== null && String(row.roomId) !== "";
+};
 
 export default function FlooringDeckingTask({
   formData = {},
@@ -104,7 +116,7 @@ export default function FlooringDeckingTask({
 
     const rawM2 = parseFloat(String(currentData.totalM2 || "0").replace(/m²/gi, "").trim()) || 0;
     const valStr = rawM2 > 0 ? rawM2.toFixed(4) : "0";
-    const chosenProduct = currentData.product || item.product;
+    const chosenProduct = resolveDropdownValue(currentData.product || item.product, getProductOptionsForType(item.typeArea), { fallback: "" });
     const chosenLevel = selectedTaskFloor;
 
     if (item.typeArea === "Dry" || item.typeArea === "Dry Area") {
@@ -191,11 +203,8 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = dryProduct !== "Select..." ? dryProduct : DRY_OPTIONS[1];
-    if (!prod) {
-      alert("Please select a Dry flooring product.");
-      return;
-    }
+    const prod = resolveDropdownValue(dryProduct, DRY_OPTIONS, { fallback: "" }) || firstDropdownValue(DRY_OPTIONS);
+    if (!prod) { alert("No Dry product is configured for this customer."); return; }
     const newEntry = {
       id: `flr-dry-${Date.now()}`,
       floorLevel: currentLevel,
@@ -216,11 +225,8 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = wetProduct !== "Select..." ? wetProduct : WET_OPTIONS[1];
-    if (!prod) {
-      alert("Please select a Wet flooring product.");
-      return;
-    }
+    const prod = resolveDropdownValue(wetProduct, WET_OPTIONS, { fallback: "" }) || firstDropdownValue(WET_OPTIONS);
+    if (!prod) { alert("No Wet product is configured for this customer."); return; }
     const newEntry = {
       id: `flr-wet-${Date.now()}`,
       floorLevel: currentLevel,
@@ -241,11 +247,8 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = balconyProduct !== "Select..." ? balconyProduct : BALCONY_OPTIONS[1];
-    if (!prod) {
-      alert("Please select a Balcony Tiles product.");
-      return;
-    }
+    const prod = resolveDropdownValue(balconyProduct, BALCONY_OPTIONS, { fallback: "" }) || firstDropdownValue(BALCONY_OPTIONS);
+    if (!prod) { alert("No Balcony Tiles product is configured for this customer."); return; }
     const newEntry = {
       id: `flr-balc-${Date.now()}`,
       floorLevel: currentLevel,
@@ -266,11 +269,7 @@ export default function FlooringDeckingTask({
       return;
     }
     const currentLevel = selectedTaskFloor;
-    const prod = otherProduct !== "Select..." ? otherProduct : getOtherProductOptions(otherTypeArea)[1];
-    if (!prod) {
-      alert(`Please select a product for ${otherTypeArea}.`);
-      return;
-    }
+    const prod = otherProduct !== "Select..." ? otherProduct : (getOtherProductOptions(otherTypeArea)[1] || otherTypeArea);
     const newEntry = {
       id: `flr-other-${Date.now()}`,
       floorLevel: currentLevel,
@@ -327,17 +326,17 @@ export default function FlooringDeckingTask({
         const rawName = (r.room_name || r.name || `Room ${rIdx + 1}`).trim();
         const name = rawName.toLowerCase();
         let typeArea = "Dry";
-        let defaultProduct = DRY_OPTIONS[1] || "";
+        let defaultProduct = firstDropdownValue(DRY_OPTIONS);
 
         if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) {
           typeArea = "Wet";
-          defaultProduct = WET_OPTIONS[1] || "";
+          defaultProduct = firstDropdownValue(WET_OPTIONS);
         } else if (t === "timber_deck" || /deck|timber/i.test(name)) {
           typeArea = "Decking Input";
-          defaultProduct = getOtherProductOptions("Decking Input")[1] || "";
+          defaultProduct = firstDropdownValue(getProductOptionsForType("Decking Input"));
         } else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) {
           typeArea = "Balcony Tiles";
-          defaultProduct = BALCONY_OPTIONS[1] || "";
+          defaultProduct = firstDropdownValue(BALCONY_OPTIONS);
         }
 
         newRows.push({
@@ -351,8 +350,6 @@ export default function FlooringDeckingTask({
           areaM2: areaM2,
           totalM2: formatM2_4Digits(areaM2),
           roomIds: [r.id],
-          // Rows derived from plan/room detection are AI-generated. Keep provenance
-          // on the row so TaskRowNumber renders the same AI badge as other tasks.
           ai_generated: true,
           generatedByAI: true,
           autofill_source: "drawing",
@@ -396,10 +393,10 @@ export default function FlooringDeckingTask({
       }
 
       // Auto-select standard default product if still "Select..."
-      setDryProduct(prev => (prev === "Select..." || !prev) ? DRY_OPTIONS[1] : prev);
-      setWetProduct(prev => (prev === "Select..." || !prev) ? WET_OPTIONS[1] : prev);
-      setBalconyProduct(prev => (prev === "Select..." || !prev) ? BALCONY_OPTIONS[1] : prev);
-      if (o) setOtherProduct(prev => (prev === "Select..." || !prev) ? (getOtherProductOptions(ot || "Decking Input")[1] || "Select...") : prev);
+      setDryProduct(prev => resolveDropdownValue(prev, DRY_OPTIONS, { fallback: "" }) || firstDropdownValue(DRY_OPTIONS) || "Select...");
+      setWetProduct(prev => resolveDropdownValue(prev, WET_OPTIONS, { fallback: "" }) || firstDropdownValue(WET_OPTIONS) || "Select...");
+      setBalconyProduct(prev => resolveDropdownValue(prev, BALCONY_OPTIONS, { fallback: "" }) || firstDropdownValue(BALCONY_OPTIONS) || "Select...");
+      if (o) setOtherProduct(prev => resolveDropdownValue(prev, getOtherProductOptions(ot || "Decking Input"), { fallback: "" }) || firstDropdownValue(getOtherProductOptions(ot || "Decking Input")) || "Select...");
 
       // Auto-generate Card 2 Entered rows across all levels
       if (onSetEntries) {
@@ -407,7 +404,8 @@ export default function FlooringDeckingTask({
           const autoRows = gRooms.filter((r) => normalizeFloorLevelCode(r.floor_level || "GF") === selectedTaskFloor).map((r, rIdx) => {
             const lvl = r.floor_level || "GF";
             const aType = r.floor_area_type === "Tile Deck" ? "Balcony Tiles" : r.floor_area_type;
-            const prod = r.product || getProductOptionsForType(aType)[0] || "";
+            const productOptions = getProductOptionsForType(aType);
+            const prod = resolveDropdownValue(r.product, productOptions, { fallback: "" }) || firstDropdownValue(productOptions);
             const netNum = parseFloat(r.calcAreaM2) || 0;
             return {
               id: `flr-auto-${lvl}-${aType}-${rIdx}`,
@@ -436,7 +434,7 @@ export default function FlooringDeckingTask({
               floorLevel: selectedTaskFloor,
               typeArea: "Dry",
               location: "Dry Area (Habitable Rooms)",
-              product: DRY_OPTIONS[1],
+              product: firstDropdownValue(DRY_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA),
               ai_generated: true,
@@ -452,7 +450,7 @@ export default function FlooringDeckingTask({
               floorLevel: selectedTaskFloor,
               typeArea: "Wet",
               location: "Wet Area (Bath, Ensuite, Laundry)",
-              product: WET_OPTIONS[1],
+              product: firstDropdownValue(WET_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA),
               ai_generated: true,
@@ -468,7 +466,7 @@ export default function FlooringDeckingTask({
               floorLevel: selectedTaskFloor,
               typeArea: "Balcony Tiles",
               location: "Balcony / Porch Area",
-              product: BALCONY_OPTIONS[1],
+              product: firstDropdownValue(BALCONY_OPTIONS),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA),
               ai_generated: true,
@@ -484,7 +482,7 @@ export default function FlooringDeckingTask({
               floorLevel: selectedTaskFloor,
               typeArea: ot || "Decking Input",
               location: ot || "Decking Input",
-              product: getOtherProductOptions(ot || "Decking Input")[1] || "",
+              product: firstDropdownValue(getProductOptionsForType(ot || "Decking Input")),
               areaM2: numA,
               totalM2: formatM2_4Digits(numA),
               ai_generated: true,
@@ -523,7 +521,7 @@ export default function FlooringDeckingTask({
             id: `as-loaded-${Date.now()}-${idx}`,
             floorLevel: r.floor_level || "GF",
             typeArea: r.floor_area_type || "Dry",
-            product: r.product || "",
+            product: resolveDropdownValue(r.product, getProductOptionsForType(r.floor_area_type || "Dry"), { fallback: "" }),
             totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
             areaM2: parseFloat(r.net_area),
             source: "manual",
@@ -550,20 +548,15 @@ export default function FlooringDeckingTask({
   const tileUnderlayCatalogItems = useMemo(() => catalogByArea(catalogItems, "tile_underlay_area"), [catalogItems]);
   const battensSlabCatalogItems = useMemo(() => catalogByArea(catalogItems, "battens_slab"), [catalogItems]);
   const joistPackersCatalogItems = useMemo(() => catalogByArea(catalogItems, "joist_packers"), [catalogItems]);
-  // ProcurementApp uses the usage row label for each Flooring dropdown, not the
-  // master catalog description. This matters when two usages share one FindCode
-  // but intentionally have different labels (for example Internal vs External).
+  const hasProcurementFlooringCatalog = catalogItems.length > 0;
+
   const flooringValues = (items) => Array.from(new Set(
     (items || [])
-      .map((item) => String(
-        item.usageLabel || item.usage_label || item.displayName || item.display_name ||
-        item.label || item.description || canonicalProductValue(item) || ""
-      ).trim())
+      .map((item) => String(item.description || item.label || canonicalProductValue(item) || "").trim())
       .filter(Boolean)
   ));
 
-  // Save Flooring / AreaSummary to ProcurementApp. Keep this handler in the
-  // task component because EnteredTaskActions references it directly.
+  // ── Lưu danh sách AreaSummary vào ProcurementApp.dbo.AreaSummary qua API ──
   const handleSaveToDatabase = async () => {
     const allRowsToSave = (entries || []).map((item, idx) => ({
       ...item,
@@ -578,26 +571,20 @@ export default function FlooringDeckingTask({
     setSaveSuccess(false);
 
     try {
-      const jobId = currentProjectName || currentJobId || activeJobNumber ||
-        (typeof window !== "undefined"
-          ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id"))
-          : "");
+      const jobId = currentProjectName || currentJobId || activeJobNumber || (typeof window !== "undefined" ? (localStorage.getItem("currentJobId") || localStorage.getItem("current_hw_id")) : "");
       if (!jobId) {
-        console.warn("No active Job selected for Flooring AreaSummary save");
+        console.warn("Chưa chọn Job để lưu Flooring AreaSummary");
       }
+      const shortName = activeCustomerShortName;
 
-      const areasList = allRowsToSave.map((row) => {
-        const netNum = parseFloat(
-          String(row.totalM2 !== undefined ? row.totalM2 : (row.areaM2 || 0))
-            .replace(/m²/gi, "")
-            .trim()
-        ) || 0;
+      const areasList = allRowsToSave.map(r => {
+        const netNum = parseFloat(String(r.totalM2 !== undefined ? r.totalM2 : (r.areaM2 || 0)).replace(/m²/gi, "").trim()) || 0;
         return {
-          floor_level: row.floorLevel || "GF",
-          floor_area_type: row.typeArea || "Dry",
+          floor_level: r.floorLevel || "GF",
+          floor_area_type: r.typeArea || "Dry",
           net_area: netNum,
-          product: row.product || null,
-          short_name: activeCustomerShortName,
+          product: r.product || null,
+          short_name: shortName
         };
       });
 
@@ -605,8 +592,8 @@ export default function FlooringDeckingTask({
         user_update: currentUserUpdate,
         jobs: [{
           id_job_hw: jobId || "default",
-          areas: areasList,
-        }],
+          areas: areasList
+        }]
       };
 
       const res = await ApiService.saveAreaSummaryJobs(payload);
@@ -614,35 +601,37 @@ export default function FlooringDeckingTask({
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert(res?.message || "Could not save Flooring data to AreaSummary.");
+        alert("Lỗi khi lưu: " + (res?.message || "Không thể lưu vào ProcurementApp AreaSummary."));
       }
     } catch (err) {
-      console.error("Save Flooring AreaSummary error:", err);
-      alert("Error saving Flooring data: " + (err?.message || err));
+      console.error("Lỗi khi lưu AreaSummary từ Task Panel:", err);
+      alert("Lỗi khi lưu AreaSummary: " + (err.message || err));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ProcurementApp defines the same Flooring area structure for BUN-NSW-ACT,
-  // BUN-SEQLD and BUN-VIC. Product rows remain customer-specific and come from
-  // that customer's using_find_items catalog.
-  const PROCUREMENT_FLOORING_AREA_TYPES = [
-    "Dry",
-    "Wet",
-    "Balcony Tiles",
+  // Sync external formData changes
+  useEffect(() => {
+    if (formData.dryArea !== undefined && formData.dryArea !== "" && formData.dryArea !== dryArea) setDryArea(formData.dryArea);
+    if (formData.wetArea !== undefined && formData.wetArea !== "" && formData.wetArea !== wetArea) setWetArea(formData.wetArea);
+    if (formData.balconyArea !== undefined && formData.balconyArea !== "" && formData.balconyArea !== balconyArea) setBalconyArea(formData.balconyArea);
+    if (formData.otherArea !== undefined && formData.otherArea !== "" && formData.otherArea !== otherArea) setOtherArea(formData.otherArea);
+  }, [formData]);
+
+  const DRY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(dryCatalogItems)], [dryCatalogItems]);
+
+  const WET_OPTIONS = useMemo(() => ["Select...", ...flooringValues(wetCatalogItems)], [wetCatalogItems]);
+
+  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(balconyCatalogItems)], [balconyCatalogItems]);
+
+  const OTHER_TYPE_OPTIONS = [
     "T+G Flooring Area",
     "Decking Input",
     "Tile Underlay",
     "Battens Over Slab Area",
-    "Floor Joist Packers",
+    "Floor Joist Packers"
   ];
-
-  const DRY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(dryCatalogItems)], [dryCatalogItems]);
-  const WET_OPTIONS = useMemo(() => ["Select...", ...flooringValues(wetCatalogItems)], [wetCatalogItems]);
-  const BALCONY_OPTIONS = useMemo(() => ["Select...", ...flooringValues(balconyCatalogItems)], [balconyCatalogItems]);
-
-  const OTHER_TYPE_OPTIONS = PROCUREMENT_FLOORING_AREA_TYPES.slice(3);
 
   const OTHER_CATALOG_BY_TYPE = {
     "T+G Flooring Area": tgCatalogItems,
@@ -652,20 +641,43 @@ export default function FlooringDeckingTask({
     "Floor Joist Packers": joistPackersCatalogItems,
   };
 
-  const getOtherProductOptions = (type) => [
-    "Select...",
-    ...flooringValues(OTHER_CATALOG_BY_TYPE[type] || []),
-  ];
+  const getOtherProductOptions = (type) => {
+    const list = flooringValues(OTHER_CATALOG_BY_TYPE[type] || []);
+    return ["Select...", ...list];
+  };
 
   const getProductOptionsForType = (typeArea) => {
-    const t = String(typeArea || "").trim().toLowerCase();
-    if (t === "dry" || t.startsWith("dry ")) return DRY_OPTIONS.filter((x) => x !== "Select...");
-    if (t === "wet" || t.startsWith("wet ")) return WET_OPTIONS.filter((x) => x !== "Select...");
-    if (t.includes("balcony") || t === "tile deck" || t === "balcony_tiles") {
-      return BALCONY_OPTIONS.filter((x) => x !== "Select...");
-    }
-    return getOtherProductOptions(typeArea).filter((x) => x !== "Select...");
+    const t = String(typeArea || "").toLowerCase();
+    if (t === "dry" || t === "dry area") return DRY_OPTIONS.filter(x => x !== "Select...");
+    if (t === "wet" || t === "wet area") return WET_OPTIONS.filter(x => x !== "Select...");
+    if (t.includes("balcony") || t === "tile deck") return BALCONY_OPTIONS.filter(x => x !== "Select...");
+    return getOtherProductOptions(typeArea).filter(x => x !== "Select...");
   };
+
+  const normalizeFlooringTypeArea = (value) => {
+    const raw = String(value || "").trim();
+    const t = raw.toLowerCase();
+    if (t === "dry" || t === "dry area") return "Dry";
+    if (t === "wet" || t === "wet area") return "Wet";
+    if (t === "tile deck" || t.includes("balcony")) return "Balcony Tiles";
+    return resolveDropdownValue(raw, OTHER_TYPE_OPTIONS, { fallback: "" }) || raw;
+  };
+
+  // Strict generated-row rule: dropdown-backed values must resolve through the
+  // exact dropdown options for the active customer. Any stale/manual string
+  // from cache, GPT, plan properties or legacy Auto Fill is cleared instead of
+  // silently creating a value that the dropdown itself cannot select.
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    const next = entries.map((row) => {
+      const typeArea = normalizeFlooringTypeArea(row.typeArea || row.floor_area_type || "Dry");
+      const options = getProductOptionsForType(typeArea);
+      const product = resolveDropdownValue(row.product || row.product_candidate, options, { fallback: "" });
+      if (typeArea === row.typeArea && product === (row.product || "")) return row;
+      return { ...row, typeArea, product };
+    });
+    if (next.some((row, index) => row !== entries[index])) onSetEntries(next);
+  }, [entries, onSetEntries, dryCatalogItems, wetCatalogItems, balconyCatalogItems, tgCatalogItems, deckingCatalogItems, tileUnderlayCatalogItems, battensSlabCatalogItems, joistPackersCatalogItems]);
 
   const LEVEL_SORT_ORDER = {
     GF: 1,
@@ -777,7 +789,7 @@ export default function FlooringDeckingTask({
         id: item.id || `flr-row-${idx}`,
         floorLevel: item.floorLevel || item.level || "GF",
         typeArea: item.typeArea || item.location || (String(item.id).includes("dry") ? "Dry" : (String(item.id).includes("wet") ? "Wet" : (String(item.id).includes("balc") ? "Balcony Tiles" : "Other"))),
-        product: item.product || "",
+        product: resolveDropdownValue(item.product, getProductOptionsForType(item.typeArea), { fallback: "" }),
         totalM2: formatM2_4Digits(item.totalM2 !== undefined ? item.totalM2 : item.areaM2)
       }));
     }
@@ -1399,7 +1411,7 @@ export default function FlooringDeckingTask({
           <>
             <div className="task-ui-summary-subsection">
               <div className="task-ui-summary-subsection-title">Room / area details</div>
-              <div className="flooring-entered-table-scroll" style={{ padding: "0px", overflowX: "auto" }}>
+              <div style={{ padding: "0px", overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: "620px", borderCollapse: "collapse", fontSize: "10.5px" }}>
             <thead>
               <tr style={{ background: "#1e293b", color: "#ffffff", textAlign: "left" }}>
@@ -1518,7 +1530,7 @@ export default function FlooringDeckingTask({
                               transition: "background 0.15s ease"
                             }}
                           >
-                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={isFlooringAiRow(item) ? { ...item, ai_generated: true, generatedByAI: true } : item} /></td>
 
                             <td style={{ padding: "6px 8px", fontWeight: 600 }}>{item.roomName ? `${item.typeArea} (${item.roomName})` : item.typeArea}</td>
 

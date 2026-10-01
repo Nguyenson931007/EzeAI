@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import EnteredTaskActions from "./EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
@@ -262,6 +263,26 @@ export default function TimberPostsTask({
   const POST_SIZE_OPTIONS = useMemo(() => {
     return getSizesForPostType(postType);
   }, [getSizesForPostType, postType]);
+
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const postTypeValue = resolveDropdownValue(row.postType || row.post_type, POST_TYPE_OPTIONS, { fallback: "" });
+      const sizeOptions = getSizesForPostType(postTypeValue);
+      const postSizeValue = resolveDropdownValue(row.postSize || row.post_size, sizeOptions, { fallback: "" });
+      const stockOptions = getStocksForTypeAndSize(postTypeValue, postSizeValue).map(postOptionKey);
+      const postValue = resolveDropdownValue(row.post || row.product, ["", ...stockOptions], { fallback: "" });
+      const postOverValue = resolveDropdownValue(row.postOver || row.post_over, ["slab", "timber"], { fallback: "" });
+      const patch = { ...row, postType: postTypeValue, postSize: postSizeValue, post: postValue, postOver: postOverValue };
+      if (["postType","postSize","post","postOver"].some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
+      return patch;
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
 
   // Helper to get stocks for any type & size
   const getStocksForTypeAndSize = useCallback((type, size) => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import EnteredTaskActions from "./EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
@@ -932,6 +933,40 @@ export default function LockupTask({
     return (lockupOptions.door_stop && lockupOptions.door_stop.length > 0) ? lockupOptions.door_stop : DOOR_STOP_OPTIONS;
   }, [lockupOptions.door_stop]);
 
+  // Guard every generated/AI row against the same option arrays rendered by
+  // this form. Dynamic fields such as Door Type/Jamb Size are never allowed to
+  // keep an arbitrary string from cache/plan/GPT if the dropdown cannot select it.
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0 || doorTypeLoading) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const isExt = String(row.scope || row.location || "").toLowerCase().includes("ext");
+      const mode = normalizeLockupModeValue(row.mode || row.category);
+      const isLoose = mode === "Loose";
+      const doorOptions = isExt ? externalDoorOptions : (isLoose ? looseIntDoorOptions : prehungIntDoorOptions);
+      const patch = {
+        ...row,
+        height: resolveDropdownValue(String(row.height || ""), DOOR_HEIGHT_OPTIONS, { fallback: "" }),
+        width: resolveDropdownValue(String(row.width || ""), DOOR_WIDTH_OPTIONS, { fallback: "" }),
+        thickness: resolveDropdownValue(String(row.thickness || row.thicks || "").replace(/mm/gi, "").trim(), isExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS, { fallback: "" }),
+        door_type: resolveDropdownValue(row.door_type || row.door_type_candidate || row.door || row.product, doorOptions, { fallback: "" }),
+        jamb_size: resolveDropdownValue(row.jamb_size || row.jamb_size_candidate || row.jambSize, isExt ? jambSizeExternalOptions : jambSizeInternalOptions, { fallback: "" }),
+        hung: resolveDropdownValue(row.hung || row.handing, isExt ? externalHungOptions : internalHungOptions, { fallback: "" }),
+        type: resolveDropdownValue(row.type || row.type_candidate, isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
+        door_stop: resolveDropdownValue(row.door_stop || row.stop, doorStopOptions, { fallback: "" }),
+        internal_type: isExt ? "" : resolveDropdownValue(row.internal_type || row.hole, internalHoleOptions, { fallback: "" }),
+        color: isExt ? "" : resolveDropdownValue(row.color || row.finish, internalFinishOptions, { fallback: "" }),
+      };
+      const keys = ["height","width","thickness","door_type","jamb_size","hung","type","door_stop","internal_type","color"];
+      if (keys.some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
+      return patch;
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries, doorTypeLoading, externalDoorOptions, prehungIntDoorOptions, looseIntDoorOptions, jambSizeExternalOptions, jambSizeInternalOptions, externalHungOptions, internalHungOptions, externalTypeOptions, internalTypeOptions, internalHoleOptions, internalFinishOptions, doorStopOptions]);
+
 
 
   // Prehung - External Door State
@@ -1173,13 +1208,15 @@ export default function LockupTask({
           label: doorLabel,
           door_name: doorLabel,
           floorLevel: d.__floorLevel || d.floorLevel || d.floor_level || "GF",
-          door_type: sanitizeProcurementDoorType(d.lockup_door_type || d.product) || null,
+          door_type: "",
+          door_type_candidate: sanitizeProcurementDoorType(d.lockup_door_type || d.door_type || d.product) || "",
           width: dWidth,
           height: dHeight,
           thickness: isExt ? 40 : 35,
           wall_thickness: `${wallThick}mm Wall`,
           jamb_or_wall: `${wallThick}mm Wall`,
-          jamb_size: isLoose ? "112×19mm 5.4m Loose Jamb" : null,
+          jamb_size: "",
+          jamb_size_candidate: d.jamb_size || d.jambSize || "",
           hung: doorHung,
           type: isCadDoorType(d.type) ? "-" : d.type,
           weatherguard: d.weatherguard || d.Weatherguard || (isExt ? "No" : "No"),
@@ -1261,21 +1298,27 @@ export default function LockupTask({
           label: doorLabel,
           door_name: doorLabel,
           floorLevel: r.floorLevel || r.floor_level || origDoor.__floorLevel || origDoor.floorLevel || origDoor.floor_level || "GF",
-          door_type: sanitizeProcurementDoorType(r.door_type || origDoor.door_type || origDoor.product) || null,
+          door_type: resolveDropdownValue(
+            sanitizeProcurementDoorType(r.door_type || r.door_type_candidate || origDoor.door_type || origDoor.product),
+            isExt ? externalDoorOptions : (isLoose ? looseIntDoorOptions : prehungIntDoorOptions),
+            { fallback: "" }
+          ),
+          door_type_candidate: sanitizeProcurementDoorType(r.door_type || r.door_type_candidate || origDoor.door_type || origDoor.product) || "",
           doorTypeId: origDoor.doorTypeId || null,
-          height: finalHeight,
-          width: finalWidth,
+          height: resolveDropdownValue(String(finalHeight), DOOR_HEIGHT_OPTIONS, { fallback: DOOR_HEIGHT_OPTIONS.includes("Spec") ? "Spec" : "" }),
+          width: resolveDropdownValue(String(finalWidth), DOOR_WIDTH_OPTIONS, { fallback: DOOR_WIDTH_OPTIONS.includes("Spec") ? "Spec" : "" }),
           size: `${finalHeight} × ${finalWidth}`,
-          thickness: r.thickness || origDoor.thickness || (isExt ? 40 : (isLoose ? 38 : 35)),
-          jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
-          jamb_size: isExt ? (r.jamb_size || "Steel Frame") : (isLoose ? "112×19mm 5.4m Loose Jamb" : (r.jamb_size || "92x18mm")),
-          hung: hungVal,
-          type: isCadDoorType(r.type || origDoor.type) ? (isExt ? "Type A" : "-") : (r.type || origDoor.type || (isExt ? "Type A" : "-")),
-          weatherguard: isExt ? (r.weatherguard || r.Weatherguard || origDoor.weatherguard || origDoor.Weatherguard || "No") : "-",
-          dbl_rebated: isExt ? (r.dbl_rebated || r.DBLRebated || origDoor.dbl_rebated || origDoor.DBLRebated || "No") : "-",
-          door_stop: r.door_stop || origDoor.door_stop || (isExt ? "DS2 with Riser" : "Cushion"),
-          internal_type: isExt ? "-" : (isBunVic && r.internal_type === "HF" ? "HL" : (r.internal_type !== undefined && r.internal_type !== null ? r.internal_type : defaultInternalHole)),
-          color: isExt ? "-" : (r.color !== undefined && r.color !== null ? r.color : "CHR"),
+          thickness: resolveDropdownValue(String(r.thickness || origDoor.thickness || "").replace(/mm/gi, "").trim(), isExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS, { fallback: "" }),
+          jamb_or_wall: r.jamb_or_wall || origDoor.jamb_or_wall || "",
+          jamb_size: resolveDropdownValue(r.jamb_size || r.jamb_size_candidate || origDoor.jamb_size || origDoor.jambSize, isExt ? jambSizeExternalOptions : jambSizeInternalOptions, { fallback: "" }),
+          jamb_size_candidate: r.jamb_size || r.jamb_size_candidate || origDoor.jamb_size || origDoor.jambSize || "",
+          hung: resolveDropdownValue(hungVal, isExt ? externalHungOptions : internalHungOptions, { fallback: "" }),
+          type: resolveDropdownValue(isCadDoorType(r.type || origDoor.type) ? "" : (r.type || origDoor.type), isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
+          weatherguard: isExt ? resolveDropdownValue(r.weatherguard || r.Weatherguard || origDoor.weatherguard || origDoor.Weatherguard, WEATHERGUARD_OPTIONS, { fallback: "" }) : "",
+          dbl_rebated: isExt ? resolveDropdownValue(r.dbl_rebated || r.DBLRebated || origDoor.dbl_rebated || origDoor.DBLRebated, DBL_REBATED_OPTIONS, { fallback: "" }) : "",
+          door_stop: resolveDropdownValue(r.door_stop || origDoor.door_stop, doorStopOptions, { fallback: "" }),
+          internal_type: isExt ? "" : resolveDropdownValue(isBunVic && r.internal_type === "HF" ? "HL" : r.internal_type, internalHoleOptions, { fallback: "" }),
+          color: isExt ? "" : resolveDropdownValue(r.color, internalFinishOptions, { fallback: "" }),
           default_qty: r.default_qty || origDoor.default_qty || 1,
           autofill_source: "drawing"
         };
@@ -1299,29 +1342,38 @@ export default function LockupTask({
     const handleSyncFromModal = (e) => {
       if (suppressAutoInit) return;
       if (e.detail?.lockoutRows && e.detail.lockoutRows.length > 0) {
-        const mapped = e.detail.lockoutRows.filter((row) => !isWindowOpening(row)).map((r, idx) => ({
-          id: `door-sync-${Date.now()}-${idx}`,
-          mode: normalizeLockupModeValue(r.mode || r.category)
-            || (String(r.scope || "").toLowerCase() === "external" ? "Prehung" : "Loose"),
-          scope: r.scope || "internal",
-          floorLevel: r.floorLevel || r.floor_level || "GF",
-          label: r.label || r.door_name || `D-${idx + 1}`,
-          door_name: r.door_name || r.label || `D-${idx + 1}`,
-          door_type: r.door_type || null,
-          height: r.height || 2040,
-          width: r.width || 820,
-          thickness: r.thickness || 35,
-          jamb_or_wall: r.jamb_or_wall || "90mm Wall",
-          jamb_size: r.mode === "Loose" ? (r.jamb_size || "112×19mm 5.4m Loose Jamb") : null,
-          hung: r.hung || null,
-          type: r.type || "-",
-          weatherguard: r.weatherguard || r.Weatherguard || "No",
-          dbl_rebated: r.dbl_rebated || r.DBLRebated || "No",
-          door_stop: r.door_stop || "Cushion",
-          internal_type: isBunVic && r.internal_type === "HF" ? "HL" : (r.internal_type || defaultInternalHole),
-          color: r.color || "CHR",
-          default_qty: r.default_qty || 1
-        }));
+        const mapped = e.detail.lockoutRows.filter((row) => !isWindowOpening(row)).map((r, idx) => {
+          const mode = normalizeLockupModeValue(r.mode || r.category)
+            || (String(r.scope || "").toLowerCase() === "external" ? "Prehung" : "Loose");
+          const isExt = String(r.scope || r.location || "").toLowerCase().includes("ext");
+          const isLoose = mode === "Loose";
+          const doorOptions = isExt ? externalDoorOptions : (isLoose ? looseIntDoorOptions : prehungIntDoorOptions);
+          return {
+            id: `door-sync-${Date.now()}-${idx}`,
+            mode,
+            scope: isExt ? "external" : "internal",
+            floorLevel: r.floorLevel || r.floor_level || "GF",
+            label: r.label || r.door_name || `D-${idx + 1}`,
+            door_name: r.door_name || r.label || `D-${idx + 1}`,
+            door_type: resolveDropdownValue(r.door_type, doorOptions, { fallback: "" }),
+            door_type_candidate: r.door_type || "",
+            height: resolveDropdownValue(String(r.height || ""), DOOR_HEIGHT_OPTIONS, { fallback: "" }),
+            width: resolveDropdownValue(String(r.width || ""), DOOR_WIDTH_OPTIONS, { fallback: "" }),
+            thickness: resolveDropdownValue(String(r.thickness || "").replace(/mm/gi, "").trim(), isExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS, { fallback: "" }),
+            jamb_or_wall: r.jamb_or_wall || "",
+            jamb_size: resolveDropdownValue(r.jamb_size, isExt ? jambSizeExternalOptions : jambSizeInternalOptions, { fallback: "" }),
+            jamb_size_candidate: r.jamb_size || "",
+            hung: resolveDropdownValue(r.hung, isExt ? externalHungOptions : internalHungOptions, { fallback: "" }),
+            type: resolveDropdownValue(r.type, isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
+            weatherguard: isExt ? resolveDropdownValue(r.weatherguard || r.Weatherguard, WEATHERGUARD_OPTIONS, { fallback: "" }) : "",
+            dbl_rebated: isExt ? resolveDropdownValue(r.dbl_rebated || r.DBLRebated, DBL_REBATED_OPTIONS, { fallback: "" }) : "",
+            door_stop: resolveDropdownValue(r.door_stop, doorStopOptions, { fallback: "" }),
+            internal_type: isExt ? "" : resolveDropdownValue(isBunVic && r.internal_type === "HF" ? "HL" : r.internal_type, internalHoleOptions, { fallback: "" }),
+            color: isExt ? "" : resolveDropdownValue(r.color, internalFinishOptions, { fallback: "" }),
+            default_qty: r.default_qty || 1,
+            autofill_source: "drawing",
+          };
+        });
         if (onSetEntries) {
           onSetEntries(mapped);
         }

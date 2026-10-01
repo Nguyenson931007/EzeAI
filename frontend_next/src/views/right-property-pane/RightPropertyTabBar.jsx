@@ -19,7 +19,8 @@ export default function RightPropertyTabBar({
   customerModuleIds = [],
   flooringTaskFloors = ["GF"],
   onFlooringTaskFloorsChange,
-  onOpenDocumentAi
+  onOpenDocumentAi,
+  showGptFeature = false
 }) {
   const visibleTaskTabs = sortTaskModulesByReadiness(
     (taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS)
@@ -100,15 +101,17 @@ export default function RightPropertyTabBar({
             <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center" }}>Task HW</span>
           </button>
 
-          <button
-            title="GPT Document Review"
-            onClick={onOpenDocumentAi}
-            className="rp-side-tab-btn"
-            style={{ color: "#7c3aed" }}
-          >
-            <span style={{ fontSize: "17px", lineHeight: 1 }}>✦</span>
-            <span style={{ fontSize: "10px", fontWeight: 800 }}>GPT</span>
-          </button>
+          {showGptFeature && (
+            <button
+              title="GPT Document Review"
+              onClick={onOpenDocumentAi}
+              className="rp-side-tab-btn"
+              style={{ color: "#7c3aed" }}
+            >
+              <span style={{ fontSize: "17px", lineHeight: 1 }}>✦</span>
+              <span style={{ fontSize: "10px", fontWeight: 800 }}>GPT</span>
+            </button>
+          )}
 
           {/* Divider */}
           <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />

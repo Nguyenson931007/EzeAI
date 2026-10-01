@@ -18,7 +18,10 @@ import {
   LOCKUP_INTERNAL_HUNG,
   LOCKUP_INTERNAL_HOLES,
   LOCKUP_INTERNAL_FINISHES,
+  SHELVING_TYPES,
+  SHELVING_SIZES,
 } from "@/constants/procurementFormParity";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import {
   buildArchitecturalFloorLevelMap,
   getArchitecturalPageIndices,
@@ -334,7 +337,8 @@ export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => i
     floorLevel: text(d?.__floorLevel || d?.floorLevel || d?.floor_level) || "GF",
     category: presetFamily || (lower(d?.mode).includes("loose") ? "loose-jamb" : "prehung"),
     door_label: label,
-    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
+    door_type: "",
+    door_type_candidate: sanitizeProcurementDoorType(d?.door_type || d?.product),
     doorTypeId: d?.doorTypeId || null,
     height: closestAllowed(dims.height, heights, 90) || (dims.height ? String(Math.round(dims.height)) : ""),
     width: closestAllowed(dims.width, widths, 70) || (dims.width ? String(Math.round(dims.width)) : ""),
@@ -345,7 +349,8 @@ export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => i
     handing,
     hole,
     finish,
-    door_furniture: text(d?.door_furniture || d?.furniture),
+    door_furniture: "",
+    door_furniture_candidate: text(d?.door_furniture || d?.furniture),
     door_stop: stop,
     qty: Math.max(1, finite(d?.qty) || 1),
     autofill_source: "drawing",
@@ -387,11 +392,14 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => i
     jamb_or_wall: (parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))
       ? `${Math.round(parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))}mm Wall`
       : "",
-    jamb_size: text(d?.jamb_size || d?.jambSize),
+    jamb_size: "",
+    jamb_size_candidate: text(d?.jamb_size || d?.jambSize),
     hung,
-    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
+    door_type: "",
+    door_type_candidate: sanitizeProcurementDoorType(d?.door_type || d?.product),
     doorTypeId: d?.doorTypeId || null,
-    type: text(d?.type_code || d?.lockup_type),
+    type: "",
+    type_candidate: text(d?.type_code || d?.lockup_type),
     door_stop: explicitAllowed(d?.door_stop || d?.stop, ["Cushion", "DS2 with Riser"]),
     internal_type: explicitAllowed(d?.hole || d?.internal_type, LOCKUP_INTERNAL_HOLES),
     color: explicitAllowed(d?.finish || d?.color, LOCKUP_INTERNAL_FINISHES),
@@ -411,7 +419,8 @@ export const buildFlooringRows = (rooms = [], scale = 1, floorLevel = "GF") => r
     floorLevel,
     typeArea,
     location: text(r?.room_name || r?.name || r?.label) || typeArea,
-    product: text(r?.product),
+    product: "",
+    product_candidate: text(r?.product),
     areaM2: Number(area.toFixed(2)),
     wastePercent: finite(r?.wastePercent || r?.waste_percent),
     totalM2: Number(area.toFixed(2)),
@@ -430,8 +439,10 @@ export const buildInsulationAreaRow = ({ id, roomIds = [], floorLevel = "GF", ty
     type,
     location: type === "Ceiling" ? "Ceiling / Roof Space" : type,
     areaType: type,
-    rValue,
-    product,
+    rValue: "",
+    rValue_candidate: text(rValue),
+    product: "",
+    product_candidate: text(product),
     insulationArea: normalizedArea,
     areaM2: normalizedArea,
     totalArea: normalizedArea,
@@ -568,8 +579,9 @@ export const buildShelvingRows = (rooms = []) => {
   // Only create rows when a drawing/room object explicitly carries shelf size.
   return rooms.flatMap((r, idx) => {
     const name = lower(r?.room_name || r?.name || r?.label);
-    const type = /robe|wir|wardrobe/.test(name) ? "Robe" : (/linen/.test(name) ? "Linen" : "");
-    const size = text(r?.shelf_size || r?.shelving_size);
+    const typeCandidate = /robe|wir|wardrobe/.test(name) ? "Robe" : (/linen/.test(name) ? "Linen" : "");
+    const type = resolveDropdownValue(typeCandidate, SHELVING_TYPES, { fallback: "" });
+    const size = resolveDropdownValue(r?.shelf_size || r?.shelving_size, SHELVING_SIZES, { fallback: "" });
     if (!type || !size) return [];
     return [{
       id: `shelf-ai-${r?.id ?? idx}`,

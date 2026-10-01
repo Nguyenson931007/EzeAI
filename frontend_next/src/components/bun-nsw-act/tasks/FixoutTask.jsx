@@ -8,6 +8,7 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { isWindowOpening, sanitizeProcurementDoorType } from "@/utils/procurementAutoFill";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import {
   FIXOUT_HEIGHTS,
   FIXOUT_WIDTHS,
@@ -1199,6 +1200,48 @@ export default function FixoutTask({
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const categoryRaw = String(row.category || "prehung").toLowerCase();
+      const category = ["cavity", "sliding", "bifold", "prehung", "loose-jamb"].includes(categoryRaw)
+        ? categoryRaw
+        : (categoryRaw.includes("loose") ? "loose-jamb" : "prehung");
+      const cavityStyle = ["cavity", "sliding", "bifold"].includes(category);
+      const loose = category === "loose-jamb";
+      const doorOptions = cavityStyle || loose ? looseJambDoors : prehungDoors;
+      const furnitureMode = cavityStyle ? "cavity" : (loose ? "loose-jamb" : "prehung");
+      const furnitureOptions = FURNITURE_OPTIONS_BY_MODE[furnitureMode] || [];
+      const heightOptions = cavityStyle ? optionSet.cavityHeight : optionSet.height;
+      const widthOptions = cavityStyle ? optionSet.cavityWidth : optionSet.width;
+      const hungOptions = Array.from(new Set([...(optionSet.handing || []), ...(optionSet.liftOff || [])]));
+      const patch = {
+        ...row,
+        category,
+        height: resolveDropdownValue(String(row.height || ""), heightOptions, { fallback: "" }),
+        width: resolveDropdownValue(String(row.width || ""), widthOptions, { fallback: "" }),
+        thicks: resolveDropdownValue(String(row.thicks || row.thickness || "").replace(/mm/gi, "").trim(), optionSet.thicks, { fallback: "" }),
+        wall_width: resolveDropdownValue(String(row.wall_width || "").replace(/mm/gi, "").replace(/\s*wall$/i, "").trim(), optionSet.wallWidth, { fallback: "" }),
+        door_type: resolveDropdownValue(sanitizeProcurementDoorType(row.door_type || row.door_type_candidate), doorOptions, { fallback: "" }),
+        door_frame: resolveDropdownValue(row.door_frame, optionSet.frame, { fallback: "" }),
+        handing: cavityStyle ? "" : resolveDropdownValue(row.handing || row.hung, hungOptions, { fallback: "" }),
+        lift_off_pivot: cavityStyle ? "" : resolveDropdownValue(row.lift_off_pivot, optionSet.liftOff, { fallback: "" }),
+        hole: cavityStyle ? "" : resolveDropdownValue(row.hole, optionSet.hole, { fallback: "" }),
+        finish: cavityStyle ? "" : resolveDropdownValue(row.finish, optionSet.finish, { fallback: "" }),
+        door_stop: cavityStyle ? "" : resolveDropdownValue(row.door_stop || row.stop, optionSet.stop, { fallback: "" }),
+        door_furniture: resolveDropdownValue(row.door_furniture || row.door_furniture_candidate, furnitureOptions, { fallback: "" }),
+      };
+      const keys = ["category","height","width","thicks","wall_width","door_type","door_frame","handing","lift_off_pivot","hole","finish","door_stop","door_furniture"];
+      if (keys.some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
+      return patch;
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries, prehungDoors, looseJambDoors, optionSet]);
 
   // Load dropdown options from backend
   useEffect(() => {

@@ -1,75 +1,39 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
+import { getActiveClientShortName } from "@/constants/clients";
+import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
+import { useCatalog, catalogByArea } from "@/utils/catalogHelpers";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 /**
  * AreaSummaryJobsModal – Modal bóc tách diện tích phòng & khu vực sàn (MSSQL emsflow.dbo.AreaSummary)
  */
-const PRODUCT_OPTIONS_BY_TYPE = {
-  Dry: [
-    "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-  ],
-  Wet: [
-    "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM INTERNAL 405591",
-    "FC FLOORING SECURA JH++2400X600X22MM INTERNAL 405593"
-  ],
-  "Balcony Tiles": [
-    "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-    "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276",
-    "FC FLOORING SECURA JH++2400X600X22MM EXTERNAL 405593",
-    "FC LGHTWGHT FLOORING++2400X600X22MM 1.44SQM DF22246"
-  ],
-  "Tile Deck": [
-    "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-    "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276",
-    "FC FLOORING SECURA JH++2400X600X22MM EXTERNAL 405593",
-    "FC LGHTWGHT FLOORING++2400X600X22MM 1.44SQM DF22246"
-  ],
-  "Timber Deck": [
-    "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-    "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276",
-    "FC FLOORING SECURA JH++2400X600X22MM EXTERNAL 405593",
-    "FC LGHTWGHT FLOORING++2400X600X22MM 1.44SQM DF22246"
-  ],
-  Internal: [
-    "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB TERMIFLOR YELLOW TONGUE++3600X800MM 19MM GP",
-    "PB STRUCTAFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB TERMIFLOR RED TONGUE++3600X800MM 22MM GP",
-    "PB STRUCTAFLOR GREEN TONGUE++3600X800MM 19MM GP"
-  ],
-  External: [
-    "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592",
-    "FC FLOORING SECURA JH++1800X900X19MM EXTERNAL 405591",
-    "FC LIGHTWEIGHT WA&EXT FLOORING++2700X600X19MM 1.62SQM DF19276",
-    "FC FLOORING SECURA JH++2400X600X22MM EXTERNAL 405593",
-    "FC LGHTWGHT FLOORING++2400X600X22MM 1.44SQM DF22246"
-  ]
+const FLOORING_AREA_KEY_BY_TYPE = {
+  Dry: "dry",
+  Wet: "wet",
+  "Balcony Tiles": "balcony_tiles",
+  "Tile Deck": "balcony_tiles",
+  "Timber Deck": "decking",
+  Internal: "dry",
+  External: "balcony_tiles",
 };
 
-const getDefaultProductForType = (type) => {
-  const t = (type || "Dry").trim();
-  if (PRODUCT_OPTIONS_BY_TYPE[t] && PRODUCT_OPTIONS_BY_TYPE[t].length > 0) {
-    return PRODUCT_OPTIONS_BY_TYPE[t][0];
-  }
-  if (t.toLowerCase().includes("wet")) return "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
-  if (t.toLowerCase().includes("tile") || t.toLowerCase().includes("balcony") || t.toLowerCase().includes("external") || t.toLowerCase().includes("deck")) {
-    return "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
-  }
-  return "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
-};
 
 export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], roomsByPage, scaleValue = 1.0, realScale, pages = [], currentPage = 0, activeJobNumber }) {
   const { user } = useAppModel();
   const isAdmin = user?.role === "admin";
+  const activeCustomerShortName = getActiveClientShortName();
+  const { items: flooringCatalogItems } = useCatalog(activeCustomerShortName, PROCUREMENT_TASK_KEYS.floor);
+  const productOptionsForType = (type) => {
+    const areaKey = FLOORING_AREA_KEY_BY_TYPE[type] || "";
+    if (!areaKey) return [];
+    return Array.from(new Set(
+      catalogByArea(flooringCatalogItems, areaKey)
+        .map((item) => String(item?.description || item?.label || "").trim())
+        .filter(Boolean)
+    ));
+  };
 
   const [currentStep, setCurrentStep] = useState(1);
   const [jobsData, setJobsData] = useState([]);
@@ -194,14 +158,11 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], roo
   }, [jobsData, selectedJobNumber, searchTerm, currentStep]);
 
   const getDefaultProductForType = (areaType) => {
-    const t = String(areaType || "").toLowerCase();
-    if (t.includes("wet")) return "FC FLOORING SECURA JH++2700X600X19MM INTERNAL 405592";
-    if (t.includes("tile") || t.includes("balcony")) return "FC FLOORING SECURA JH++2700X600X19MM EXTERNAL 405592";
-    if (t.includes("timber") || t.includes("deck")) return "HARDWOOD DECKING 90X19MM MERBAU";
-    return "PB STRUCTAFLOR YELLOW TONGUE++3600X800MM 19MM GP";
+    const options = productOptionsForType(areaType);
+    return options[0] || "";
   };
 
-  /** Map page index to floor level abbreviation: GF, FF, SF, TF, 4F, 5F... */
+  /** Map page index to the same floor-level labels used by the task forms. */
   const getFloorLevelByIndex = (idx) => {
     const labels = ["GF", "FF", "SF", "TF"];
     if (idx < labels.length) return labels[idx];
@@ -211,20 +172,20 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], roo
   const getFloorLevelByPage = (idx) => {
     if (pages && pages[idx]) {
       const page = pages[idx];
-      const name = (page.floor_name || page.name || "").trim();
+      const name = String(page.floor_name || page.name || "").trim();
       if (name) {
         const upper = name.toUpperCase();
-        if (upper === "LEVEL 1" || upper === "GROUND FLOOR" || upper === "GROUND" || upper === "GF" || upper === "TRỆT" || upper === "TẦNG TRỆT") return "GF";
-        if (upper === "LEVEL 2" || upper === "FIRST FLOOR" || upper === "FIRST" || upper === "FF" || upper === "TẦNG 1" || upper === "1F") return "FF";
-        if (upper === "LEVEL 3" || upper === "SECOND FLOOR" || upper === "SECOND" || upper === "SF" || upper === "TẦNG 2" || upper === "2F") return "SF";
-        if (upper === "LEVEL 4" || upper === "THIRD FLOOR" || upper === "THIRD" || upper === "TF" || upper === "TẦNG 3" || upper === "3F") return "TF";
+        if (["LEVEL 1", "GROUND FLOOR", "GROUND", "GF", "TRỆT", "TẦNG TRỆT"].includes(upper)) return "GF";
+        if (["LEVEL 2", "FIRST FLOOR", "FIRST", "FF", "TẦNG 1", "1F"].includes(upper)) return "FF";
+        if (["LEVEL 3", "SECOND FLOOR", "SECOND", "SF", "TẦNG 2", "2F"].includes(upper)) return "SF";
+        if (["LEVEL 4", "THIRD FLOOR", "THIRD", "TF", "TẦNG 3", "3F"].includes(upper)) return "TF";
         if (upper.startsWith("LEVEL ")) {
           const num = parseInt(upper.replace("LEVEL ", "").trim(), 10);
           if (num === 1) return "GF";
           if (num === 2) return "FF";
           if (num === 3) return "SF";
           if (num === 4) return "TF";
-          return `${num - 1}F`;
+          if (Number.isFinite(num) && num > 4) return `${num - 1}F`;
         }
         return name;
       }
@@ -232,17 +193,15 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], roo
     return getFloorLevelByIndex(idx);
   };
 
-  const defaultFloorLevel = useMemo(() => {
-    return getFloorLevelByPage(currentPage);
-  }, [currentPage, pages]);
+  const defaultFloorLevel = useMemo(() => getFloorLevelByPage(currentPage), [currentPage, pages]);
 
-  /** Map AI detected rooms into grouped area rows across ALL pages / floor levels */
+  /** Build AI area rows from detected rooms. Product values always come from the live dropdown catalog. */
   const groupedAIRooms = useMemo(() => {
     const results = [];
 
     const calcRoomsForList = (roomsList, pageFlLevel) => {
-      if (!roomsList || roomsList.length === 0) return;
-      let dry = 0, wet = 0, timber = 0, tile = 0;
+      if (!Array.isArray(roomsList) || roomsList.length === 0) return;
+      let dry = 0, wet = 0, decking = 0, balcony = 0;
 
       roomsList.forEach((r) => {
         let areaM2 = 0;
@@ -252,90 +211,71 @@ export default function AreaSummaryJobsModal({ visible, onClose, rooms = [], roo
           areaM2 = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
         } else {
           const pts = r.polygon || r.poly;
-          if (pts && pts.length >= 3) {
+          if (Array.isArray(pts) && pts.length >= 3) {
             let pxArea = 0;
-            for (let j = 0; j < pts.length; j++) {
+            for (let j = 0; j < pts.length; j += 1) {
               const p1 = pts[j];
               const p2 = pts[(j + 1) % pts.length];
               pxArea += (p1.x * p2.y - p2.x * p1.y);
             }
             pxArea = Math.abs(pxArea) / 2;
             const effectiveScale = realScale || scaleValue || 1.0;
-            const areaMm2 = pxArea * Math.pow(effectiveScale, 2);
-            areaM2 = areaMm2 / 1000000;
+            areaM2 = (pxArea * Math.pow(effectiveScale, 2)) / 1000000;
           }
         }
 
         if (!areaM2 || areaM2 <= 0) return;
 
-        const t = (r.type || r.wetness || r.classification || r.room_class || "dry").toLowerCase();
-        const name = (r.room_name || r.name || "").toLowerCase();
-        let cat = "dry";
-        if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) {
-          cat = "wet";
-        } else if (t === "timber_deck" || /deck|timber/i.test(name)) {
-          cat = "timber_deck";
-        } else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) {
-          cat = "tile_deck";
-        }
-
-        if (cat === "wet") wet += areaM2;
-        else if (cat === "timber_deck") timber += areaM2;
-        else if (cat === "tile_deck") tile += areaM2;
+        const t = String(r.type || r.wetness || r.classification || r.room_class || "dry").toLowerCase();
+        const name = String(r.room_name || r.name || "").toLowerCase();
+        if (t === "wet" || /bath|ensuite|wc|powder|laundry|shower/i.test(name)) wet += areaM2;
+        else if (t === "timber_deck" || /deck|timber/i.test(name)) decking += areaM2;
+        else if (t === "tile_deck" || /balcony|porch|alfresco|patio|terrace/i.test(name)) balcony += areaM2;
         else dry += areaM2;
       });
 
-      if (dry > 0) results.push({ floor_level: pageFlLevel, floor_area_type: "Dry", calcAreaM2: parseFloat(dry.toFixed(4)), product: getDefaultProductForType("Dry") });
-      if (wet > 0) results.push({ floor_level: pageFlLevel, floor_area_type: "Wet", calcAreaM2: parseFloat(wet.toFixed(4)), product: getDefaultProductForType("Wet") });
-      if (timber > 0) results.push({ floor_level: pageFlLevel, floor_area_type: "Timber Deck", calcAreaM2: parseFloat(timber.toFixed(4)), product: getDefaultProductForType("Timber Deck") });
-      if (tile > 0) results.push({ floor_level: pageFlLevel, floor_area_type: "Tile Deck", calcAreaM2: parseFloat(tile.toFixed(4)), product: getDefaultProductForType("Tile Deck") });
+      const pushArea = (type, value) => {
+        if (value <= 0) return;
+        results.push({
+          floor_level: pageFlLevel,
+          floor_area_type: type,
+          calcAreaM2: parseFloat(value.toFixed(4)),
+          product: getDefaultProductForType(type),
+        });
+      };
+
+      pushArea("Dry", dry);
+      pushArea("Wet", wet);
+      pushArea("Decking Input", decking);
+      pushArea("Balcony Tiles", balcony);
     };
 
     if (roomsByPage && Object.keys(roomsByPage).length > 0) {
-      const pageKeys = Object.keys(roomsByPage).map(k => parseInt(k, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
-      pageKeys.forEach(pIdx => {
-        const pRooms = roomsByPage[pIdx];
-        const flLevel = getFloorLevelByPage(pIdx);
-        calcRoomsForList(pRooms, flLevel);
-      });
-    } else if (pages && pages.length > 0) {
-      pages.forEach((_, pIdx) => {
-        const pRooms = pIdx === currentPage ? rooms : [];
-        const flLevel = getFloorLevelByPage(pIdx);
-        calcRoomsForList(pRooms, flLevel);
-      });
+      Object.keys(roomsByPage)
+        .map((k) => parseInt(k, 10))
+        .filter((n) => !Number.isNaN(n))
+        .sort((a, b) => a - b)
+        .forEach((pIdx) => calcRoomsForList(roomsByPage[pIdx], getFloorLevelByPage(pIdx)));
     } else {
-      const flLevel = getFloorLevelByPage(currentPage);
-      calcRoomsForList(rooms, flLevel);
-    }
-
-    // Default fallback if no rooms detected
-    if (results.length === 0) {
-      const fallbackLevel = getFloorLevelByPage(0);
-      results.push({ floor_level: fallbackLevel, floor_area_type: "Dry", calcAreaM2: 78.5, product: getDefaultProductForType("Dry") });
-      results.push({ floor_level: fallbackLevel, floor_area_type: "Wet", calcAreaM2: 18.2, product: getDefaultProductForType("Wet") });
-      results.push({ floor_level: fallbackLevel, floor_area_type: "Tile Deck", calcAreaM2: 12.0, product: getDefaultProductForType("Tile Deck") });
+      calcRoomsForList(rooms, getFloorLevelByPage(currentPage));
     }
 
     return results;
-  }, [rooms, roomsByPage, pages, currentPage, scaleValue, realScale]);
+  }, [rooms, roomsByPage, pages, currentPage, scaleValue, realScale, flooringCatalogItems]);
 
-/** Helper to determine numerical rank for floor level sorting: GF (0) -> FF (1) -> SF (2) -> TF (3) -> 4F (4)... */
-const getFloorRank = (floorStr) => {
-  if (!floorStr) return 999;
-  const str = floorStr.toString().trim().toUpperCase();
-  if (str === "GF" || str.includes("GROUND") || str === "TRỆT" || str === "TẦNG TRỆT" || str === "LEVEL 1" || str === "L1") return 0;
-  if (str === "FF" || str.includes("FIRST") || str === "TẦNG 1" || str === "1F" || str === "LEVEL 2" || str === "L2") return 1;
-  if (str === "SF" || str.includes("SECOND") || str === "TẦNG 2" || str === "2F" || str === "LEVEL 3" || str === "L3") return 2;
-  if (str === "TF" || str.includes("THIRD") || str === "TẦNG 3" || str === "3F" || str === "LEVEL 4" || str === "L4") return 3;
-
-  const matchNum = str.match(/(\d+)/);
-  if (matchNum) {
-    return parseInt(matchNum[1], 10);
-  }
-  if (str.includes("ROOF") || str.includes("MÁI")) return 900;
-  return 999;
-};
+  /** Helper to determine numerical rank for floor level sorting. */
+  const getFloorRank = (floorStr) => {
+    if (!floorStr) return 999;
+    const str = String(floorStr).trim().toUpperCase();
+    if (str === "GF" || str.includes("GROUND") || str === "TRỆT" || str === "TẦNG TRỆT" || str === "LEVEL 1" || str === "L1") return 0;
+    if (str === "FF" || str.includes("FIRST") || str === "TẦNG 1" || str === "1F" || str === "LEVEL 2" || str === "L2") return 1;
+    if (str === "SF" || str.includes("SECOND") || str === "TẦNG 2" || str === "2F" || str === "LEVEL 3" || str === "L3") return 2;
+    if (str === "TF" || str.includes("THIRD") || str === "TẦNG 3" || str === "3F" || str === "LEVEL 4" || str === "L4") return 3;
+    const matchNum = str.match(/(\d+)/);
+    if (matchNum) return parseInt(matchNum[1], 10);
+    if (str.includes("ROOF") || str.includes("MÁI")) return 900;
+    return 999;
+  };
 
 /** Formatted rows list for Step 2 table */
 const groupedJobRows = useMemo(() => {
@@ -353,7 +293,7 @@ const groupedJobRows = useMemo(() => {
       floor_level: dbRow.floor_level || defaultFloorLevel,
       floor_area_type: dbRow.floor_area_type || "Dry",
       net_area: dbRow.net_area || 0.0,
-      product: dbRow.product || getDefaultProductForType(dbRow.floor_area_type),
+      product: dbRow.product || "",
       isCustom: false,
       source: "db"
     });
@@ -455,7 +395,8 @@ const applyAIRoomsToAll = () => {
         area_summary_id: null,
         floor_level: aiR.floor_level,
         floor_area_type: aiR.floor_area_type,
-        net_area: aiR.calcAreaM2
+        net_area: aiR.calcAreaM2,
+        product: resolveDropdownValue(aiR.product, productOptionsForType(aiR.floor_area_type), { fallback: "" })
       });
     }
   });
@@ -538,7 +479,7 @@ const saveSingleRow = async (targetRow) => {
       floor_level: getFieldValue(row, "floor_level"),
       floor_area_type: getFieldValue(row, "floor_area_type"),
       net_area: parseFloat(getFieldValue(row, "net_area")) || 0,
-      product: getFieldValue(row, "product") || getDefaultProductForType(getFieldValue(row, "floor_area_type"))
+      product: getFieldValue(row, "product") || ""
     })).filter(a => a.net_area > 0);
 
     if (areasList.length === 0) {
@@ -592,7 +533,7 @@ const saveAllJobs = async () => {
         floor_level: getFieldValue(row, "floor_level"),
         floor_area_type: getFieldValue(row, "floor_area_type"),
         net_area: parseFloat(getFieldValue(row, "net_area")) || 0,
-        product: getFieldValue(row, "product") || getDefaultProductForType(getFieldValue(row, "floor_area_type"))
+        product: getFieldValue(row, "product") || ""
       };
       jobsMap[hwId].push(areaItem);
     });
@@ -844,7 +785,7 @@ return (
                           onChange={(e) => {
                             const newType = e.target.value;
                             handleFieldChange(row, "floor_area_type", newType);
-                            const defaultProd = getDefaultProductForType(newType);
+                            const defaultProd = "";
                             handleFieldChange(row, "product", defaultProd);
                           }}
                           style={selectStyle}
@@ -863,8 +804,8 @@ return (
                       <td style={{ padding: "6px 8px" }}>
                         {(() => {
                           const currentType = getFieldValue(row, "floor_area_type") || "Dry";
-                          const opts = PRODUCT_OPTIONS_BY_TYPE[currentType] || PRODUCT_OPTIONS_BY_TYPE["Dry"];
-                          const currentProd = getFieldValue(row, "product") || getDefaultProductForType(currentType);
+                          const opts = productOptionsForType(currentType);
+                          const currentProd = resolveDropdownValue(getFieldValue(row, "product"), opts, { fallback: "" });
 
                           return (
                             <select
@@ -872,12 +813,10 @@ return (
                               onChange={(e) => handleFieldChange(row, "product", e.target.value)}
                               style={selectStyle}
                             >
+                              <option value="">Select...</option>
                               {opts.map(p => (
                                 <option key={p} value={p}>{p}</option>
                               ))}
-                              {!opts.includes(currentProd) && currentProd && (
-                                <option value={currentProd}>{currentProd}</option>
-                              )}
                             </select>
                           );
                         })()}

@@ -7,6 +7,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -340,6 +341,22 @@ export default function PowerTrussBracesTask({
   useEffect(() => {
     entriesRef.current = entries;
   }, [entries]);
+
+  // Generated/GPT/cache rows may only keep values exposed by this task's dropdowns.
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const isGenerated = row?.ai_generated || row?.generatedByAI || row?.generated_by === "gpt" || String(row?.autofill_source || "").includes("drawing");
+      if (!isGenerated) return row;
+      const type = resolveDropdownValue(row?.type, POWER_TRUSS_TYPES, { fallback: "" });
+      const floor = resolveDropdownValue(normalizeFloorLevelCode(row?.floorLevel || row?.floor_level || "GF"), FLOOR_LEVEL_OPTIONS, { fallback: "" });
+      if (type === row?.type && floor === (row?.floorLevel || row?.floor_level)) return row;
+      changed = true;
+      return { ...row, type, floorLevel: floor };
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries]);
 
   // Group entries by FloorLevel
   const groupedTrussByLevel = useMemo(() => {

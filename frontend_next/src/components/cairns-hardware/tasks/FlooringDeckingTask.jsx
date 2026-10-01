@@ -1,5 +1,28 @@
 import React, { useState, useEffect, useRef } from "react";
 
+const CAIRNS_FLOOR_LEVEL_OPTIONS = ["Ground Floor GF", "First Floor L1", "Second Floor L2"];
+const CAIRNS_FLOOR_TYPE_OPTIONS = [
+  "Hybrid / Vinyl Plank",
+  "Wet Area Ceramic Tile",
+  "90mm Merbau Decking",
+  "140mm ModWood Composite",
+  "Exterior Non-Slip Tile",
+  "Carpet & Underlay",
+  "Engineered Oak Timber",
+  "Concrete Epoxy / Sealed",
+];
+const CAIRNS_WASTE_OPTIONS = ["5%", "10%", "15%"];
+
+const cairnsFloorTypeFromRoom = (room = {}) => {
+  const name = String(room.room_name || room.name || room.label || room.floor_area_type || "").toLowerCase();
+  const type = String(room.type || room.floor_type || room.floor_area_type || "").toLowerCase();
+  if (/bath|ensuite|wc|powder|laundry|shower|wet/.test(`${name} ${type}`)) return CAIRNS_FLOOR_TYPE_OPTIONS[1];
+  if (/balcony|alfresco|terrace|tile deck/.test(`${name} ${type}`)) return CAIRNS_FLOOR_TYPE_OPTIONS[4];
+  if (/deck|porch|verandah|patio|timber/.test(`${name} ${type}`)) return CAIRNS_FLOOR_TYPE_OPTIONS[2];
+  if (/garage/.test(name)) return CAIRNS_FLOOR_TYPE_OPTIONS[7];
+  return CAIRNS_FLOOR_TYPE_OPTIONS[0];
+};
+
 export default function FlooringDeckingTask({
   formData = {},
   onChange,
@@ -14,11 +37,11 @@ export default function FlooringDeckingTask({
   selectedType
 }) {
   const [selectedEntryId, setSelectedEntryId] = useState(null);
-  const [flrLevel, setFlrLevel] = useState("Ground Floor GF");
+  const [flrLevel, setFlrLevel] = useState(CAIRNS_FLOOR_LEVEL_OPTIONS[0]);
   const [flrRoom, setFlrRoom] = useState("Living & Dining Room");
-  const [flrType, setFlrType] = useState("Hybrid / Vinyl Plank");
+  const [flrType, setFlrType] = useState(CAIRNS_FLOOR_TYPE_OPTIONS[0]);
   const [flrArea, setFlrArea] = useState("");
-  const [flrWaste, setFlrWaste] = useState("10%");
+  const [flrWaste, setFlrWaste] = useState(CAIRNS_WASTE_OPTIONS[1]);
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
   const [isSection1Open, setIsSection1Open] = useState(false);
@@ -87,66 +110,44 @@ export default function FlooringDeckingTask({
     setEditingRowId(null);
   };
 
-  // Listen to global Auto-Calculate & Fill AI Rooms event from AreaSummary modal
+  // Listen to global Auto-Calculate & Fill AI Rooms event from AreaSummary modal.
+  // Every generated dropdown value is selected from the same option arrays as the form.
   useEffect(() => {
     const handleAutoApply = (e) => {
-      if (!e.detail) return;
-      const { groupedAIRooms: gRooms, rooms: rawRooms } = e.detail;
-      
-      const newEntries = [];
-      if (rawRooms && rawRooms.length > 0) {
-        rawRooms.forEach((r, idx) => {
-          const roomName = (r.room_name || r.name || r.label || `Room ${idx + 1}`).trim();
-          let area = 0;
-          if (r.areaM2 && !isNaN(r.areaM2)) {
-            area = parseFloat(r.areaM2);
-          } else if (r.area && !isNaN(r.area)) {
-            area = r.area > 10000 ? r.area / 1000000 : parseFloat(r.area);
-          } else if (r.calcAreaM2) {
-            area = parseFloat(r.calcAreaM2);
-          } else {
-            area = 15.0;
-          }
+      if (!e.detail || !onSetEntries) return;
+      const rawRooms = Array.isArray(e.detail.rooms) ? e.detail.rooms : [];
+      const grouped = Array.isArray(e.detail.groupedAIRooms) ? e.detail.groupedAIRooms : [];
+      const sourceRows = rawRooms.length ? rawRooms : grouped;
+      const newEntries = sourceRows.flatMap((r, idx) => {
+        const roomName = String(r.room_name || r.name || r.label || r.floor_area_type || `Room ${idx + 1}`).trim();
+        const area = Number(r.areaM2 ?? r.calcAreaM2 ?? (Number(r.area) > 10000 ? Number(r.area) / 1000000 : r.area));
+        if (!Number.isFinite(area) || area <= 0) return [];
+        const type = cairnsFloorTypeFromRoom(r);
+        const level = CAIRNS_FLOOR_LEVEL_OPTIONS.includes(r.level) ? r.level : CAIRNS_FLOOR_LEVEL_OPTIONS[0];
+        const waste = CAIRNS_WASTE_OPTIONS[1];
+        return [{
+          id: `flr-ai-${Date.now()}-${idx}`,
+          level,
+          room: roomName,
+          type,
+          area: `${Number(area).toFixed(1)} m²`,
+          waste,
+          totalArea: `${Number(area * (1 + parseInt(waste, 10) / 100)).toFixed(1)} m²`,
+          autofill_source: "drawing",
+          ai_generated: true,
+          generatedByAI: true,
+        }];
+      });
+      if (newEntries.length) onSetEntries((prev) => [...(prev || []), ...newEntries]);
+    };
 
-          const isWet = /bath|ensuite|wc|powder|laundry|shower/i.test(roomName) || r.type === "wet";
-          const isDeck = /deck|porch|verandah|patio/i.test(roomName) || (r.type && r.type.includes("timber"));
-          const isBalcony = /balcony|alfresco|terrace/i.test(roomName) || (r.type && r.type.includes("tile"));
-          const isGarage = /garage/i.test(roomName);
-
-          const flType = isWet ? "Ceramic Tile / Wet Area" : (isDeck ? "90mm Merbau Decking" : (isBalcony ? "Exterior Non-Slip Tile" : (isGarage ? "Concrete Epoxy / Sealed" : "Hybrid / Vinyl Plank")));
-
-          newEntries.push({
-            id: `flr-ai-${Date.now()}-${idx}`,
-            level: "Ground Floor GF",
-            room: roomName,
-            type: r.floor_type || flType,
-            area: `${Number(area).toFixed(1)} m²`,
-            waste: "10%",
-            totalArea: `${Number(area * 1.1).toFixed(1)} m²`
-          });
-            newEntries.push({
-              id: `flr-ai-${Date.now()}-${idx}`,
-              level: "Ground Floor GF",
-              room: gr.floor_area_type,
-              type: gr.floor_area_type.includes("Wet") ? "Ceramic Tile / Wet Area" : (gr.floor_area_type.includes("Timber") ? "90mm Merbau Decking" : "Hybrid / Vinyl Plank"),
-              area: `${Number(area).toFixed(1)} m²`,
-              waste: "10%",
-              totalArea: `${Number(area * 1.1).toFixed(1)} m²`
-            });
-          });
-        }
-
-        if (newEntries.length > 0 && onSetEntries) {
-          onSetEntries(prev => [...(prev || []), ...newEntries]);
-        }
-      };
-
-      window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-      return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-    }, [onSetEntries]);
+    window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+    return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
+  }, [onSetEntries]);
 
   const handleAddFlooring = () => {
-    const netAreaNum = parseFloat(flrArea) || (cadMetrics.totalFloorArea ? Number((cadMetrics.totalFloorArea * 0.4).toFixed(1)) : 22.5);
+    const netAreaNum = parseFloat(flrArea) || 0;
+    if (!netAreaNum || !CAIRNS_FLOOR_TYPE_OPTIONS.includes(flrType) || !CAIRNS_FLOOR_LEVEL_OPTIONS.includes(flrLevel) || !CAIRNS_WASTE_OPTIONS.includes(flrWaste)) return;
     const wasteNum = parseInt(flrWaste, 10) || 10;
     const totalAreaNum = Number((netAreaNum * (1 + wasteNum / 100)).toFixed(2));
 
@@ -208,9 +209,7 @@ export default function FlooringDeckingTask({
                   className="task-field-select"
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
-                  <option value="Ground Floor GF">Ground Floor GF</option>
-                  <option value="First Floor L1">First Floor L1</option>
-                  <option value="Second Floor L2">Second Floor L2</option>
+                  {CAIRNS_FLOOR_LEVEL_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
                 </select>
               </div>
               <div>
@@ -233,14 +232,7 @@ export default function FlooringDeckingTask({
                 className="task-field-select"
                 style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
               >
-                <option value="Hybrid / Vinyl Plank">Hybrid / Vinyl Plank (Dry Areas)</option>
-                <option value="Wet Area Ceramic Tile">Wet Area Ceramic Tile (Bath / Ensuite / WC)</option>
-                <option value="90mm Merbau Decking">90mm Merbau Hardwood Decking (Outdoor / Porch)</option>
-                <option value="140mm ModWood Composite">140mm ModWood Composite Decking</option>
-                <option value="Exterior Non-Slip Tile">Exterior Non-Slip Tile (Balcony / Alfresco)</option>
-                <option value="Carpet & Underlay">Carpet & Underlay (Bedrooms)</option>
-                <option value="Engineered Oak Timber">Engineered Oak Timber Flooring</option>
-                <option value="Concrete Epoxy / Sealed">Concrete Epoxy / Sealed Garage Floor</option>
+                {CAIRNS_FLOOR_TYPE_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </div>
 
@@ -249,7 +241,7 @@ export default function FlooringDeckingTask({
                 <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Net Area (m²)</span>
                 <input
                   type="number"
-                  placeholder={`e.g. ${cadMetrics.totalFloorArea ? (cadMetrics.totalFloorArea * 0.4).toFixed(1) : "22.5"}`}
+                  placeholder="Enter measured area"
                   value={flrArea}
                   onChange={(e) => setFlrArea(e.target.value)}
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
@@ -263,9 +255,7 @@ export default function FlooringDeckingTask({
                   className="task-field-select"
                   style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
                 >
-                  <option value="5%">5% Waste</option>
-                  <option value="10%">10% Waste</option>
-                  <option value="15%">15% Waste</option>
+                  {CAIRNS_WASTE_OPTIONS.map((value) => <option key={value} value={value}>{value} Waste</option>)}
                 </select>
               </div>
             </div>
