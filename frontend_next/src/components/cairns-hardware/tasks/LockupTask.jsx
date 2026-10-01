@@ -7,7 +7,8 @@ export default function LockupTask({
   entries = [],
   onSetEntries,
   onAddDataAI,
-  onSelectEntry
+  onSelectEntry,
+  updateDoorsProperty
 }) {
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [doorLabel, setDoorLabel] = useState("");
@@ -18,12 +19,36 @@ export default function LockupTask({
   const [editRowData, setEditRowData] = useState({});
 
   const handleSaveInlineEdit = (id) => {
+    const original = (entries || []).find((item) => item.id === id);
+    const editedName = String(
+      editRowData.doorLabel ?? editRowData.door_label ?? editRowData.door_name ?? editRowData.doorName ?? editRowData.label ?? editRowData.name ?? ''
+    ).trim();
     const updatedList = (entries || []).map(item => item.id === id ? {
       ...item,
-      ...editRowData
+      ...editRowData,
+      ...(editedName ? {
+        doorLabel: editedName,
+        door_label: editedName,
+        door_name: editedName,
+        doorName: editedName,
+        door_label: editedName,
+        name: editedName,
+      } : {})
     } : item);
 
     if (onSetEntries) onSetEntries(updatedList);
+
+    const linkedDoorId = original?.doorId || original?.door_id;
+    if (editedName && linkedDoorId && typeof updateDoorsProperty === 'function') {
+      updateDoorsProperty([linkedDoorId], {
+        doorLabel: editedName,
+        door_label: editedName,
+        door_name: editedName,
+        doorName: editedName,
+        label: editedName,
+        name: editedName,
+      });
+    }
     setEditingRowId(null);
   };
 
@@ -181,6 +206,29 @@ export default function LockupTask({
                 return (
                   <tr
                     key={item.id || idx}
+                    data-editing-row-id={isRowEditing ? String(item.id) : undefined}
+                    onDoubleClick={(e) => {
+                      if (e.target.closest("button, input, select, textarea, a")) return;
+                      setSelectedEntryId(item.id);
+                      if (onSelectEntry) onSelectEntry(item);
+                      if (!isRowEditing) {
+                        setEditingRowId(item.id);
+                        setEditRowData({
+                          ...item,
+                          doorLabel: item.doorLabel || item.door_label || item.door_name || item.doorName || item.label || item.name || item.spec || item.type || "",
+                          configuration: item.configuration || item.type || "",
+                          frameMaterial: item.frameMaterial || item.reveal || "",
+                          weatherstrip: item.weatherstrip || (item.qty ? `${item.qty}` : "")
+                        });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (isRowEditing && e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSaveInlineEdit(item.id);
+                      }
+                    }}
                     onClick={() => {
                       if (!isRowEditing) {
                         const nextSelected = isSelected ? null : item.id;
@@ -285,7 +333,7 @@ export default function LockupTask({
                               setEditingRowId(item.id);
                               setEditRowData({
                                 ...item,
-                                doorLabel: item.doorLabel || item.spec || item.type || "",
+                                doorLabel: item.doorLabel || item.door_label || item.door_name || item.doorName || item.label || item.name || item.spec || item.type || "",
                                 configuration: item.configuration || item.type || "",
                                 frameMaterial: item.frameMaterial || item.reveal || "",
                                 weatherstrip: item.weatherstrip || (item.qty ? `${item.qty}` : "")

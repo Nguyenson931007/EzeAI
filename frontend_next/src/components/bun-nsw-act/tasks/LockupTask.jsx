@@ -4,7 +4,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
-import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask, getDoorPresetFamily, sanitizeProcurementDoorType } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
@@ -35,27 +35,31 @@ const normalizeLockupModeValue = (value) => {
   return null;
 };
 
-const isCavityOrSlidingDoor = (door = {}) => {
-  const source = [
-    door.lockup_mode,
-    door.mode,
-    door.category,
-    door.doorTypeId,
-    door.penetration_type,
-    door.class,
-    door.type,
-    door.door_name,
-    door.doorName,
-    door.label
-  ].filter(Boolean).join(" ").toLowerCase();
-  return /cavity|sliding/.test(source);
+const getLockupPresetCategory = (door = {}) => {
+  const family = getDoorPresetFamily(door);
+  if (family === "cavity") return "Cavity";
+  if (family === "sliding") return "Sliding";
+  if (family === "bifold") return "Bifold";
+  return null;
 };
 
 const getLockupModeForDoor = (door = {}, isExternal = false) => {
-  if (isCavityOrSlidingDoor(door)) return "Cavity";
+  if (getDoorPresetFamily(door) === "cavity") return "Cavity";
   const explicit = normalizeLockupModeValue(door.lockup_mode || door.mode || door.category);
   if (explicit) return explicit;
   return isExternal ? "Prehung" : "Loose";
+};
+
+const getLockupCategoryForRow = (row = {}) => {
+  const rawCategory = String(row.category || "").trim();
+  if (["Cavity", "Sliding", "Bifold", "Prehung", "Loose Jamb"].includes(rawCategory)) return rawCategory;
+  const presetCategory = getLockupPresetCategory(row);
+  if (presetCategory) return presetCategory;
+  const mode = normalizeLockupModeValue(row.mode || row.lockup_mode || row.category);
+  if (mode === "Cavity") return "Cavity";
+  if (mode === "Loose") return "Loose Jamb";
+  if (mode === "Prehung") return "Prehung";
+  return "-";
 };
 
 // ══════════════════════════════════════════════════════
@@ -508,7 +512,9 @@ export default function LockupTask({
       id: row.id,
       doorId: row.doorId,
       mode: row.mode || (isLoose ? "Loose" : (isPrehung ? "Prehung" : (isExt ? "Prehung" : "Loose"))),
-      category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : (isExt ? "Prehung" : "Loose Jamb")),
+      category: getLockupCategoryForRow(row) !== "-"
+        ? getLockupCategoryForRow(row)
+        : (isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : (isExt ? "Prehung" : "Loose Jamb"))),
       scope: isExt ? "external" : "internal",
       location: isExt ? "External" : "Internal",
       label: row.label || row.door_name || row.doorName || row.door || "D-1",
@@ -518,7 +524,7 @@ export default function LockupTask({
       jamb_or_wall: row.jamb_or_wall || row.jambWall || (isExt ? "110mm Brick Veneer" : "90mm Timber Stud"),
       jamb_size: row.jamb_size || row.jambSize || (isExt ? "Steel Frame" : (isLoose ? "112×19mm 5.4m Loose Jamb" : "92x18mm")),
       hung: hungVal,
-      door_type: row.door_type || row.product || row.door || "",
+      door_type: sanitizeProcurementDoorType(row.door_type || row.product || row.door || ""),
       type: isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-")),
       weatherguard: isExt ? (row.weatherguard || row.Weatherguard || "No") : "-",
       dbl_rebated: isExt ? (row.dbl_rebated || row.DBLRebated || "No") : "-",
@@ -533,7 +539,7 @@ export default function LockupTask({
   // ── Helper đồng bộ thay đổi từ bảng Lockup sang trực tiếp Door trên Canvas / Properties Panel ──
   const syncCanvasDoor = (target) => {
     if (!target) return;
-    const targetDoorId = target.doorId || target.id;
+    const targetDoorId = target.doorId || target.door_id || target.id;
     if (!targetDoorId) return;
 
     const wMm = Number(target.width) || 820;
@@ -549,7 +555,9 @@ export default function LockupTask({
       thickness_mm: Number(target.thickness) || (isExt ? 40 : 35),
       door_name: target.label || target.door_name || "D-1",
       doorName: target.label || target.door_name || "D-1",
-      label: target.label || target.door_name || "D-1",
+      doorLabel: target.label || target.door_name || "D-1",
+      door_label: target.label || target.door_name || "D-1",
+      name: target.label || target.door_name || "D-1",
       door_type: target.door_type || "",
       lockup_door_type: target.door_type || "",
       product: target.door_type || "",
@@ -563,11 +571,15 @@ export default function LockupTask({
       hingeSide: (target.hung === "Hung B" || target.hung === "LH") ? "left" : "right"
     };
 
+    const curList = (doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : (doors || []);
+    const found = curList.find(d => matchId(d.id, targetDoorId) || matchId(d.doorId, targetDoorId));
+    const resolvedDoorId = found?.id ?? targetDoorId;
+
     if (updateDoorsProperty) {
-      updateDoorsProperty([targetDoorId], patchToDoor);
+      // interaction.controller uses strict id equality. Always pass the real canvas id
+      // so edits from task rows cannot save only on the form while missing the plan.
+      updateDoorsProperty([resolvedDoorId], patchToDoor);
     } else if (updateDoor) {
-      const curList = (doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : (doors || []);
-      const found = curList.find(d => matchId(d.id, targetDoorId) || matchId(d.doorId, targetDoorId));
       if (found) {
         updateDoor({ ...found, ...patchToDoor });
       }
@@ -605,6 +617,11 @@ export default function LockupTask({
       return {
         ...item,
         ...savedData,
+        label: savedData.label || item.label || item.door_name || "D-1",
+        door_name: savedData.label || item.door_name || item.label || "D-1",
+        doorName: savedData.label || item.doorName || item.door_name || item.label || "D-1",
+        doorLabel: savedData.label || item.doorLabel || item.door_name || item.label || "D-1",
+        name: savedData.label || item.name || item.door_name || item.label || "D-1",
         scope: isExt ? "external" : "internal",
         location: isExt ? "External" : "Internal",
         door: savedData.door_type || item.door,
@@ -1150,7 +1167,7 @@ export default function LockupTask({
           label: doorLabel,
           door_name: doorLabel,
           floorLevel: d.__floorLevel || d.floorLevel || d.floor_level || "GF",
-          door_type: d.lockup_door_type || d.product || null,
+          door_type: sanitizeProcurementDoorType(d.lockup_door_type || d.product) || null,
           width: dWidth,
           height: dHeight,
           thickness: isExt ? 40 : 35,
@@ -1194,9 +1211,11 @@ export default function LockupTask({
         const doorLabel = (r.label || origDoor.door_name || origDoor.doorName || origDoor.doorLabel || (origDoor.label && !/single|sliding|window|door/i.test(origDoor.label) ? origDoor.label : null) || `D-${idx + 1}`).trim();
         const responseMode = normalizeLockupModeValue(r.mode);
         const originalMode = getLockupModeForDoor(origDoor, isExt);
-        const finalMode = isCavityOrSlidingDoor(origDoor)
+        const presetCategory = getLockupPresetCategory(origDoor);
+        const finalMode = presetCategory === "Cavity"
           ? "Cavity"
           : (responseMode || originalMode);
+        const finalCategory = presetCategory || (finalMode === "Loose" ? "Loose Jamb" : (finalMode === "Prehung" ? "Prehung" : "-"));
         const isLoose = finalMode === "Loose";
 
         // Right -> Hung A / RH, Left -> Hung B / LH
@@ -1230,12 +1249,14 @@ export default function LockupTask({
           doorId: r.doorId || r.id || origDoor.doorId || origDoor.id,
           mode: finalMode,
           lockup_mode: finalMode,
+          category: finalCategory,
           scope: isExt ? "external" : "internal",
           location: isExt ? "External" : "Internal",
           label: doorLabel,
           door_name: doorLabel,
           floorLevel: r.floorLevel || r.floor_level || origDoor.__floorLevel || origDoor.floorLevel || origDoor.floor_level || "GF",
-          door_type: r.door_type || origDoor.door_type || origDoor.product || null,
+          door_type: sanitizeProcurementDoorType(r.door_type || origDoor.door_type || origDoor.product) || null,
+          doorTypeId: origDoor.doorTypeId || null,
           height: finalHeight,
           width: finalWidth,
           size: `${finalHeight} × ${finalWidth}`,
@@ -1333,7 +1354,7 @@ export default function LockupTask({
         ),
         scope: parseStr(item.scope),
         label: parseStr(item.label),
-        door_type: parseStr(item.door_type),
+        door_type: parseStr(sanitizeProcurementDoorType(item.door_type)),
         height: parseNum(item.height),
         width: parseNum(item.width),
         thickness: parseNum(item.thickness),
@@ -2423,7 +2444,7 @@ export default function LockupTask({
                       )
                     );
                     const isExt = effDoorIsExt || row.scope === "external" || row.isExternal || String(row.location || "").toLowerCase().includes("ext");
-                    const categoryDisplay = normalizeLockupModeValue(row.mode || row.category) === "Cavity" ? "Cavity" : (normalizeLockupModeValue(row.mode || row.category) === "Prehung" ? "Prehung" : (normalizeLockupModeValue(row.mode || row.category) === "Loose" ? "Loose Jamb" : "-"));
+                    const categoryDisplay = getLockupCategoryForRow(row);
                     const isLooseJamb = categoryDisplay === "Loose Jamb";
                     const locationDisplay = isExt ? "External" : "Internal";
 
@@ -2487,10 +2508,11 @@ export default function LockupTask({
                       ? (editRow.scope === "external" || editRow.location === "External")
                       : isExt;
                     const editMode = isEditing
-                      ? normalizeLockupModeValue(editRow.mode || editRow.category)
-                      : normalizeLockupModeValue(row.mode || row.category);
+                      ? normalizeLockupModeValue(editRow.mode || editRow.lockup_mode || editRow.category)
+                      : normalizeLockupModeValue(row.mode || row.lockup_mode || row.category);
+                    const editCategory = isEditing ? getLockupCategoryForRow(editRow) : getLockupCategoryForRow(row);
                     const editIsLoose = editMode === "Loose";
-                    const editIsCavity = editMode === "Cavity";
+                    const editIsCavity = editCategory === "Cavity";
 
                     const mergeOptions = (options = [], current = "") => {
                       const values = ["", ...(options || [])];
@@ -2513,6 +2535,8 @@ export default function LockupTask({
                       outline: "none"
                     };
 
+                    // Door Type is not filtered by Category. Keep the same source
+                    // rules used by the existing Cavity row (location/mode based).
                     const editDoorOptions = editIsExt
                       ? externalDoorOptions
                       : (editIsLoose ? looseIntDoorOptions : prehungIntDoorOptions);
@@ -2601,7 +2625,7 @@ export default function LockupTask({
                         <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
                           {isCellEditing("category") ? (
                             <select
-                              value={editIsCavity ? "Cavity" : (editIsLoose ? "Loose Jamb" : "Prehung")}
+                              value={editCategory === "-" ? (editIsLoose ? "Loose Jamb" : "Prehung") : editCategory}
                               onChange={(e) => {
                                 const selectedCategory = e.target.value;
                                 const selectedMode = selectedCategory === "Cavity"
@@ -2623,6 +2647,8 @@ export default function LockupTask({
                               <option value="Prehung">Prehung</option>
                               <option value="Loose Jamb">Loose Jamb</option>
                               <option value="Cavity">Cavity</option>
+                              <option value="Sliding">Sliding</option>
+                              <option value="Bifold">Bifold</option>
                             </select>
                           ) : categoryDisplay}
                         </td>
@@ -2705,11 +2731,11 @@ export default function LockupTask({
                         <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
                           {isCellEditing("door_type") ? (
                             <select
-                              value={editRow.door_type || ""}
+                              value={sanitizeProcurementDoorType(editRow.door_type) || ""}
                               onChange={(e) => updateEditingDoorField({ door_type: e.target.value })}
                               style={{ ...inlineControlStyle, width: "145px" }}
                             >
-                              {mergeOptions(editDoorOptions, editRow.door_type).map((opt) => (
+                              {mergeOptions(editDoorOptions, sanitizeProcurementDoorType(editRow.door_type)).map((opt) => (
                                 <option key={opt || "__blank-door__"} value={opt}>{opt || "-"}</option>
                               ))}
                             </select>

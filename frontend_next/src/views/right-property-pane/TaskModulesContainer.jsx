@@ -107,6 +107,48 @@ export default function TaskModulesContainer({
     handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...nonWindowRows, ...normalizedWindows]));
     setWindowEntries?.(normalizedWindows);
   };
+  React.useEffect(() => {
+    const handleDoorMetadataUpdated = (event) => {
+      const door = event?.detail?.door;
+      const doorId = door?.id || door?.doorId || door?.door_id;
+      const displayName = String(
+        door?.door_name || door?.doorName || door?.doorLabel || door?.label || door?.name || ""
+      ).trim();
+      if (!doorId || !displayName) return;
+
+      const normalizeDoorRow = (row) => {
+        const linkedId = row?.doorId || row?.door_id;
+        if (!linkedId || String(linkedId) !== String(doorId)) return row;
+        return {
+          ...row,
+          label: displayName,
+          name: displayName,
+          door_label: displayName,
+          door_name: displayName,
+          doorName: displayName,
+          doorLabel: displayName,
+        };
+      };
+
+      handleSetLockupEntries?.((current) => (current || []).map(normalizeDoorRow));
+      setFixoutDoorEntries?.((current) => (current || []).map(normalizeDoorRow));
+
+      const nextRevealRows = (fixoutRevealRows || []).map(normalizeDoorRow);
+      const revealChanged = nextRevealRows.some((row, index) => row !== fixoutRevealRows[index]);
+      if (revealChanged) {
+        handleModuleFormChange(
+          "fixout",
+          "fixout_reveal_openings",
+          JSON.stringify(nextRevealRows)
+        );
+        setWindowEntries?.(nextRevealRows.filter((row) => String(row?.type || "").toLowerCase() === "window"));
+      }
+    };
+
+    window.addEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
+    return () => window.removeEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
+  }, [handleSetLockupEntries, setFixoutDoorEntries, setWindowEntries, handleModuleFormChange, fixoutRevealRows]);
+
   const excludeAiWindow = (row) => {
     if (!row?.doorId) return;
     let excluded = [];
@@ -291,6 +333,7 @@ export default function TaskModulesContainer({
           activeJobNumber={currentProjectName || currentJobId}
           walls={walls}
           wallsByPage={wallsByPage}
+          updateWallsProperty={updateWallsProperty}
         
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleId)}
@@ -389,6 +432,7 @@ export default function TaskModulesContainer({
           onSetEntries={setFixoutDoorEntries}
           onSelectEntry={handleSelectEntry}
           activeJobNumber={currentProjectName || currentJobId}
+          updateDoorsProperty={updateDoorsProperty}
         
           onAddDataAI={handleAddDataAI}
           onClearData={() => handleResetModuleData(activeModuleId)}

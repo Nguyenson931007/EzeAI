@@ -636,13 +636,29 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
       if (!row.querySelector("input, select, textarea, [data-search-dropdown]")) return;
 
       const saveButton = Array.from(row.querySelectorAll("button")).find(isInlineSaveButton);
-      if (!saveButton) return;
 
       captureInlineHistoryOnce();
       event.preventDefault();
       event.stopPropagation();
-      saveButton.click();
-      requestAnimationFrame(() => applyRowEditLayout(table));
+
+      if (saveButton) {
+        saveButton.click();
+      } else {
+        // Some customer/task implementations auto-commit only from their
+        // document-level outside-click handler and do not render a Save button.
+        // Dispatching a synthetic outside mousedown gives Enter the same commit
+        // semantics without duplicating each task's business save logic.
+        root.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      }
+
+      requestAnimationFrame(() => {
+        // If a legacy Save button did not commit (for example because that task
+        // changed its action markup), fall back to the same outside-click path.
+        if (row.isConnected && row.hasAttribute("data-editing-row-id")) {
+          root.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        }
+        applyRowEditLayout(table);
+      });
     };
 
     root.addEventListener("keydown", commitInlineEditOnEnter, false);

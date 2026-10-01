@@ -28,6 +28,45 @@ import {
 
 const text = (v) => String(v ?? "").trim();
 const lower = (v) => text(v).toLowerCase();
+
+export const getDoorPresetFamily = (door = {}) => {
+  const source = [
+    door?.doorTypeId,
+    door?.presetType,
+    door?.preset_type,
+    door?.presetLabel,
+    door?.preset_label,
+    door?.type_name,
+    door?.renderClass,
+    door?.class,
+    door?.class_name,
+    door?.penetration_type,
+    door?.door_type,
+    door?.type,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  // Category comes from the Door Preset family only. Door Type remains the
+  // existing procurement/product field and must never be replaced by the
+  // preset display name (e.g. "Internal Sliding Door").
+  if (/cavity/.test(source)) return "cavity";
+  if (/bifold|bi-fold/.test(source)) return "bifold";
+  if (/sliding|slider/.test(source)) return "sliding";
+  return null;
+};
+const PRESET_DISPLAY_DOOR_TYPES = new Set([
+  "cavity slider door",
+  "external sliding door",
+  "internal sliding door",
+  "double slider door",
+  "external bifold door",
+  "internal bifold door",
+]);
+
+export const sanitizeProcurementDoorType = (value) => {
+  const raw = text(value);
+  return PRESET_DISPLAY_DOOR_TYPES.has(raw.toLowerCase()) ? "" : raw;
+};
+
 const finite = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
 
 export const normalizeFloorLevel = (page, index = 0) => {
@@ -275,8 +314,8 @@ const explicitHanding = (d, allowed) => {
 
 export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => isTaskEligibleOpening(d) && !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "fixout").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
-  const rawType = lower(d?.door_type || d?.type || d?.class_name);
-  const cavity = /slid|cavity/.test(`${label.toLowerCase()} ${rawType}`);
+  const presetFamily = getDoorPresetFamily(d);
+  const cavity = presetFamily === "cavity";
   const dims = doorDimensions(d);
   const heights = cavity ? FIXOUT_CAVITY_HEIGHTS : FIXOUT_HEIGHTS;
   const widths = cavity ? FIXOUT_CAVITY_WIDTHS : FIXOUT_WIDTHS;
@@ -293,9 +332,10 @@ export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => i
     id: `fix-ai-${d?.id ?? idx}`,
     doorId: d?.id,
     floorLevel: text(d?.__floorLevel || d?.floorLevel || d?.floor_level) || "GF",
-    category: cavity ? "cavity" : (lower(d?.mode).includes("loose") ? "loose-jamb" : "prehung"),
+    category: presetFamily || (lower(d?.mode).includes("loose") ? "loose-jamb" : "prehung"),
     door_label: label,
-    door_type: text(d?.door_type || d?.product || d?.doorName),
+    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
+    doorTypeId: d?.doorTypeId || null,
     height: closestAllowed(dims.height, heights, 90) || (dims.height ? String(Math.round(dims.height)) : ""),
     width: closestAllowed(dims.width, widths, 70) || (dims.width ? String(Math.round(dims.width)) : ""),
     thicks: thickness,
@@ -322,14 +362,21 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => i
   const explicitInterior = explicitScope === "internal" || explicitScope === "interior";
   const scope = explicitExterior ? "external" : (explicitInterior ? "internal" : "");
   const rawMode = lower(d?.mode || d?.category);
-  const category = rawMode.includes("loose") ? "Loose Jamb" : (rawMode.includes("prehung") ? "Prehung" : "-");
+  const presetFamily = getDoorPresetFamily(d);
+  const category = presetFamily === "cavity"
+    ? "Cavity"
+    : presetFamily === "sliding"
+      ? "Sliding"
+      : presetFamily === "bifold"
+        ? "Bifold"
+        : (rawMode.includes("loose") ? "Loose Jamb" : (rawMode.includes("prehung") ? "Prehung" : "-"));
   const hung = explicitAllowed(d?.hung, scope === "internal" ? LOCKUP_INTERNAL_HUNG : LOCKUP_HUNG) || explicitHanding(d, scope === "internal" ? LOCKUP_INTERNAL_HUNG : LOCKUP_HUNG);
   return {
     id: `lock-ai-${d?.id ?? idx}`,
     doorId: d?.id,
     floorLevel: text(d?.__floorLevel || d?.floorLevel || d?.floor_level) || "GF",
     category,
-    mode: category === "Loose Jamb" ? "Loose" : (category === "Prehung" ? "Prehung" : null),
+    mode: category === "Cavity" ? "Cavity" : (category === "Loose Jamb" ? "Loose" : (["Prehung", "Sliding", "Bifold"].includes(category) ? "Prehung" : null)),
     scope,
     location: scope ? (scope === "external" ? "External" : "Internal") : "",
     label,
@@ -342,7 +389,8 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => i
       : "",
     jamb_size: text(d?.jamb_size || d?.jambSize),
     hung,
-    door_type: text(d?.door_type || d?.product),
+    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
+    doorTypeId: d?.doorTypeId || null,
     type: text(d?.type_code || d?.lockup_type),
     door_stop: explicitAllowed(d?.door_stop || d?.stop, ["Cushion", "DS2 with Riser"]),
     internal_type: explicitAllowed(d?.hole || d?.internal_type, LOCKUP_INTERNAL_HOLES),

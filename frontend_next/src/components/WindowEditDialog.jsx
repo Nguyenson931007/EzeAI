@@ -72,6 +72,7 @@ export default function WindowEditDialog({
     return 'win_standard';
   };
 
+  const [displayName, setDisplayName] = useState('');
   const [windowType, setWindowType] = useState('win_standard');
   const [glazingType, setGlazingType] = useState('single');
   const [frameMaterial, setFrameMaterial] = useState('aluminium');
@@ -190,6 +191,7 @@ export default function WindowEditDialog({
   // Initialize form fields when window changes
   useEffect(() => {
     if (!door) return;
+    setDisplayName(String(door.door_name || door.doorName || door.doorLabel || door.label || door.name || '').trim());
     setWindowType(getInitialWindowType());
     setGlazingType(door.glazingType || door.glazing_type || 'single');
     setFrameMaterial(door.frameMaterial || door.frame_material || door.material || 'aluminium');
@@ -259,8 +261,16 @@ export default function WindowEditDialog({
     const parsedWidth = Math.max(200, parseInt(widthMm) || 1200);
     const parsedSill = Math.max(0, Math.min(3500, parseInt(sillHeight) || 900));
 
+    const normalizedName = String(displayName || '').trim();
     const updated = {
       ...door,
+      ...(normalizedName ? {
+        door_name: normalizedName,
+        doorName: normalizedName,
+        doorLabel: normalizedName,
+        label: normalizedName,
+        name: normalizedName,
+      } : {}),
       doorTypeId: windowType,
       class: windowDef?.renderClass || 'window',
       type: windowDef?.doorType || 'window',
@@ -383,6 +393,24 @@ export default function WindowEditDialog({
 
         {/* Form Body */}
         <div style={{ padding: '20px' }}>
+          {/* Drawing label / name — shared by plan + task rows */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>Label / Name:</span>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
+              placeholder="e.g. W-01, Kitchen Window"
+              style={{ ...inputStyle, flex: 1, fontWeight: 700 }}
+            />
+          </div>
+
           {/* Window Type */}
           <div style={rowStyle}>
             <span style={labelStyle}>Window Type:</span>

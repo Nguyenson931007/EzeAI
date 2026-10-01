@@ -2277,16 +2277,20 @@ const DoorLayer = React.memo(({
                   if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
                   return;
                 }
+                if (!isSelected) {
+                  e.stopPropagation();
+                  if (selectDoor) {
+                    selectDoor(d.id, false, isWindow ? "window" : "door");
+                  } else {
+                    setSelectedId(d.id);
+                    setSelectedType(isWindow ? "window" : "door");
+                  }
+                  // First press selects only. Drag starts from a selected door so
+                  // normal clicking reliably exposes the floating Edit control.
+                  return;
+                }
                 if (startDrag) {
                   e.stopPropagation();
-                  if (!isSelected) {
-                    if (selectDoor) {
-                      selectDoor(d.id, false, isWindow ? "window" : "door");
-                    } else {
-                      setSelectedId(d.id);
-                      setSelectedType(isWindow ? "window" : "door");
-                    }
-                  }
                   startDrag(d.id, null, 'door-move');
                 }
               }}
@@ -2300,7 +2304,14 @@ const DoorLayer = React.memo(({
 
 
               {(() => {
-                const hasCustomName = d.door_name && !/^\d+$/.test(d.door_name) && d.door_name !== manualDimensionText;
+                const planDoorName = String(
+                  d.door_name || d.doorName || d.doorLabel || d.door_label || d.name ||
+                  ((d.label && !/^(single|double|sliding|window|door|single_door|double_door|sliding_door)$/i.test(String(d.label).trim())) ? d.label : "") ||
+                  ""
+                ).trim();
+                // A label/name may legitimately be numeric (for example "90").
+                // Do not hide it just because it looks like a dimension.
+                const hasCustomName = Boolean(planDoorName) && planDoorName !== String(manualDimensionText || "").trim();
                 const renderLabelElements = () => (
                   <>
                     {hasCustomName && (
@@ -2314,7 +2325,7 @@ const DoorLayer = React.memo(({
                         fontWeight="bold"
                         style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
                       >
-                        {d.door_name}
+                        {planDoorName}
                       </text>
                     )}
                     <text
@@ -2376,14 +2387,14 @@ const DoorLayer = React.memo(({
               {isSelected && type !== "window" && (() => {
                 const isDouble = type === "double";
                 const isSingle = type === "single";
-                const objWidth = isSingle ? 170 : (isDouble ? 110 : 60);
+                const objWidth = isSingle ? 190 : (isDouble ? 135 : 92);
 
                 return (
                   <foreignObject
                     x={(p1.x + p2.x) / 2 - objWidth / 2}
-                    y={(p1.y + p2.y) / 2 - 32}
+                    y={(p1.y + p2.y) / 2 - 42}
                     width={objWidth}
-                    height={30}
+                    height={40}
                     style={{ overflow: 'visible' }}
                   >
                     <div
@@ -2394,7 +2405,7 @@ const DoorLayer = React.memo(({
                         backdropFilter: 'blur(8px)',
                         border: '1px solid rgba(255, 87, 34, 0.5)',
                         borderRadius: '20px',
-                        padding: '3px 8px',
+                        padding: '5px 10px',
                         boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -2486,12 +2497,12 @@ const DoorLayer = React.memo(({
                           if (onEditDoor) onEditDoor(d);
                         }}
                         style={{
-                          background: 'none',
+                          background: 'rgba(255,255,255,0.08)',
                           border: 'none',
                           color: '#fff',
-                          fontSize: '11px',
+                          fontSize: '12px',
                           cursor: 'pointer',
-                          padding: '2px 4px',
+                          padding: '4px 8px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '2px',
@@ -4175,6 +4186,15 @@ export default function CanvasView({
       }
     } else {
       updateDoor(updatedDoor);
+    }
+
+    // Keep every task table that references this plan penetration in sync with
+    // Label / Name edits made from the drawing edit dialog.  The task container
+    // owns the task-state updates; this event only carries plan metadata.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ezefloor:door-metadata-updated", {
+        detail: { door: updatedDoor }
+      }));
     }
   };
 

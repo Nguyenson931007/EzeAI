@@ -678,7 +678,7 @@ async def calculate_lockout(payload: DoorCalcPayload):
             "mode", "lockup_mode", "category", "doorTypeId",
             "penetration_type", "class", "type", "door_name", "doorName", "label"
         )).lower()
-        is_cavity = "cavity" in cavity_source or "sliding" in cavity_source
+        is_cavity = "cavity" in cavity_source
         is_loose = mode_text == "loose" or "loose" in category_text
         resolved_mode = "Cavity" if is_cavity else ("Loose" if is_loose else ("Prehung" if is_ext else (d.get("mode") or "Loose")))
 

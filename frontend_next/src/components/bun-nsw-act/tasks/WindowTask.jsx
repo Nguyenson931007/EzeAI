@@ -170,8 +170,13 @@ export default function WindowTask({
   const saveEdit = (row) => {
     const location = String(editDraft.location || "").trim();
     const normalizedScope = /^ext/i.test(location) ? "external" : /^int/i.test(location) ? "internal" : "";
+    const editedLabel = String(editDraft.label || row.label || "").trim();
     const patch = {
-      door_name: editDraft.label || row.label || "",
+      door_name: editedLabel,
+      doorName: editedLabel,
+      doorLabel: editedLabel,
+      door_label: editedLabel,
+      name: editedLabel,
       window_type: editDraft.windowType || row.windowType || "Window",
       height_mm: Number(editDraft.height) || Number(row.height) || undefined,
       width_mm: Number(editDraft.width) || Number(row.width) || undefined,
@@ -182,6 +187,11 @@ export default function WindowTask({
         ? {
             ...item,
             label: patch.door_name,
+            door_label: patch.door_name,
+            door_name: patch.door_name,
+            doorName: patch.door_name,
+            doorLabel: patch.door_name,
+            name: patch.door_name,
             windowType: patch.window_type,
             height: patch.height_mm,
             width: patch.width_mm,
@@ -189,8 +199,9 @@ export default function WindowTask({
           }
         : item
     )));
-    if (row?.doorId && typeof updateDoorsProperty === "function") {
-      updateDoorsProperty([row.doorId], patch);
+    const linkedDoorId = row?.doorId || row?.door_id;
+    if (linkedDoorId && typeof updateDoorsProperty === "function") {
+      updateDoorsProperty([linkedDoorId], patch);
     }
     setEditingRowId(null);
   };

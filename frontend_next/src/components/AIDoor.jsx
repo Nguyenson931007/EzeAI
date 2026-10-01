@@ -1143,8 +1143,9 @@ export default function AIDoor({
       <polygon
         points={clickPolyPoints.map(p => `${p.x},${p.y}`).join(" ")}
         fill="rgba(0, 0, 0, 0.01)"
-        stroke="none"
-        strokeWidth={0}
+        stroke="rgba(0, 0, 0, 0.001)"
+        strokeWidth={18}
+        pointerEvents="all"
         onMouseDown={(e) => {
           lastSelectedOnMouseDown.current = isSelected;
           if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
@@ -1154,16 +1155,21 @@ export default function AIDoor({
             if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
             return;
           }
+          if (!isSelected) {
+            e.stopPropagation();
+            if (selectDoor) {
+              selectDoor(d.id, false, isWindow ? "window" : "door");
+            } else {
+              setSelectedId(d.id);
+              setSelectedType(isWindow ? "window" : "door");
+            }
+            // The first press is selection only. Starting a drag on the same
+            // press made normal click-to-select feel unreliable and could hide
+            // the Edit control behind the drag click-suppression guard.
+            return;
+          }
           if (startDrag) {
             e.stopPropagation();
-            if (!isSelected) {
-               if (selectDoor) {
-                 selectDoor(d.id, false, isWindow ? "window" : "door");
-               } else {
-                 setSelectedId(d.id);
-                 setSelectedType(isWindow ? "window" : "door");
-               }
-            }
             startDrag(d.id, null, 'door-move');
           }
         }}
@@ -1492,7 +1498,7 @@ export default function AIDoor({
               alignmentBaseline="middle"
               style={{ textShadow: isSelected ? 'none' : '0 0 4px white, 0 0 4px white', userSelect: 'none' }}
             >
-              {d.doorName || d.door_name || (d.class ? d.class.replace('_door', '') : 'Door')}
+              {String(d.doorName || d.door_name || d.doorLabel || d.door_label || d.name || ((d.label && !/^(single|double|sliding|window|door|single_door|double_door|sliding_door)$/i.test(String(d.label).trim())) ? d.label : '') || (d.class ? d.class.replace('_door', '') : 'Door'))}
             </text>
           </g>
         </>

@@ -7,7 +7,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { isWindowOpening } from "@/utils/procurementAutoFill";
+import { isWindowOpening, sanitizeProcurementDoorType } from "@/utils/procurementAutoFill";
 import {
   FIXOUT_HEIGHTS,
   FIXOUT_WIDTHS,
@@ -143,7 +143,9 @@ const normalizeStopDisplay = (val) => {
 const capitalize = (v) => v ? v.charAt(0).toUpperCase() + v.slice(1) : "None";
 const modeLabel = (mode) => {
   const m = String(mode || "").toLowerCase();
-  if (m === "cavity" || m.includes("cavity") || m.includes("slid")) return "Cavity";
+  if (m === "cavity" || m.includes("cavity")) return "Cavity";
+  if (m === "sliding" || m === "slider") return "Sliding";
+  if (m === "bifold" || m === "bi-fold") return "Bifold";
   if (m === "loose-jamb" || m === "loose" || m.includes("loose")) return "Loose Jamb";
   return "Prehung";
 };
@@ -903,7 +905,7 @@ const safeParseJson = (value, fallback) => {
   }
 };
 
-function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
+function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDoorsProperty }) {
   const read = (key, fallback = "") => formData?.[key] ?? fallback;
   const write = (key, value) => { if (onChange) onChange("fixout", key, value); };
 
@@ -911,11 +913,44 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
   const [revealDraft, setRevealDraft] = useState({ type: "window", height: "", width: "", blockWork: "No" });
   const [isRobeOpen, setIsRobeOpen] = useState(false);
   const [isTrimOpen, setIsTrimOpen] = useState(false);
+  const [editingRobeLabelIndex, setEditingRobeLabelIndex] = useState(null);
+  const [editingRevealLabelIndex, setEditingRevealLabelIndex] = useState(null);
   const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
   const revealRows = safeParseJson(read("fixout_reveal_openings", "[]"), []);
   const excludedWindowIds = safeParseJson(read("fixout_excluded_window_ids", "[]"), []);
 
   const persistRows = (key, rows) => write(key, JSON.stringify(rows));
+  const updateRobeLabel = (index, value) => {
+    const label = String(value || "").trim();
+    const next = robeRows.map((row, rowIndex) => rowIndex === index ? { ...row, label } : row);
+    persistRows("fixout_smart_robe_rows", next);
+    setEditingRobeLabelIndex(null);
+  };
+  const updateRevealLabel = (index, value) => {
+    const label = String(value || "").trim();
+    const target = revealRows[index];
+    const next = revealRows.map((row, rowIndex) => rowIndex === index ? {
+      ...row,
+      label,
+      door_label: label,
+      door_name: label,
+      doorName: label,
+      doorLabel: label,
+      name: label,
+    } : row);
+    persistRows("fixout_reveal_openings", next);
+    const linkedDoorId = target?.doorId || target?.door_id;
+    if (label && linkedDoorId && typeof updateDoorsProperty === "function") {
+      updateDoorsProperty([linkedDoorId], {
+        door_name: label,
+        doorName: label,
+        doorLabel: label,
+        door_label: label,
+        name: label,
+      });
+    }
+    setEditingRevealLabelIndex(null);
+  };
   const addRobe = () => {
     if (!robeDraft.label.trim() || !robeDraft.unitSize.trim() || !robeDraft.type.trim()) return;
     const next = [...robeRows, { ...robeDraft, id: `robe-${Date.now()}` }];
@@ -993,7 +1028,20 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
                   ) : robeRows.map((row, index) => (
                     <tr key={row.id || index}>
                       <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
-                      <td>{row.label || "—"}</td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
+                      <td onDoubleClick={() => setEditingRobeLabelIndex(index)} title="Double-click to edit label/name">
+                        {editingRobeLabelIndex === index ? (
+                          <input
+                            autoFocus
+                            defaultValue={row.label || ""}
+                            onBlur={(event) => updateRobeLabel(index, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur();
+                              if (event.key === "Escape") setEditingRobeLabelIndex(null);
+                            }}
+                            style={{ width: "100%", minWidth: "90px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px" }}
+                          />
+                        ) : (row.label || "—")}
+                      </td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
                       <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeRobe(index)} style={S.deleteBtn} title="Delete robe door">✕</button></td>
                     </tr>
                   ))}
@@ -1030,8 +1078,23 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [] }) {
                       <tr key={row.id || index}>
                         <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
                         <td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td>
-                        <td style={{ fontWeight: 800, color: "#1d4ed8" }}>
-                          {String(row.type || "").toLowerCase() === "window" ? (row.label || "—") : "—"}
+                        <td
+                          style={{ fontWeight: 800, color: "#1d4ed8" }}
+                          onDoubleClick={() => setEditingRevealLabelIndex(index)}
+                          title="Double-click to edit label/name"
+                        >
+                          {editingRevealLabelIndex === index ? (
+                            <input
+                              autoFocus
+                              defaultValue={row.label || ""}
+                              onBlur={(event) => updateRevealLabel(index, event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") event.currentTarget.blur();
+                                if (event.key === "Escape") setEditingRevealLabelIndex(null);
+                              }}
+                              style={{ width: "100%", minWidth: "95px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px", fontWeight: 800 }}
+                            />
+                          ) : (row.label || "—")}
                         </td>
                         <td>{row.height || "—"}</td>
                         <td>{row.width || "—"}</td>
@@ -1098,7 +1161,8 @@ export default function FixoutTask({
   onSelectEntry,
   activeJobNumber,
   onClearData,
-  onMoveDoorTask
+  onMoveDoorTask,
+  updateDoorsProperty
 }) {
   const { user, currentJobId, currentProjectName } = useAppModel();
   const activeCustomerShortName = getActiveClientShortName();
@@ -1209,6 +1273,7 @@ export default function FixoutTask({
     const isEzyJamb = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb";
     setEditRowData({
       ...item,
+      door_type: sanitizeProcurementDoorType(item.door_type),
       floorLevel: item.floorLevel || item.floor_level || "GF",
       ezyJamb: isCavity ? (isEzyJamb ? "Yes" : "No") : "No",
     });
@@ -1226,16 +1291,40 @@ export default function FixoutTask({
       finalDoorFrame = currentData.ezyJamb === "Yes" ? "Ezy Jamb" : "Timber Jamb";
     }
 
+    const editedLabel = String(
+      currentData.door_label || currentData.label || currentData.door_name || currentData.doorName || ""
+    ).trim();
+    const originalRow = (entriesRef.current || []).find((item) => item.id === targetId);
+
     onSetEntries((prev) => {
       const currentList = Array.isArray(prev) ? prev : (entriesRef.current || []);
       return currentList.map((item) => (item.id === targetId ? {
         ...item,
         ...currentData,
+        ...(editedLabel ? {
+          door_label: editedLabel,
+          label: editedLabel,
+          door_name: editedLabel,
+          doorName: editedLabel,
+          doorLabel: editedLabel,
+          name: editedLabel,
+        } : {}),
         floorLevel: currentData.floorLevel || item.floorLevel || item.floor_level || "GF",
         door_frame: finalDoorFrame,
         qty: q,
       } : item));
     });
+
+    const linkedDoorId = originalRow?.doorId || originalRow?.door_id;
+    if (editedLabel && linkedDoorId && typeof updateDoorsProperty === "function") {
+      updateDoorsProperty([linkedDoorId], {
+        door_name: editedLabel,
+        doorName: editedLabel,
+        doorLabel: editedLabel,
+        door_label: editedLabel,
+        name: editedLabel,
+      });
+    }
     setEditingRowId(null);
   };
 
@@ -1296,7 +1385,7 @@ export default function FixoutTask({
           floorLevel: row.floor_level || row.floorLevel || "GF",
           category: row.category || "cavity",
           door_label: row.door_label || "",
-          door_type: row.door_type || "",
+          door_type: sanitizeProcurementDoorType(row.door_type),
           height: row.height || 2040,
           width: row.width || 820,
           thicks: row.thicks ? String(row.thicks) : "35",
@@ -1346,7 +1435,7 @@ export default function FixoutTask({
         floor_level: item.floorLevel || item.floor_level || "GF",
         category: item.category || null,
         door_label: item.door_label || null,
-        door_type: item.door_type || null,
+        door_type: sanitizeProcurementDoorType(item.door_type) || null,
         height: item.height || null,
         width: item.width || null,
         thicks: item.thicks || null,
@@ -1471,7 +1560,7 @@ export default function FixoutTask({
         )}
       </div>
 
-      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} />
+      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} updateDoorsProperty={updateDoorsProperty} />
 
 
       <TaskInlineEnteredSection
@@ -1515,12 +1604,16 @@ export default function FixoutTask({
                   const idx = globalIdx >= 0 ? globalIdx : 0;
                   const isSelected = selectedEntryId === item.id;
                   const isCavity = item.category === "cavity";
-                  const isPrehung = item.category === "prehung";
+                  const isLooseJamb = item.category === "loose-jamb" || item.category === "loose";
+                  const isPrehung = !isCavity && !isLooseJamb;
 
                   const frameDisplay = (() => {
                     if (isCavity) {
                       const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
-                      return isEzy ? "Eze Jamb" : "Timber Jamb";
+                      // Cavity Jamb Size display follows the EzyJamb switch exactly:
+                      // No => —, Yes => Eze Jamb. Keep the stored Timber Jamb value
+                      // untouched so existing Procurement calculation/data parity is not changed.
+                      return isEzy ? "Eze Jamb" : "—";
                     }
                     return item.door_frame && item.door_frame !== "None" ? item.door_frame : "—";
                   })();
@@ -1539,7 +1632,12 @@ export default function FixoutTask({
                   const editIsLoose = editCategory === "loose-jamb" || editCategory === "loose";
                   const editHeightOptions = editIsCavity ? optionSet.cavityHeight : optionSet.height;
                   const editWidthOptions = editIsCavity ? optionSet.cavityWidth : optionSet.width;
-                  const editDoorOptions = editIsLoose ? looseJambDoors : prehungDoors;
+                  // Door Type is independent from Category.
+                  // Cavity/Sliding/Bifold use the same Door Type source as Cavity.
+                  const editUsesCavityDoorTypes = ["cavity", "sliding", "bifold"].includes(editCategory);
+                  const editDoorOptions = editUsesCavityDoorTypes
+                    ? looseJambDoors
+                    : (editIsLoose ? looseJambDoors : prehungDoors);
                   const editFurnitureOptions = FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || [];
                   const controlStyle = {
                     width: "100%",
@@ -1634,8 +1732,20 @@ export default function FixoutTask({
                       </td>
                       <td style={{ fontWeight: 600 }}>
                         {isRowEditing ? (
-                          <select value={editCategory} onChange={(event) => setEditField("category", event.target.value)} style={controlStyle}>
+                          <select
+                            value={editCategory}
+                            onChange={(event) => {
+                              const nextCategory = event.target.value;
+                              setEditRowData((prev) => ({
+                                ...prev,
+                                category: nextCategory,
+                              }));
+                            }}
+                            style={controlStyle}
+                          >
                             <option value="cavity">Cavity</option>
+                            <option value="sliding">Sliding</option>
+                            <option value="bifold">Bifold</option>
                             <option value="prehung">Prehung</option>
                             <option value="loose-jamb">Loose Jamb</option>
                           </select>
@@ -1662,7 +1772,7 @@ export default function FixoutTask({
                         {isRowEditing ? (
                           editIsCavity ? (
                             <select value={editRowData.ezyJamb || "No"} onChange={(event) => setEditField("ezyJamb", event.target.value)} style={controlStyle}>
-                              <option value="No">Timber Jamb</option>
+                              <option value="No">—</option>
                               <option value="Yes">Eze Jamb</option>
                             </select>
                           ) : (
@@ -1688,11 +1798,11 @@ export default function FixoutTask({
                       </td>
                       <td>
                         {isRowEditing ? (
-                          <select value={editRowData.door_type || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
+                          <select value={sanitizeProcurementDoorType(editRowData.door_type) || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
                             <option value="">—</option>
                             {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
                           </select>
-                        ) : (item.door_type || "—")}
+                        ) : (sanitizeProcurementDoorType(item.door_type) || "—")}
                       </td>
                       <td>{isRowEditing ? <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{optionSet.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select> : holeStr}</td>
                       <td>{isRowEditing ? <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{optionSet.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select> : finishStr}</td>

@@ -46,6 +46,7 @@ export default function DoorEditDialog({
     if (!door) return 'int_hinged_single';
     if (door.doorTypeId) return door.doorTypeId;
     const parentWall = door.parentWallId ? walls.find(w => w.id === door.parentWallId) : null;
+    const cls = String(door.class || door.class_name || door.penetration_type || door.type || 'single_door');
     const isExtWall = parentWall && (parentWall.class_name === 'exterior_wall' || parentWall.type === 'ext' || parentWall.is_ext || parentWall.is_exterior);
     const isExt = door.is_ext || door.is_exterior || door.location === 'external' || isExtWall || door.class?.includes('ext') || door.doorName?.toLowerCase().includes('external') || door.door_name?.toLowerCase().includes('external');
     const category = isExt ? 'external' : 'internal';
@@ -63,6 +64,7 @@ export default function DoorEditDialog({
     return 'int_hinged_single';
   };
 
+  const [displayName, setDisplayName] = useState('');
   const [penetrationType, setPenetrationType] = useState('int_hinged_single');
   const [hardwareType, setHardwareType] = useState('passage');
   const [material, setMaterial] = useState('timber');
@@ -180,6 +182,7 @@ export default function DoorEditDialog({
   // Initialize form fields when door changes
   useEffect(() => {
     if (!door) return;
+    setDisplayName(String(door.door_name || door.doorName || door.doorLabel || door.label || door.name || '').trim());
     setPenetrationType(getInitialPenetType());
     setHardwareType(door.hardwareType || door.hardware_type || 'passage');
     setMaterial(door.material || 'timber');
@@ -243,8 +246,16 @@ export default function DoorEditDialog({
       ? "Cavity"
       : (isExternal ? "Prehung" : "Loose");
 
+    const normalizedName = String(displayName || '').trim();
     const updated = {
       ...door,
+      ...(normalizedName ? {
+        door_name: normalizedName,
+        doorName: normalizedName,
+        doorLabel: normalizedName,
+        door_label: normalizedName,
+        name: normalizedName,
+      } : {}),
       doorTypeId: penetrationType,
       class: doorDef?.renderClass || door.class || 'single_door',
       type: doorDef?.doorType || door.type || 'single',
@@ -361,6 +372,24 @@ export default function DoorEditDialog({
 
         {/* Form Body */}
         <div style={{ padding: '20px' }}>
+          {/* Drawing label / name — shared by plan + task rows */}
+          <div style={rowStyle}>
+            <span style={labelStyle}>Label / Name:</span>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
+              placeholder="e.g. D-02, Entry Door"
+              style={{ ...inputStyle, flex: 1, fontWeight: 700 }}
+            />
+          </div>
+
           {/* Penetration Type */}
           <div style={rowStyle}>
             <span style={labelStyle}>Penetration Type:</span>
