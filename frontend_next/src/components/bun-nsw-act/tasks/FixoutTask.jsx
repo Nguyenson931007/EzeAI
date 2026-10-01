@@ -150,6 +150,8 @@ const modeLabel = (mode) => {
   return "Prehung";
 };
 
+const isCavityStyleCategory = (category) => ["cavity", "sliding", "slider", "bifold", "bi-fold"].includes(String(category || "").toLowerCase());
+
 // Suggestions for room labels
 const ROOM_LABEL_SUGGESTIONS = {
   "Bed 1": ["Privacy Set", "Cushion", "HF"], "Bed 2": ["Passage Set", "Cushion", "HF"],
@@ -1269,7 +1271,7 @@ export default function FixoutTask({
 
   const handleStartEdit = (item) => {
     setEditingRowId(item.id);
-    const isCavity = (item.category || "cavity") === "cavity";
+    const isCavity = isCavityStyleCategory(item.category || "cavity");
     const isEzyJamb = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb";
     setEditRowData({
       ...item,
@@ -1284,12 +1286,23 @@ export default function FixoutTask({
     if (!targetId || !onSetEntries) return;
     const currentData = editRowDataRef.current;
     const q = parseInt(currentData.qty, 10) || 1;
-    const isCavity = (currentData.category || "cavity") === "cavity";
+    const isCavity = isCavityStyleCategory(currentData.category || "cavity");
 
     let finalDoorFrame = currentData.door_frame || "Timber Jamb";
     if (isCavity) {
       finalDoorFrame = currentData.ezyJamb === "Yes" ? "Ezy Jamb" : "Timber Jamb";
     }
+
+    // Cavity-style categories (Cavity / Sliding / Bifold) keep the same summary
+    // table as every other Fixout door. Fields that do not exist on the
+    // Cavity form are intentionally cleared so the table renders them as —.
+    const cavityOnlyReset = isCavity ? {
+      handing: null,
+      lift_off_pivot: null,
+      hole: null,
+      finish: null,
+      door_stop: null,
+    } : {};
 
     const editedLabel = String(
       currentData.door_label || currentData.label || currentData.door_name || currentData.doorName || ""
@@ -1311,6 +1324,7 @@ export default function FixoutTask({
         } : {}),
         floorLevel: currentData.floorLevel || item.floorLevel || item.floor_level || "GF",
         door_frame: finalDoorFrame,
+        ...cavityOnlyReset,
         qty: q,
       } : item));
     });
@@ -1395,7 +1409,7 @@ export default function FixoutTask({
           handing: row.handing || "",
           hole: isBunVic && row.hole === "HF" ? "HL" : (row.hole || ""),
           finish: row.finish || "",
-          door_furniture: row.door_furniture || (row.category === "cavity" ? "CSD Passage Set" : "None"),
+          door_furniture: row.door_furniture || (isCavityStyleCategory(row.category) ? "CSD Passage Set" : "None"),
           door_stop: row.door_stop || "None",
           qty: row.qty || 1,
           source: "manual",
@@ -1498,28 +1512,34 @@ export default function FixoutTask({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
 
+      <TaskActionButtons
+        onAutoFill={() => onAddDataAI?.("fixout")}
+        onAddData={handleAddDataFromDb}
+        addDataDisabled={isAddingData}
+        onClear={onClearData}
+        onSave={handleSave}
+        saveDisabled={isSaving}
+        saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+      />
+
       <div style={S.card}>
         <div
           onClick={() => setIsDoorInformationOpen((v) => !v)}
-          style={{ ...S.cardTitle, cursor: "pointer", userSelect: "none" }}
+          style={{
+            ...S.cardTitle,
+            padding: "10px 14px",
+            minHeight: "40px",
+            borderBottom: isDoorInformationOpen ? "1px solid #e2e8f0" : "none",
+          }}
         >
-          <span>1. Door information</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <TaskActionButtons
-              onAutoFill={() => onAddDataAI?.("fixout")}
-              onAddData={handleAddDataFromDb}
-              addDataDisabled={isAddingData}
-              onClear={onClearData}
-              onSave={handleSave}
-              saveDisabled={isSaving}
-              saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
-            />
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{isDoorInformationOpen ? "▲" : "▼"}</span>
-          </div>
+          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>1. Door information</span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, flexShrink: 0 }}>
+            {isDoorInformationOpen ? "▲" : "▼"}
+          </span>
         </div>
 
         {isDoorInformationOpen && (
-          <div style={{ padding: "8px" }}>
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
             <CategorySection
               mode="cavity"
@@ -1603,7 +1623,7 @@ export default function FixoutTask({
                   const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
                   const idx = globalIdx >= 0 ? globalIdx : 0;
                   const isSelected = selectedEntryId === item.id;
-                  const isCavity = item.category === "cavity";
+                  const isCavity = isCavityStyleCategory(item.category);
                   const isLooseJamb = item.category === "loose-jamb" || item.category === "loose";
                   const isPrehung = !isCavity && !isLooseJamb;
 
@@ -1624,11 +1644,11 @@ export default function FixoutTask({
                   const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
                   const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
                   const jambWallStr = item.wall_width ? `${String(item.wall_width).replace(/mm/gi, "").trim()}mm Wall` : "—";
-                  const hungStr = item.handing || item.lift_off_pivot || "—";
+                  const hungStr = isCavity ? "—" : (item.handing || item.lift_off_pivot || "—");
 
                   const isRowEditing = editingRowId === item.id;
                   const editCategory = isRowEditing ? (editRowData.category || item.category || "cavity") : item.category;
-                  const editIsCavity = editCategory === "cavity";
+                  const editIsCavity = isCavityStyleCategory(editCategory);
                   const editIsLoose = editCategory === "loose-jamb" || editCategory === "loose";
                   const editHeightOptions = editIsCavity ? optionSet.cavityHeight : optionSet.height;
                   const editWidthOptions = editIsCavity ? optionSet.cavityWidth : optionSet.width;
@@ -1638,7 +1658,9 @@ export default function FixoutTask({
                   const editDoorOptions = editUsesCavityDoorTypes
                     ? looseJambDoors
                     : (editIsLoose ? looseJambDoors : prehungDoors);
-                  const editFurnitureOptions = FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || [];
+                  const editFurnitureOptions = editIsCavity
+                    ? (FURNITURE_OPTIONS_BY_MODE.cavity || [])
+                    : (FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || []);
                   const controlStyle = {
                     width: "100%",
                     minWidth: 0,
@@ -1784,16 +1806,18 @@ export default function FixoutTask({
                       </td>
                       <td>
                         {isRowEditing ? (
-                          <select
-                            value={editRowData.handing || editRowData.lift_off_pivot || "None"}
-                            onChange={(event) => {
-                              if (editIsCavity || editIsLoose) setEditField("lift_off_pivot", event.target.value);
-                              else setEditField("handing", event.target.value);
-                            }}
-                            style={controlStyle}
-                          >
-                            {Array.from(new Set([...(optionSet.handing || []), ...(optionSet.liftOff || [])])).map((value) => <option key={value} value={value}>{value}</option>)}
-                          </select>
+                          editIsCavity ? <span>—</span> : (
+                            <select
+                              value={editRowData.handing || editRowData.lift_off_pivot || "None"}
+                              onChange={(event) => {
+                                if (editIsLoose) setEditField("lift_off_pivot", event.target.value);
+                                else setEditField("handing", event.target.value);
+                              }}
+                              style={controlStyle}
+                            >
+                              {Array.from(new Set([...(optionSet.handing || []), ...(optionSet.liftOff || [])])).map((value) => <option key={value} value={value}>{value}</option>)}
+                            </select>
+                          )
                         ) : hungStr}
                       </td>
                       <td>
@@ -1804,8 +1828,8 @@ export default function FixoutTask({
                           </select>
                         ) : (sanitizeProcurementDoorType(item.door_type) || "—")}
                       </td>
-                      <td>{isRowEditing ? <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{optionSet.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select> : holeStr}</td>
-                      <td>{isRowEditing ? <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{optionSet.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select> : finishStr}</td>
+                      <td>{isRowEditing ? (editIsCavity ? <span>—</span> : <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{optionSet.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select>) : holeStr}</td>
+                      <td>{isRowEditing ? (editIsCavity ? <span>—</span> : <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{optionSet.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select>) : finishStr}</td>
                       <td>
                         {isRowEditing ? (
                           editIsCavity ? <span>—</span> : <select value={editRowData.door_stop || "None"} onChange={(event) => setEditField("door_stop", event.target.value)} style={controlStyle}>{optionSet.stop.map((value) => <option key={value} value={value}>{value}</option>)}</select>
