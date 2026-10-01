@@ -424,11 +424,77 @@ export default function CladdingTask({
   const [isMaterialsOpen, setIsMaterialsOpen] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   const handleResetData = () => {
     setWallHeight("2.44");
     setWallLength("");
   };
+
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchCladdingJobs();
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          if (matchedRows.length > 0) {
+            const loadedFromSql = matchedRows.map((r, idx) => {
+              const heightMm = normalizeCladdingHeightMm(r.wall_height) || 2440;
+              const heightM = heightMm / 1000;
+              const lengthM = dimensionToMetres(r.wall_length);
+              const areaM2 = Number((heightM * lengthM).toFixed(2));
+              return {
+                id: r.cladding_id ? `clad-${r.cladding_id}` : `clad-loaded-${Date.now()}-${idx}`,
+                claddingId: r.cladding_id ? String(r.cladding_id) : null,
+                floorLevel: r.floor_level || "GF",
+                height: `${Math.round(heightMm)} mm`,
+                length: `${Number(lengthM.toFixed(3))} m`,
+                area: `${areaM2} m²`
+              };
+            });
+            const loaded = hydrateRowsFromWallLinkCache(loadedFromSql).map((row) => ({
+              ...row,
+              source: "db",
+              autofill_source: "db",
+            }));
+            if (onSetEntries) onSetEntries(loaded);
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Cladding data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
 
   const handleReloadFromDb = async (force = true) => {
     const target = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim().toLowerCase();
@@ -471,6 +537,8 @@ export default function CladdingTask({
           if (onSetEntries) {
             onSetEntries(loaded);
           }
+          setDataSource("db");
+          setIsReadOnly(true);
           const first = loaded[0];
           if (first) {
             setWallHeight(String((normalizeCladdingHeightMm(first.height) || 2440) / 1000));
@@ -565,14 +633,16 @@ export default function CladdingTask({
         // Keep the current drawing-linked rows in memory after Save so their
         // wallId -> W-n relationship is preserved in the local task cache.
         setSaveStatus("success");
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveStatus(null), 3500);
       } else {
         setSaveStatus("error");
       }
     } catch (err) {
-      console.error("Lỗi khi lưu Cladding vào MSSQL:", err);
+      console.error("Error saving Cladding to MSSQL:", err);
       setSaveStatus("error");
-      alert(`Lỗi khi lưu Cladding vào MSSQL: ${err.message || err}`);
+      alert(`Error saving Cladding to MSSQL: ${err.message || err}`);
     } finally {
       setIsSaving(false);
     }
@@ -796,10 +866,13 @@ const claddingManualRows = (() => {
             onClear={handleClearCladdingData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSaveToMSSQL}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveStatus === "success" ? "success" : saveStatus === "error" ? "error" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

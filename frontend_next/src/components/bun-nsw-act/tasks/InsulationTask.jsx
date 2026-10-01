@@ -158,6 +158,11 @@ export default function InsulationTask({
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   // Sections Collapsible states
   const [isSection1Open, setIsSection1Open] = useState(false);
@@ -935,6 +940,8 @@ export default function InsulationTask({
       const res = await ApiService.saveInsulationJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 4000);
       } else {
         alert(res?.detail || "Could not save Insulation records to ProcurementApp.");
@@ -946,6 +953,103 @@ export default function InsulationTask({
       setIsSaving(false);
     }
   };
+
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingFromDb(true);
+      try {
+        const res = await ApiService.fetchInsulationJobs();
+        if (cancelled) return;
+        if (res && res.data) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          const validRows = matchedRows.filter(r => (r.wall_length && parseFloat(r.wall_length) > 0) || (r.total_area_raked && parseFloat(r.total_area_raked) > 0));
+
+          if (validRows.length > 0) {
+            const loadedWalls = [];
+            const loadedAreas = [];
+
+            validRows.forEach((r, idx) => {
+              const wType = r.insulation_type || r.wall_type || "Ext wall";
+              const isArea = String(wType).toLowerCase().includes("ceiling") || String(wType).toLowerCase().includes("floor");
+              const heightMm = parseFloat(r.wall_height) || 2400;
+              const lenMm = parseFloat(r.wall_length) || 0;
+              const rakedM2 = r.total_area_raked !== undefined && r.total_area_raked !== null ? parseFloat(r.total_area_raked) : 0;
+              const doorM2 = r.total_area_door !== undefined && r.total_area_door !== null ? parseFloat(r.total_area_door) : 0;
+              const rawArea = r.total_area || r.insulation_area;
+              const insArea = rawArea !== undefined && rawArea !== null && parseFloat(rawArea) > 0
+                ? parseFloat(rawArea)
+                : (isArea ? (rakedM2 > 0 ? rakedM2 : (lenMm / 1000)) : calcInsulationArea(heightMm, lenMm, rakedM2, doorM2));
+
+              const rVal = r.r_value || (isArea ? "R3.5" : "R2.0");
+              const prods = isArea ? getProductOptionsForAreaAndR(wType, rVal) : getProductOptionsForWallTypeAndR(wType, rVal);
+              const prod = r.product && r.product !== "-" ? r.product : (prods[0] || "");
+
+              if (isArea) {
+                loadedAreas.push({
+                  id: `ins-area-loaded-${Date.now()}-${idx}`,
+                  floorLevel: r.floor_level || "GF",
+                  type: String(wType).toLowerCase().includes("floor") ? "Floor" : "Ceiling",
+                  rValue: rVal,
+                  product: prod,
+                  insulationArea: Number(insArea.toFixed(2)),
+                  totalArea: Number(insArea.toFixed(2)),
+                  area: Number(insArea.toFixed(2)),
+                  source: "db",
+                  autofill_source: "db"
+                });
+              } else {
+                loadedWalls.push({
+                  id: `ins-loaded-${Date.now()}-${idx}`,
+                  floorLevel: r.floor_level || "GF",
+                  type: wType,
+                  height: heightMm,
+                  length: lenMm,
+                  rValue: rVal,
+                  product: prod,
+                  raked: rakedM2,
+                  door: doorM2,
+                  insulationArea: Number(insArea.toFixed(2)),
+                  totalArea: Number(insArea.toFixed(2)),
+                  source: "db",
+                  autofill_source: "db"
+                });
+              }
+            });
+
+            if (loadedWalls.length > 0 && onSetWallEntries) onSetWallEntries(loadedWalls);
+            if (loadedAreas.length > 0 && onSetAreaEntries) onSetAreaEntries(loadedAreas);
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Insulation data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingFromDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
 
   const handleAddDataFromDb = async () => {
     try {
@@ -1013,6 +1117,8 @@ export default function InsulationTask({
 
             if (loadedWalls.length > 0 && onSetWallEntries) onSetWallEntries(loadedWalls);
             if (loadedAreas.length > 0 && onSetAreaEntries) onSetAreaEntries(loadedAreas);
+            setDataSource("db");
+            setIsReadOnly(true);
           }
         }
     } catch (e) {
@@ -1785,10 +1891,13 @@ export default function InsulationTask({
             onToggle={() => setIsEnteredWallsOpen((v) => !v)}
             autoFillDisabled={isAutoFilling}
             autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
-          
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingFromDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

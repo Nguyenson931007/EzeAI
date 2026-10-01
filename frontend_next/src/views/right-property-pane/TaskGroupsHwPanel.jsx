@@ -227,12 +227,12 @@ export default function TaskGroupsHwPanel({
           const isDone = Boolean(task.workflow_done || task.assign_is_comp || task.is_done);
           const taskCount = Number.isFinite(Number(task.task_count)) ? Number(task.task_count) : null;
           const taskDoneCount = Number.isFinite(Number(task.task_done_count)) ? Number(task.task_done_count) : null;
-          const isCurrentLoading = loadingJobId === (task.id || task.job_number);
+          const isCurrentLoading = loadingJobId === (task.id || task.job_number || task.hw_id);
 
           return (
             <div
               key={task.id || `task_${idx}`}
-              onClick={() => handleOpenJobTask(task)}
+              onClick={() => !isCurrentLoading && handleOpenJobTask(task)}
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -241,7 +241,8 @@ export default function TaskGroupsHwPanel({
                 background: "#ffffff",
                 border: isDone ? "1px solid #a7f3d0" : "1px solid var(--border)",
                 borderRadius: "8px",
-                cursor: "pointer",
+                cursor: isCurrentLoading ? "wait" : "pointer",
+                opacity: isCurrentLoading ? 0.7 : 1,
                 boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                 transition: "all 0.12s ease"
               }}
@@ -259,7 +260,11 @@ export default function TaskGroupsHwPanel({
                   <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--text)" }}>
                     {task.job_number || task.hw_id || "No Job ID"}
                   </span>
-                  {isDone ? (
+                  {isCurrentLoading ? (
+                    <span style={{ fontSize: "9px", background: "rgba(37,99,235,0.1)", color: "var(--blue)", border: "1px solid rgba(37,99,235,0.25)", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
+                      Loading...
+                    </span>
+                  ) : isDone ? (
                     <span style={{ fontSize: "9px", background: "#ecfdf5", color: "#059669", border: "1px solid #a7f3d0", padding: "1px 5px", borderRadius: "4px", fontWeight: 700 }}>
                       ✓ Done
                     </span>

@@ -264,6 +264,7 @@ export default function App() {
   useEffect(() => {
     const onTaskFloorLevelsUpdated = (event) => {
       const next = normalizeTaskFloorCodes(event?.detail?.floor_levels);
+      lastLocalFloorMutationAtRef.current = Date.now();
       setBuildingFloorLevels((prev) => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
     };
     window.addEventListener("task-floor-levels-updated", onTaskFloorLevelsUpdated);
@@ -1135,6 +1136,44 @@ export default function App() {
 
     restoreWorkspace();
   }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setPdfOffsetsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
+
+  // 1.5. Khi pages rỗng (chẳng hạn khi chuyển sang job mới chưa có bản vẽ), đảm bảo ảnh nền và kích thước Canvas được reset sạch
+  useEffect(() => {
+    if (pages.length === 0 && image !== null) {
+      setImage(null);
+      setImgSize({ w: 0, h: 0 });
+    }
+  }, [pages.length, image]);
+
+  useEffect(() => {
+    const handleWorkspaceReset = (e) => {
+      setImage(null);
+      setImgSize({ w: 0, h: 0 });
+      setCurrentPage(0);
+      if (setSelectedId) setSelectedId(null);
+      if (setHighlightType) setHighlightType(null);
+      if (setCurrentLevelIndex) setCurrentLevelIndex(0);
+      const targetFloors = normalizeTaskFloorCodes(e?.detail?.floor_levels);
+      lastLocalFloorMutationAtRef.current = Date.now();
+      setBuildingFloorLevels(targetFloors);
+      if (setLevels) {
+        setLevels(targetFloors.map((code, idx) => ({
+          id: `lvl-${idx + 1}`,
+          name: idx === 0 ? "Level 1" : `Level ${idx + 1}`,
+          code: code
+        })));
+      }
+      try {
+        const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        const pending = raw ? JSON.parse(raw) : {};
+        pending.floor_levels = targetFloors;
+        sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+        localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
+      } catch (_) { }
+    };
+    window.addEventListener("ezefloor:reset_workspace", handleWorkspaceReset);
+    return () => window.removeEventListener("ezefloor:reset_workspace", handleWorkspaceReset);
+  }, [setSelectedId, setHighlightType, setCurrentLevelIndex, setBuildingFloorLevels, setLevels]);
 
   // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
   useEffect(() => {
@@ -2789,6 +2828,7 @@ export default function App() {
                 setIsAddingPagesMode={setIsAddingPagesMode}
                 setShowImportPageSelector={setShowImportPageSelector}
                 pages={pages}
+                setPages={setPages}
                 buildingFloorLevels={buildingFloorLevels}
                 onBuildingFloorLevelsChange={syncBuildingFloorLevels}
                 currentPdfFile={currentPdfFile}

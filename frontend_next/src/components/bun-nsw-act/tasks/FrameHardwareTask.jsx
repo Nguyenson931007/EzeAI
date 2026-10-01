@@ -107,6 +107,11 @@ export default function FrameHardwareTask({
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
   const [isSection1Open, setIsSection1Open] = useState(false);
   const [isSlabOpen, setIsSlabOpen] = useState(false);
   const [isTimberOpen, setIsTimberOpen] = useState(false);
@@ -630,6 +635,48 @@ export default function FrameHardwareTask({
     }, 100);
   };
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingFromDb(true);
+      try {
+        const res = await ApiService.fetchFrameworkJobs();
+        if (cancelled) return;
+        if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          if (matchedRows.length > 0) {
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Framework data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingFromDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   // ── Save to database via API ──
   const handleSaveToDatabase = async () => {
     if (!entries || entries.length === 0) return;
@@ -681,6 +728,8 @@ export default function FrameHardwareTask({
       const res = await ApiService.saveFrameworkJobs(payload);
       if (res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       }
     } catch (err) {
@@ -1039,6 +1088,10 @@ export default function FrameHardwareTask({
           onSave={handleSaveToDatabase}
           saveDisabled={isSaving || qualifiedWalls.length === 0}
           saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+          dataSource={dataSource}
+          isReadOnly={isReadOnly}
+          isLoadingFromDb={isLoadingFromDb}
+          onEdit={() => setIsReadOnly(false)}
           footer={(
             <TaskSummaryFooter>
               {qualifiedWalls.length} slab wall{qualifiedWalls.length === 1 ? "" : "s"} ready to save to FrameWork
@@ -1438,6 +1491,10 @@ export default function FrameHardwareTask({
         onSave={handleSaveToDatabase}
         saveDisabled={isSaving}
         saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+        dataSource={dataSource}
+        isReadOnly={isReadOnly}
+        isLoadingFromDb={isLoadingFromDb}
+        onEdit={() => setIsReadOnly(false)}
       >
             <div style={{ padding: "8px" }}>
               <TaskSummaryTable minWidth="760px" compact>

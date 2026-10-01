@@ -14,12 +14,18 @@ export default function EnteredTaskActions({
   saveStatus = "idle",
   autoFillLabel = "Auto Fill",
   addDataLabel = "Add data",
-  saveLabel = "Save"
+  saveLabel = "Save",
+  // ── New: Read-only / Edit mode for DB-loaded data ──
+  dataSource = null,      // "db" | "local" | null
+  isReadOnly = false,     // true when data loaded from DB is in view-only mode
+  onEdit = null,          // callback to switch from read-only to edit mode
+  isLoadingFromDb = false // true while auto-loading data from DB
 }) {
   const [portalHost, setPortalHost] = useState(null);
   const isSaving = saveStatus === "saving";
   const isSaved = saveStatus === "success";
   const isSaveError = saveStatus === "error";
+  const isDbSource = dataSource === "db";
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -29,12 +35,86 @@ export default function EnteredTaskActions({
     return () => window.removeEventListener("ezefloor:task-action-slot-ready", resolveHost);
   }, []);
 
-  const actionButtons = (onAutoFill || onAddData || onClear || onSave) ? (
+  // Determine effective save label
+  const effectiveSaveLabel = isDbSource && !isReadOnly ? "Update" : saveLabel;
+
+  const actionButtons = (onAutoFill || onAddData || onClear || onSave || isDbSource || isLoadingFromDb) ? (
     <div
       className="entered-task-actions"
       style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "nowrap", marginLeft: "auto" }}
     >
-      {onAutoFill && (
+      {/* Loading indicator while auto-fetching from DB */}
+      {isLoadingFromDb && (
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 600,
+            color: "#6366f1",
+            whiteSpace: "nowrap",
+            padding: "3px 8px",
+            background: "#eef2ff",
+            border: "1px solid #c7d2fe",
+            borderRadius: "5px",
+            minHeight: "28px",
+            display: "inline-flex",
+            alignItems: "center"
+          }}
+        >
+          ⏳ Loading...
+        </span>
+      )}
+
+      {/* DB source badge — shown when data comes from database */}
+      {isDbSource && !isLoadingFromDb && (
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 700,
+            color: isReadOnly ? "#0369a1" : "#b45309",
+            whiteSpace: "nowrap",
+            padding: "3px 8px",
+            background: isReadOnly ? "#e0f2fe" : "#fef3c7",
+            border: `1px solid ${isReadOnly ? "#7dd3fc" : "#fcd34d"}`,
+            borderRadius: "5px",
+            minHeight: "28px",
+            display: "inline-flex",
+            alignItems: "center"
+          }}
+          title={isReadOnly ? "Data loaded from database — press Edit to modify" : "Editing DB data — press Update to save changes"}
+        >
+          {isReadOnly ? "📋 Saved" : "✏️ Editing"}
+        </span>
+      )}
+
+      {/* Edit button — only visible when DB data is in read-only mode */}
+      {isDbSource && isReadOnly && onEdit && !isLoadingFromDb && (
+        <button
+          className="entered-task-action entered-task-action--edit"
+          type="button"
+          style={{
+            background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+            border: "1px solid #fbbf24",
+            color: "#b45309",
+            fontSize: "10.5px",
+            fontWeight: 700,
+            padding: "3px 10px",
+            minHeight: "28px",
+            borderRadius: "5px",
+            cursor: "pointer",
+            whiteSpace: "nowrap"
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          title="Unlock editing to modify saved data"
+        >
+          ✏ Edit
+        </button>
+      )}
+
+      {/* Auto Fill — hidden in read-only mode */}
+      {onAutoFill && !isReadOnly && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--autofill"
           type="button"
@@ -62,7 +142,8 @@ export default function EnteredTaskActions({
         </button>
       )}
 
-      {onAddData && (
+      {/* Add data — hidden in read-only mode */}
+      {onAddData && !isReadOnly && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--add-data"
           type="button"
@@ -90,7 +171,8 @@ export default function EnteredTaskActions({
         </button>
       )}
 
-      {onClear && (
+      {/* Clear data — hidden in read-only mode */}
+      {onClear && !isReadOnly && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--clear"
           type="button"
@@ -116,32 +198,33 @@ export default function EnteredTaskActions({
         </button>
       )}
 
-      {onSave && (
+      {/* Save / Update button — disabled in read-only mode */}
+      {onSave && !isLoadingFromDb && (
         <button
           className={`entered-task-action entered-task-action--confirm${isSaved ? " is-saved" : ""}${isSaveError ? " is-error" : ""}`}
           type="button"
           style={{
-            background: isSaveError ? "#fef2f2" : isSaved ? "#dcfce7" : "#f0fdf4",
+            background: isSaveError ? "#fef2f2" : isSaved ? "#dcfce7" : isReadOnly ? "#f1f5f9" : "#f0fdf4",
             border: "1px solid",
-            borderColor: isSaveError ? "#fca5a5" : isSaved ? "#4ade80" : "#86efac",
-            color: isSaveError ? "#b91c1c" : "#15803d",
+            borderColor: isSaveError ? "#fca5a5" : isSaved ? "#4ade80" : isReadOnly ? "#cbd5e1" : "#86efac",
+            color: isSaveError ? "#b91c1c" : isReadOnly ? "#94a3b8" : "#15803d",
             fontSize: "10.5px",
             fontWeight: 700,
             padding: "3px 10px",
             minHeight: "28px",
             borderRadius: "5px",
-            cursor: saveDisabled || isSaving ? "not-allowed" : "pointer",
-            opacity: saveDisabled || isSaving ? 0.65 : 1,
+            cursor: saveDisabled || isSaving || isReadOnly ? "not-allowed" : "pointer",
+            opacity: saveDisabled || isSaving || isReadOnly ? 0.65 : 1,
             whiteSpace: "nowrap"
           }}
           onClick={(e) => {
             e.stopPropagation();
-            onSave();
+            if (!isReadOnly) onSave();
           }}
-          disabled={saveDisabled || isSaving}
-          title="Save"
+          disabled={saveDisabled || isSaving || isReadOnly}
+          title={isReadOnly ? "Data already saved — press Edit to modify" : "Save"}
         >
-          {isSaving ? "Saving..." : isSaved ? "✓ Saved" : isSaveError ? "Retry Save" : `💾 ${saveLabel}`}
+          {isSaving ? "Saving..." : isSaved ? "✓ Saved" : isSaveError ? "Retry Save" : isReadOnly ? "✓ Saved" : `💾 ${effectiveSaveLabel}`}
         </button>
       )}
     </div>

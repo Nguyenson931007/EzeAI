@@ -281,6 +281,72 @@ export default function EavesSoffitTask({
   // ── Load / Reload saved Eaves & Soffit entries from MSSQL ──
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
+
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchEavesJobs();
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          if (matchedRows.length > 0) {
+            const loaded = matchedRows.map((r, idx) => ({
+              id: r.eaves_id ? `eave-${r.eaves_id}` : `eave-loaded-${Date.now()}-${idx}`,
+              floorLevel: r.floor_level || "GF",
+              brand: r.sheet_brand || "FC",
+              thickness: r.sheet_thickness || "4.5mm",
+              batten: r.sofit_batten || "",
+              bead: r.sofit_bead || "",
+              inputData: r.input_data || {},
+              source: "db",
+              autofill_source: "db"
+            }));
+            if (onSetEntries) onSetEntries(loaded);
+            const first = loaded[0];
+            if (first) {
+              setSheetBrand(first.brand || "FC");
+              setSheetThickness(first.thickness || "4.5mm");
+              if (first.batten) setSoffitBatten(first.batten);
+              if (first.bead) setSoffitBead(first.bead);
+              setInputData({ ...(first.inputData || {}) });
+            }
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Eaves data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
 
   const handleReloadFromDb = async (force = true) => {
     const target = String(activeJobNumber || appModel?.currentProjectName || appModel?.currentJobId || "").trim().toLowerCase();
@@ -313,6 +379,8 @@ export default function EavesSoffitTask({
           if (onSetEntries) {
             onSetEntries(loaded);
           }
+          setDataSource("db");
+          setIsReadOnly(true);
           const first = loaded[0];
           if (first) {
             setSheetBrand(first.brand || "FC");
@@ -502,12 +570,14 @@ export default function EavesSoffitTask({
       const res = await ApiService.saveEavesJobs(payload);
       if (res && res.success) {
         setSaveStatus("success");
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveStatus(null), 3500);
       } else {
         setSaveStatus("error");
       }
     } catch (err) {
-      console.error("Lỗi khi lưu Eaves vào MSSQL:", err);
+      console.error("Error saving Eaves to MSSQL:", err);
       setSaveStatus("error");
     } finally {
       setIsSaving(false);
@@ -758,10 +828,13 @@ export default function EavesSoffitTask({
             onAddData={() => handleReloadFromDb(true)}
             addDataDisabled={isLoadingDb}
             onClear={onClearData}
-          
             onSave={handleSaveToMSSQL}
             saveDisabled={isSaving || !sheetBrand || !sheetThickness || !soffitBatten || !soffitBead}
             saveStatus={isSaving ? "saving" : saveStatus === "success" ? "success" : saveStatus === "error" ? "error" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         )}
 

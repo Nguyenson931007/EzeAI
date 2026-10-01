@@ -57,6 +57,11 @@ export default function FlooringDeckingTask({
   const currentUserUpdate = user?.username || user?.name || (typeof window !== "undefined" && localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}")?.username : null) || "admin";
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   // 1. Dry Section
@@ -504,6 +509,59 @@ export default function FlooringDeckingTask({
     return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
   }, [onChange, onSetEntries, selectedTaskFloor]);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingFromDb(true);
+      try {
+        const res = await ApiService.fetchAreaSummaryJobs();
+        if (cancelled) return;
+        if (res && res.data) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          const validRows = matchedRows.filter(r => r.net_area && parseFloat(r.net_area) > 0);
+          if (validRows.length > 0 && onSetEntries) {
+            onSetEntries(validRows.map((r, idx) => ({
+              id: `as-loaded-${Date.now()}-${idx}`,
+              floorLevel: r.floor_level || "GF",
+              typeArea: r.floor_area_type || "Dry",
+              product: resolveDropdownValue(r.product, getProductOptionsForType(r.floor_area_type || "Dry"), { fallback: "" }),
+              totalM2: `${parseFloat(r.net_area).toFixed(4)} m²`,
+              areaM2: parseFloat(r.net_area),
+              source: "db",
+              autofill_source: "db"
+            })));
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Flooring data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingFromDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   const handleAddDataFromDb = async () => {
     try {
       const res = await ApiService.fetchAreaSummaryJobs();
@@ -526,6 +584,8 @@ export default function FlooringDeckingTask({
             source: "manual",
             autofill_source: "manual"
           })));
+          setDataSource("db");
+          setIsReadOnly(true);
         }
       }
     } catch (e) {
@@ -622,13 +682,15 @@ export default function FlooringDeckingTask({
       const res = await ApiService.saveAreaSummaryJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert("Lỗi khi lưu: " + (res?.message || "Không thể lưu vào ProcurementApp AreaSummary."));
+        alert("Failed to save Flooring: " + (res?.message || "Could not save to ProcurementApp AreaSummary."));
       }
     } catch (err) {
-      console.error("Lỗi khi lưu AreaSummary từ Task Panel:", err);
-      alert("Lỗi khi lưu AreaSummary: " + (err.message || err));
+      console.error("Error saving AreaSummary from Task Panel:", err);
+      alert("Error saving AreaSummary: " + (err.message || err));
     } finally {
       setIsSaving(false);
     }
@@ -1352,10 +1414,13 @@ export default function FlooringDeckingTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingFromDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

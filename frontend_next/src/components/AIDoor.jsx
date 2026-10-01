@@ -100,6 +100,7 @@ export default function AIDoor({
   }
 
   const isGarage = d.class === "garage_door" || (d.door_name && d.door_name.toLowerCase().includes("garage")) || d.type === "garage" || d.doorTypeId === "ext_garage";
+  const isBifold = d.class === "bifold_door" || (d.class && d.class.includes("bifold")) || d.type === "bifold" || d.doorType === "bifold" || (d.penetration_type && d.penetration_type.includes("bifold")) || (d.class_name && d.class_name.includes("bifold")) || (d.doorTypeId && d.doorTypeId.includes("bifold")) || (d.door_name && d.door_name.toLowerCase().includes("bifold")) || (d.doorName && d.doorName.toLowerCase().includes("bifold"));
 
   // Dynamic architectural height (synced with d.height_mm / d.height when user edits)
   const defaultAIHeight = isWindow ? 1200 : (isGarage ? 2200 : 2040);
@@ -253,7 +254,126 @@ export default function AIDoor({
   let sectorPath2 = null;
   let doubleEdges = [];
 
-  if (polyPoints.length >= 3 && !isSliding && !isGarage && !isWindow) {
+  // Bifold door calculations
+  let bifoldEdges = [];
+  let bifoldTrack = null;
+  let bifoldSweepPoly = null;
+  let bifoldKnuckles = [];
+
+  if (isBifold) {
+    const centerline = getDoorCenterline(d, walls);
+    let p1 = centerline?.p1;
+    let p2 = centerline?.p2;
+
+    if ((!p1 || !p2) && d.points && d.points.length >= 2) {
+      p1 = Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0];
+      p2 = Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1];
+    }
+
+    if (p1 && p2) {
+      if (d.width_mm && realScale && realScale > 0) {
+        const desiredLen = d.width_mm / realScale;
+        const curLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        if (curLen > 1e-3) {
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          const uX = (p2.x - p1.x) / curLen;
+          const uY = (p2.y - p1.y) / curLen;
+          p1 = { x: midX - uX * (desiredLen / 2), y: midY - uY * (desiredLen / 2) };
+          p2 = { x: midX + uX * (desiredLen / 2), y: midY + uY * (desiredLen / 2) };
+        }
+      }
+
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const totalLen = Math.hypot(dx, dy);
+
+      if (totalLen > 1) {
+        const ux = dx / totalLen;
+        const uy = dy / totalLen;
+
+        const swingDir = (d.swingDirection || d.swing_direction || d.swing || 'inward').toLowerCase();
+        const sideFactor = swingDir === 'outward' ? -1 : 1;
+        const nx = -uy * sideFactor;
+        const ny = ux * sideFactor;
+
+        bifoldTrack = { p1, p2 };
+
+        const is4Panel = (d.width_mm ? d.width_mm >= 1700 : (totalLen * (realScale || 1)) >= 1700) || d.doorTypeId === 'ext_bifold';
+
+        if (is4Panel) {
+          const foldOut = totalLen * 0.16;
+          const k1 = {
+            x: p1.x + ux * (totalLen * 0.16) + nx * foldOut,
+            y: p1.y + uy * (totalLen * 0.16) + ny * foldOut,
+          };
+          const r1 = {
+            x: p1.x + ux * (totalLen * 0.32),
+            y: p1.y + uy * (totalLen * 0.32),
+          };
+          const r2 = {
+            x: p1.x + ux * (totalLen * 0.68),
+            y: p1.y + uy * (totalLen * 0.68),
+          };
+          const k2 = {
+            x: p1.x + ux * (totalLen * 0.84) + nx * foldOut,
+            y: p1.y + uy * (totalLen * 0.84) + ny * foldOut,
+          };
+
+          bifoldEdges = [
+            { p1: p1, p2: k1 },
+            { p1: k1, p2: r1 },
+            { p1: r2, p2: k2 },
+            { p1: k2, p2: p2 },
+          ];
+          bifoldKnuckles = [k1, r1, r2, k2];
+          bifoldSweepPoly = [p1, k1, r1, r2, k2, p2];
+          clickPolyPoints = [p1, k1, r1, r2, k2, p2];
+          polyPoints = [p1, k1, r1, r2, k2, p2];
+        } else {
+          const isRightHinge = (d.hingeSide || d.hinge_side || 'left').toLowerCase() === 'right';
+          const foldOut = totalLen * 0.30;
+          if (isRightHinge) {
+            const k = {
+              x: p2.x - ux * (totalLen * 0.32) + nx * foldOut,
+              y: p2.y - uy * (totalLen * 0.32) + ny * foldOut,
+            };
+            const r = {
+              x: p2.x - ux * (totalLen * 0.64),
+              y: p2.y - uy * (totalLen * 0.64),
+            };
+            bifoldEdges = [
+              { p1: p2, p2: k },
+              { p1: k, p2: r },
+            ];
+            bifoldKnuckles = [k, r];
+            bifoldSweepPoly = [p2, k, r, p1];
+            clickPolyPoints = [p2, k, r, p1];
+            polyPoints = [p2, k, r, p1];
+          } else {
+            const k = {
+              x: p1.x + ux * (totalLen * 0.32) + nx * foldOut,
+              y: p1.y + uy * (totalLen * 0.32) + ny * foldOut,
+            };
+            const r = {
+              x: p1.x + ux * (totalLen * 0.64),
+              y: p1.y + uy * (totalLen * 0.64),
+            };
+            bifoldEdges = [
+              { p1: p1, p2: k },
+              { p1: k, p2: r },
+            ];
+            bifoldKnuckles = [k, r];
+            bifoldSweepPoly = [p1, k, r, p2];
+            clickPolyPoints = [p1, k, r, p2];
+            polyPoints = [p1, k, r, p2];
+          }
+        }
+      }
+    }
+  }
+
+  if (polyPoints.length >= 3 && !isSliding && !isGarage && !isWindow && !isBifold) {
     // Determine frame endpoints h1, h2: prioritize d.points (CAD centerline) if available
     let bestH1 = null;
     let bestH2 = null;
@@ -1310,8 +1430,69 @@ export default function AIDoor({
         </g>
       )}
 
+      {/* For Bifold Doors */}
+      {isBifold && (
+        <g>
+          {/* Jambs at ends */}
+          {renderJambs()}
+
+          {/* Guide Track line */}
+          {bifoldTrack && (
+            <line
+              x1={bifoldTrack.p1.x}
+              y1={bifoldTrack.p1.y}
+              x2={bifoldTrack.p2.x}
+              y2={bifoldTrack.p2.y}
+              stroke={isSelected ? "#FF5722" : "#94a3b8"}
+              strokeWidth={1.5}
+              strokeDasharray="4,3"
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+
+          {/* Sweep Polygon Fill */}
+          {bifoldSweepPoly && (
+            <polygon
+              points={bifoldSweepPoly.map(p => `${p.x},${p.y}`).join(" ")}
+              fill={isSelected ? "rgba(255, 87, 34, 0.22)" : (isHovered ? "rgba(168, 85, 247, 0.2)" : "rgba(37, 99, 235, 0.12)")}
+              stroke="none"
+              style={{ pointerEvents: 'none' }}
+            />
+          )}
+
+          {/* Folding Panels (Leaves) */}
+          {bifoldEdges.map((edge, i) => (
+            <line
+              key={i}
+              x1={edge.p1.x}
+              y1={edge.p1.y}
+              x2={edge.p2.x}
+              y2={edge.p2.y}
+              stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#2563eb")}
+              strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.0 : (isHovered ? 3.2 : 2.5))}
+              strokeLinecap="round"
+              style={{ pointerEvents: 'none' }}
+            />
+          ))}
+
+          {/* Knuckles / Hinges */}
+          {bifoldKnuckles.map((kPt, i) => (
+            <circle
+              key={i}
+              cx={kPt.x}
+              cy={kPt.y}
+              r={3}
+              fill={isSelected ? "#FF5722" : "#2563eb"}
+              stroke="#ffffff"
+              strokeWidth={1}
+              style={{ pointerEvents: 'none' }}
+            />
+          ))}
+        </g>
+      )}
+
       {/* For Swing Doors (Single and Double) */}
-      {!isSliding && !isGarage && !isWindow && (
+      {!isSliding && !isGarage && !isWindow && !isBifold && (
         <>
           {/* Jambs */}
           {renderJambs()}

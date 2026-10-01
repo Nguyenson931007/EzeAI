@@ -923,7 +923,9 @@ export default function DoorWindowPropertyPanel({
               doorTypeId: typeId,
               penetration_type: def?.renderClass || "door",
               class: def?.renderClass || "door",
-              type: def?.doorType || "door"
+              class_name: def?.renderClass || "door",
+              type: def?.doorType || "door",
+              doorType: def?.doorType || "door"
             });
           }}
         />
@@ -1024,10 +1026,12 @@ export default function DoorWindowPropertyPanel({
             <option value={870}>870</option>
             <option value={920}>920</option>
             <option value={1020}>1020</option>
+            <option value={1500}>1500</option>
             <option value={1520}>1520</option>
             <option value={1640}>1640</option>
             <option value={1800}>1800</option>
             <option value={2400}>2400</option>
+            <option value={3000}>3000</option>
             <option value={5000}>5000</option>
           </select>
         </div>

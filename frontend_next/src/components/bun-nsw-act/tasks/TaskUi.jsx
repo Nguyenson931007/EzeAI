@@ -64,6 +64,10 @@ export function TaskActionButtons({
   saveStatus = "idle",
   autoFillLabel = "Auto Fill",
   saveLabel = "Save",
+  dataSource = null,
+  isReadOnly = false,
+  onEdit = null,
+  isLoadingFromDb = false,
 }) {
   return (
     <EnteredTaskActions
@@ -77,6 +81,10 @@ export function TaskActionButtons({
       saveStatus={saveStatus}
       autoFillLabel={autoFillLabel}
       saveLabel={saveLabel}
+      dataSource={dataSource}
+      isReadOnly={isReadOnly}
+      onEdit={onEdit}
+      isLoadingFromDb={isLoadingFromDb}
     />
   );
 }
@@ -102,6 +110,12 @@ export function EnteredDataCard({
   addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
+  autoFillLabel = "Auto Fill",
+  saveLabel = "Save",
+  dataSource = null,
+  isReadOnly = false,
+  onEdit = null,
+  isLoadingFromDb = false,
   children,
   footer,
   className = "",
@@ -124,6 +138,12 @@ export function EnteredDataCard({
             addDataDisabled={addDataDisabled}
             saveDisabled={saveDisabled}
             saveStatus={saveStatus}
+            autoFillLabel={autoFillLabel}
+            saveLabel={saveLabel}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            onEdit={onEdit}
+            isLoadingFromDb={isLoadingFromDb}
           />
         )}
       />

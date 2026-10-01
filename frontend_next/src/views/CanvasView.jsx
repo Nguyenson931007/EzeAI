@@ -1869,6 +1869,7 @@ const DoorLayer = React.memo(({
 
           const isManualWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
           const isManualGarage = type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage";
+          const isManualBifold = type === "bifold" || d.doorType === "bifold" || (d.class && d.class.includes("bifold")) || (d.class_name && d.class_name.includes("bifold")) || (d.penetration_type && d.penetration_type.includes("bifold")) || (d.doorTypeId && d.doorTypeId.includes("bifold")) || (d.door_name && d.door_name.toLowerCase().includes("bifold")) || (d.doorName && d.doorName.toLowerCase().includes("bifold"));
 
           let manualDoorWidth = d.width_mm ? Math.round(d.width_mm) : null;
           if (!manualDoorWidth) {
@@ -2117,6 +2118,101 @@ const DoorLayer = React.memo(({
             );
           };
 
+          const renderBifoldDoor = () => {
+            if (!p1 || !p2 || len <= 0) return null;
+            const ux = dx / len;
+            const uy = dy / len;
+
+            const swingDir = (d.swing || d.swing_direction || "inward").toLowerCase();
+            const sideFactor = swingDir === "outward" ? -1 : 1;
+            const nx = -uy * sideFactor;
+            const ny = ux * sideFactor;
+
+            const is4Panel = (manualDoorWidth ? manualDoorWidth >= 1700 : len * (realScale || 1) >= 1700) || (d.doorTypeId && d.doorTypeId.includes("ext"));
+
+            let edges = [];
+            let knuckles = [];
+            let sweepPoly = [];
+
+            if (is4Panel) {
+              const foldOut = len * 0.16;
+              const k1 = { x: p1.x + ux * (len * 0.16) + nx * foldOut, y: p1.y + uy * (len * 0.16) + ny * foldOut };
+              const r1 = { x: p1.x + ux * (len * 0.32), y: p1.y + uy * (len * 0.32) };
+              const r2 = { x: p1.x + ux * (len * 0.68), y: p1.y + uy * (len * 0.68) };
+              const k2 = { x: p1.x + ux * (len * 0.84) + nx * foldOut, y: p1.y + uy * (len * 0.84) + ny * foldOut };
+
+              edges = [
+                { p1: p1, p2: k1 },
+                { p1: k1, p2: r1 },
+                { p1: r2, p2: k2 },
+                { p1: k2, p2: p2 },
+              ];
+              knuckles = [k1, r1, r2, k2];
+              sweepPoly = [p1, k1, r1, r2, k2, p2];
+            } else {
+              const isRightHinge = (d.hingeSide || d.hinge_side || "left").toLowerCase() === "right";
+              const foldOut = len * 0.30;
+              if (isRightHinge) {
+                const k = { x: p2.x - ux * (len * 0.32) + nx * foldOut, y: p2.y - uy * (len * 0.32) + ny * foldOut };
+                const r = { x: p2.x - ux * (len * 0.64), y: p2.y - uy * (len * 0.64) };
+                edges = [{ p1: p2, p2: k }, { p1: k, p2: r }];
+                knuckles = [k, r];
+                sweepPoly = [p2, k, r, p1];
+              } else {
+                const k = { x: p1.x + ux * (len * 0.32) + nx * foldOut, y: p1.y + uy * (len * 0.32) + ny * foldOut };
+                const r = { x: p1.x + ux * (len * 0.64), y: p1.y + uy * (len * 0.64) };
+                edges = [{ p1: p1, p2: k }, { p1: k, p2: r }];
+                knuckles = [k, r];
+                sweepPoly = [p1, k, r, p2];
+              }
+            }
+
+            return (
+              <g>
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(0, 0, 0, 0.01)" strokeWidth={24} style={{ cursor: 'pointer' }} pointerEvents="stroke" />
+                <line
+                  x1={p1.x}
+                  y1={p1.y}
+                  x2={p2.x}
+                  y2={p2.y}
+                  stroke={isSelected ? "#FF5722" : "#94a3b8"}
+                  strokeWidth={1.5}
+                  strokeDasharray="4,3"
+                />
+                {sweepPoly.length >= 3 && (
+                  <polygon
+                    points={sweepPoly.map(p => `${p.x},${p.y}`).join(" ")}
+                    fill={isSelected ? "rgba(255, 87, 34, 0.22)" : (isHovered ? "rgba(168, 85, 247, 0.2)" : "rgba(37, 99, 235, 0.12)")}
+                    stroke="none"
+                  />
+                )}
+                {edges.map((edge, i) => (
+                  <line
+                    key={i}
+                    x1={edge.p1.x}
+                    y1={edge.p1.y}
+                    x2={edge.p2.x}
+                    y2={edge.p2.y}
+                    stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#2563eb")}
+                    strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.0 : (isHovered ? 3.2 : 2.5))}
+                    strokeLinecap="round"
+                  />
+                ))}
+                {knuckles.map((kPt, i) => (
+                  <circle
+                    key={i}
+                    cx={kPt.x}
+                    cy={kPt.y}
+                    r={3}
+                    fill={isSelected ? "#FF5722" : "#2563eb"}
+                    stroke="#ffffff"
+                    strokeWidth={1}
+                  />
+                ))}
+              </g>
+            );
+          };
+
           const renderManualJambs = () => {
             const doorType = (d.type || "").toLowerCase();
             const doorClass = (d.class_name || "").toLowerCase();
@@ -2359,6 +2455,14 @@ const DoorLayer = React.memo(({
                     </>
                   );
                 }
+                if (isManualBifold) {
+                  return (
+                    <>
+                      {renderBifoldDoor()}
+                      {renderLabelElements()}
+                    </>
+                  );
+                }
                 if (type === "window") {
                   return (
                     <>
@@ -2386,8 +2490,9 @@ const DoorLayer = React.memo(({
               {/* Floating interactive flip control panel (manual doors only) */}
               {isSelected && type !== "window" && (() => {
                 const isDouble = type === "double";
-                const isSingle = type === "single";
-                const objWidth = isSingle ? 190 : (isDouble ? 135 : 92);
+                const isBifold = isManualBifold;
+                const isSingle = (type === "single" || !type) && !isBifold;
+                const objWidth = (isSingle || isBifold) ? 190 : (isDouble ? 135 : 92);
 
                 return (
                   <foreignObject
@@ -2413,8 +2518,8 @@ const DoorLayer = React.memo(({
                       }}
                       onMouseDown={(e) => e.stopPropagation()}
                     >
-                      {/* Hinge flip (only for single doors) */}
-                      {type === "single" && (
+                      {/* Hinge flip (for single and bifold doors) */}
+                      {(isSingle || isBifold) && (
                         <button
                           title="Flip Hinge Direction"
                           onClick={(e) => {
@@ -6621,7 +6726,8 @@ export default function CanvasView({
 
               const doorClass = activePreset?.class || activePreset?.renderClass || 'single_door';
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
-              const isDouble = doorClass.includes('double');
+              const isBifold = doorClass.includes('bifold') || activePreset?.id?.includes('bifold');
+              const isDouble = doorClass.includes('double') && !isBifold;
               const isWindow = doorClass.includes('window');
               const isGarage = doorClass.includes('garage');
 
@@ -6699,6 +6805,56 @@ export default function CanvasView({
                   </g>
                 );
               }
+
+              if (isBifold) {
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const nx = -uy * sideFactor;
+                const ny = ux * sideFactor;
+                const is4Panel = presetWidth >= 1700 || doorClass.includes('ext');
+                let edges = [];
+                let knuckles = [];
+                if (is4Panel) {
+                  const foldOut = len * 0.16;
+                  const k1 = { x: p1.x + ux * (len * 0.16) + nx * foldOut, y: p1.y + uy * (len * 0.16) + ny * foldOut };
+                  const r1 = { x: p1.x + ux * (len * 0.32), y: p1.y + uy * (len * 0.32) };
+                  const r2 = { x: p1.x + ux * (len * 0.68), y: p1.y + uy * (len * 0.68) };
+                  const k2 = { x: p1.x + ux * (len * 0.84) + nx * foldOut, y: p1.y + uy * (len * 0.84) + ny * foldOut };
+                  edges = [
+                    { p1: p1, p2: k1 },
+                    { p1: k1, p2: r1 },
+                    { p1: r2, p2: k2 },
+                    { p1: k2, p2: p2 },
+                  ];
+                  knuckles = [k1, r1, r2, k2];
+                } else {
+                  const foldOut = len * 0.30;
+                  const isRight = (doorController?.previewHingeSide || 'left') === 'right';
+                  if (isRight) {
+                    const k = { x: p2.x - ux * (len * 0.32) + nx * foldOut, y: p2.y - uy * (len * 0.32) + ny * foldOut };
+                    const r = { x: p2.x - ux * (len * 0.64), y: p2.y - uy * (len * 0.64) };
+                    edges = [{ p1: p2, p2: k }, { p1: k, p2: r }];
+                    knuckles = [k, r];
+                  } else {
+                    const k = { x: p1.x + ux * (len * 0.32) + nx * foldOut, y: p1.y + uy * (len * 0.32) + ny * foldOut };
+                    const r = { x: p1.x + ux * (len * 0.64), y: p1.y + uy * (len * 0.64) };
+                    edges = [{ p1: p1, p2: k }, { p1: k, p2: r }];
+                    knuckles = [k, r];
+                  }
+                }
+                return (
+                  <g style={{ pointerEvents: 'none' }} opacity={previewOpacity}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} strokeDasharray="3,3" />
+                    {edges.map((e, idx) => (
+                      <line key={idx} x1={e.p1.x} y1={e.p1.y} x2={e.p2.x} y2={e.p2.y} stroke="#2196F3" strokeWidth={2.5} strokeLinecap="round" />
+                    ))}
+                    {knuckles.map((k, idx) => (
+                      <circle key={idx} cx={k.x} cy={k.y} r={3} fill="#2196F3" />
+                    ))}
+                    <circle cx={cx} cy={cy} r={4} fill="#2196F3" />
+                  </g>
+                );
+              }
+
 
               if (isDouble) {
                 const halfLen = len / 2;
@@ -6782,7 +6938,10 @@ export default function CanvasView({
                 doorController?.doorPreset?.renderClass ||
                 'single_door';
               const isSliding = doorClass.includes('sliding') || doorClass.includes('slider');
-              const isDouble = doorClass.includes('double');
+              const isBifold = doorClass.includes('bifold') ||
+                Boolean(doorController?.doorPreview?.doorTypeId?.includes('bifold')) ||
+                Boolean(doorController?.doorPreset?.id?.includes('bifold'));
+              const isDouble = doorClass.includes('double') && !isBifold;
               const isWindow = doorClass.includes('window');
               const isGarage = doorClass.includes('garage');
 
@@ -6858,6 +7017,71 @@ export default function CanvasView({
                   <g style={{ pointerEvents: 'none' }}>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={4} />
                     <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke="#2196F3" strokeWidth={1} opacity={0.5} />
+                    <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
+                    <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
+                  </g>
+                );
+              }
+
+              if (isBifold) {
+                const sideFactor = (doorController?.previewSwing || 'inward') === 'inward' ? 1 : -1;
+                const ux = dx / len;
+                const uy = dy / len;
+                const nx = -uy * sideFactor;
+                const ny = ux * sideFactor;
+
+                const realScaleVal = realScale || 1.0;
+                const widthMmEst = len * realScaleVal;
+                const is4Panel = widthMmEst >= 1700 || doorClass.includes('ext');
+
+                let edges = [];
+                let knuckles = [];
+
+                if (is4Panel) {
+                  const foldOut = len * 0.16;
+                  const k1 = { x: p1.x + ux * (len * 0.16) + nx * foldOut, y: p1.y + uy * (len * 0.16) + ny * foldOut };
+                  const r1 = { x: p1.x + ux * (len * 0.32), y: p1.y + uy * (len * 0.32) };
+                  const r2 = { x: p1.x + ux * (len * 0.68), y: p1.y + uy * (len * 0.68) };
+                  const k2 = { x: p1.x + ux * (len * 0.84) + nx * foldOut, y: p1.y + uy * (len * 0.84) + ny * foldOut };
+
+                  edges = [
+                    { p1: p1, p2: k1 },
+                    { p1: k1, p2: r1 },
+                    { p1: r2, p2: k2 },
+                    { p1: k2, p2: p2 },
+                  ];
+                  knuckles = [k1, r1, r2, k2];
+                } else {
+                  const foldOut = len * 0.30;
+                  const isRight = (doorController?.previewHingeSide || 'left') === 'right';
+                  if (isRight) {
+                    const k = { x: p2.x - ux * (len * 0.32) + nx * foldOut, y: p2.y - uy * (len * 0.32) + ny * foldOut };
+                    const r = { x: p2.x - ux * (len * 0.64), y: p2.y - uy * (len * 0.64) };
+                    edges = [
+                      { p1: p2, p2: k },
+                      { p1: k, p2: r },
+                    ];
+                    knuckles = [k, r];
+                  } else {
+                    const k = { x: p1.x + ux * (len * 0.32) + nx * foldOut, y: p1.y + uy * (len * 0.32) + ny * foldOut };
+                    const r = { x: p1.x + ux * (len * 0.64), y: p1.y + uy * (len * 0.64) };
+                    edges = [
+                      { p1: p1, p2: k },
+                      { p1: k, p2: r },
+                    ];
+                    knuckles = [k, r];
+                  }
+                }
+
+                return (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#4CAF50" strokeWidth={2} opacity={0.6} strokeDasharray="3,3" />
+                    {edges.map((e, idx) => (
+                      <line key={idx} x1={e.p1.x} y1={e.p1.y} x2={e.p2.x} y2={e.p2.y} stroke="#2196F3" strokeWidth={2.5} strokeLinecap="round" />
+                    ))}
+                    {knuckles.map((k, idx) => (
+                      <circle key={idx} cx={k.x} cy={k.y} r={3} fill="#2196F3" stroke="#fff" strokeWidth={1} />
+                    ))}
                     <circle cx={p1.x} cy={p1.y} r={4} fill="#4CAF50" stroke="#fff" />
                     <circle cx={p2.x} cy={p2.y} r={4} fill="#4CAF50" stroke="#fff" />
                   </g>

@@ -62,9 +62,11 @@ export default function LeftRailView({
       if (normalizedCode) pageIndexByFloor.set(normalizedCode, pageIndex);
     });
 
-    // The shared floor registry is the only source of truth. Old saved PDF
-    // pages must not recreate floors that Procurement/TaskList has removed.
-    const allCodes = normalizeTaskFloorCodes(buildingFloorLevels);
+    // The shared floor registry is the base source of truth, but real pages
+    // attached to this job must ALWAYS be included so saved floors never vanish.
+    const registered = normalizeTaskFloorCodes(buildingFloorLevels);
+    const actualCodes = Array.from(pageIndexByFloor.keys());
+    const allCodes = normalizeTaskFloorCodes([...registered, ...actualCodes]);
 
     return allCodes.map((code) => {
       const originalIndex = pageIndexByFloor.has(code) ? pageIndexByFloor.get(code) : null;
