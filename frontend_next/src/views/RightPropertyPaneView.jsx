@@ -655,7 +655,7 @@ export default function RightPropertyPaneView({
       sessionStorage.setItem("pendingEmsJob", JSON.stringify(pending));
       localStorage.setItem("pendingEmsJob", JSON.stringify(pending));
       window.dispatchEvent(new CustomEvent("task-floor-levels-updated", { detail: { floor_levels: normalized } }));
-    } catch (_) {}
+    } catch (_) { }
     if (emsId) {
       try { await ApiService.updateTaskFloorLevels(emsId, normalized); } catch (err) { console.warn("[floor-task] Không thể đồng bộ floor levels về TaskList:", err); }
     }
@@ -1343,30 +1343,30 @@ export default function RightPropertyPaneView({
 
     const allDoors = liveDoorsByPage && Object.keys(liveDoorsByPage).length
       ? Object.entries(liveDoorsByPage).flatMap(([pageKey, pageDoors]) => {
-          const pIdx = Number(pageKey);
-          return (pageDoors || []).map((door) => ({
-            ...door,
-            __floorLevel: resolveObjectFloorLevel(door, pages, pIdx),
-            __sourcePageIndex: pIdx,
-          }));
-        })
-      : (currentDoors || []).map((door) => ({
+        const pIdx = Number(pageKey);
+        return (pageDoors || []).map((door) => ({
           ...door,
-          __floorLevel: resolveObjectFloorLevel(door, pages, currentPage),
-          __sourcePageIndex: currentPage,
+          __floorLevel: resolveObjectFloorLevel(door, pages, pIdx),
+          __sourcePageIndex: pIdx,
         }));
+      })
+      : (currentDoors || []).map((door) => ({
+        ...door,
+        __floorLevel: resolveObjectFloorLevel(door, pages, currentPage),
+        __sourcePageIndex: currentPage,
+      }));
 
     const allWallsForDoorRouting = effectiveWallsByPage && Object.keys(effectiveWallsByPage).length
       ? Object.entries(effectiveWallsByPage).flatMap(([pageKey, pageWalls]) => {
-          const pIdx = Number(pageKey);
-          if (isFloorCeilingPageIndex(pIdx)) return [];
-          return (pageWalls || [])
-            .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
-            .map((wall) => ({ ...wall, __sourcePageIndex: pIdx }));
-        })
-      : (currentWalls || [])
+        const pIdx = Number(pageKey);
+        if (isFloorCeilingPageIndex(pIdx)) return [];
+        return (pageWalls || [])
           .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
-          .map((wall) => ({ ...wall, __sourcePageIndex: currentPage }));
+          .map((wall) => ({ ...wall, __sourcePageIndex: pIdx }));
+      })
+      : (currentWalls || [])
+        .filter((wall) => !wall?.isFloorCeilingOnly && !wall?.excludeFromOtherTasks)
+        .map((wall) => ({ ...wall, __sourcePageIndex: currentPage }));
 
     let formPatch = {};
     let generatedCount = 0;
@@ -1446,15 +1446,15 @@ export default function RightPropertyPaneView({
       // and Auto Fill is pressed again. Do NOT invent Ceiling/Floor from room area.
       const liveFloorCeilingRows =
         typeof window !== "undefined" &&
-        Array.isArray(window.__EZEFLOOR_FC_INSULATION_ENTRIES__)
+          Array.isArray(window.__EZEFLOOR_FC_INSULATION_ENTRIES__)
           ? window.__EZEFLOOR_FC_INSULATION_ENTRIES__
           : [];
 
       let cachedAreaRows = liveFloorCeilingRows.length > 0
         ? liveFloorCeilingRows
         : (Array.isArray(floorCeilingTakeoffData?.insulationEntries)
-            ? floorCeilingTakeoffData.insulationEntries
-            : []);
+          ? floorCeilingTakeoffData.insulationEntries
+          : []);
 
       // Clear Data removes task rows, not the Floor & Ceiling scan itself.
       // Rebuild the rows from the latest scan so Insulation Auto Fill alone
@@ -1561,7 +1561,7 @@ export default function RightPropertyPaneView({
         const raw = moduleFormData?.fixout?.fixout_reveal_openings;
         const parsed = raw ? JSON.parse(raw) : [];
         currentRevealRows = Array.isArray(parsed) ? parsed : [];
-      } catch (_) {}
+      } catch (_) { }
       const rowsNotCreatedByAutoFill = currentRevealRows.filter((row) => row?.source !== "window_autofill");
       handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify([...rowsNotCreatedByAutoFill, ...windowRevealRows]));
       generatedCount = rows.length;
@@ -1691,7 +1691,7 @@ export default function RightPropertyPaneView({
       window.dispatchEvent(new CustomEvent("ezefloor:procurement_autofill_complete", {
         detail: { moduleId: normalizedModuleId, generatedCount, formPatch },
       }));
-    } catch (_) {}
+    } catch (_) { }
   };
 
   // Auto-expand floor when switching pages
@@ -1836,7 +1836,7 @@ export default function RightPropertyPaneView({
   const handleRenameRoom = async (e, pageIdx, r) => {
     if (e && e.stopPropagation) e.stopPropagation();
     const currentName = r.room_name || r.name || "Room";
-    const newName = await showPrompt("Nhập tên phòng mới (Room Name):", currentName);
+    const newName = await showPrompt("Room Name:", currentName);
     if (newName !== null && newName.trim()) {
       const trimmed = newName.trim();
       if (setRoomsByPage) {
@@ -2179,7 +2179,7 @@ export default function RightPropertyPaneView({
 
     if (!loadedSuccess) {
       // 2. Nếu chưa có bản vẽ trong SQLite: XÓA SẠCH workspace cũ mở trang mới trắng
-      console.log("[handleOpenJobTask] Job chưa có bản vẽ trong SQLite, reset sạch workspace mở trang trắng cho:", targetName);
+      console.log("[handleOpenJobTask] Job don't have draw in SQLite, reset workspace open new page for:", targetName);
 
       // 2a. ĐẶT FLAG chặn restore — phải đặt TRƯỚC khi clear state để App.jsx không restore lại data cũ
       try {
@@ -3946,30 +3946,30 @@ export default function RightPropertyPaneView({
           ? JSON.parse(moduleFormData.fixout.fixout_excluded_window_ids)
           : [];
         excludedWindowIds = Array.isArray(parsed) ? parsed.map(String) : [];
-      } catch (_) {}
+      } catch (_) { }
       const excludedWindowIdSet = new Set(excludedWindowIds);
       const liveWindowRevealRows = generatedByTask.windows
         .filter((row) => !row?.doorId || !excludedWindowIdSet.has(String(row.doorId)))
         .map((row, index) => ({
-        ...row,
-        id: `window-reveal-${row.doorId || index}`,
-        doorId: row.doorId || null,
-        source: "window_autofill",
-        autofill_source: "drawing",
-        type: "window",
-        label: row.label || `W-${index + 1}`,
-        height: row.height || "",
-        width: row.width || "",
-        blockWork: "No",
-        floorLevel: row.floorLevel || "GF",
-      }));
+          ...row,
+          id: `window-reveal-${row.doorId || index}`,
+          doorId: row.doorId || null,
+          source: "window_autofill",
+          autofill_source: "drawing",
+          type: "window",
+          label: row.label || `W-${index + 1}`,
+          height: row.height || "",
+          width: row.width || "",
+          blockWork: "No",
+          floorLevel: row.floorLevel || "GF",
+        }));
       setModuleFormData((prev) => {
         const currentFixout = prev?.fixout || {};
         let currentRevealRows = [];
         try {
           const parsed = currentFixout.fixout_reveal_openings ? JSON.parse(currentFixout.fixout_reveal_openings) : [];
           currentRevealRows = Array.isArray(parsed) ? parsed : [];
-        } catch (_) {}
+        } catch (_) { }
         const hasPlanWindowRows = currentRevealRows.some((row) => row?.source === "window_autofill");
         if (!hasPlanWindowRows) return prev;
         const manualRevealRows = currentRevealRows.filter((row) => row?.source !== "window_autofill");
@@ -4947,7 +4947,7 @@ export default function RightPropertyPaneView({
       {isTaskModuleActive && activePaneTab !== "collapsed" && (
         <div
           onMouseDown={handleMouseDownResize}
-          title="Kéo thả sang trái/phải để thay đổi độ rộng khung Task"
+          title="Drag and drop to change the width of the Task frame"
           style={{
             position: "absolute",
             left: "-4px",

@@ -114,7 +114,7 @@ export default function LeftRailView({
   return (
     <div className="cad-rail">
       {/* ===== LEVEL SELECTOR (TẦNG - CHUYỂN TỪ HÌNH SỐ 1 QUA HÌNH SỐ 2) ===== */}
-      <div className="cad-rail-level-section" title="Building Levels (Tầng)">
+      <div className="cad-rail-level-section" title="Building Levels">
         <div className="cad-rail-level-header">LEVEL</div>
         <div className="cad-rail-level-list">
           {displayLevels.map((flr, idx) => {

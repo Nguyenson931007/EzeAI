@@ -135,8 +135,8 @@ export const DialogProvider = ({ children }) => {
     >
       {children}
       {dialogState.isOpen && (
-        <div 
-          className="custom-dialog-overlay" 
+        <div
+          className="custom-dialog-overlay"
           onClick={handleCancel}
         >
           <div
@@ -144,12 +144,12 @@ export const DialogProvider = ({ children }) => {
             style={
               dialogState.position
                 ? {
-                    position: 'absolute',
-                    left: `${dialogState.position.x}px`,
-                    top: `${dialogState.position.y}px`,
-                    transform: 'none',
-                    margin: 0
-                  }
+                  position: 'absolute',
+                  left: `${dialogState.position.x}px`,
+                  top: `${dialogState.position.y}px`,
+                  transform: 'none',
+                  margin: 0
+                }
                 : {}
             }
             onClick={(e) => e.stopPropagation()}
@@ -159,21 +159,21 @@ export const DialogProvider = ({ children }) => {
             <div className="hud-corner top-right"></div>
             <div className="hud-corner bottom-left"></div>
             <div className="hud-corner bottom-right"></div>
-            
+
             <div className="custom-dialog-header hud-header">
               {dialogState.type === 'alert' && 'SYS.MSG'}
               {dialogState.type === 'confirm' && 'CONFIRM_REQ'}
               {dialogState.type === 'prompt' && 'USER_INPUT'}
-              {dialogState.type === 'scale' && '📏 Set Drawing Scale'}
+              {dialogState.type === 'scale' && 'Set Drawing Scale'}
             </div>
-            
+
             <div className="custom-dialog-body">
               {dialogState.type === 'scale' ? (
                 <div className="scale-dialog-content">
                   <p className="scale-description">
                     Enter the actual real-world length of the selected reference line to calibrate canvas units.
                   </p>
-                  
+
                   <div className="scale-context-box">
                     <span className="scale-context-title">Selected Reference Line</span>
                     <div className="scale-context-row">
@@ -181,7 +181,7 @@ export const DialogProvider = ({ children }) => {
                       <span className="scale-context-value">{dialogState.pixelLength} px</span>
                     </div>
                   </div>
-                  
+
                   <div className="scale-input-wrapper">
                     <label className="scale-input-label">Real Length</label>
                     <div className="scale-input-box-container">
@@ -203,7 +203,7 @@ export const DialogProvider = ({ children }) => {
               ) : (
                 <>
                   <p className="custom-dialog-message">{dialogState.message}</p>
-                  
+
                   {dialogState.type === 'prompt' && (
                     <input
                       ref={inputRef}
@@ -224,8 +224,8 @@ export const DialogProvider = ({ children }) => {
                   <span className="btn-bracket">[</span> Cancel <span className="btn-bracket">]</span>
                 </button>
               )}
-              <button 
-                className={`hud-btn custom-dialog-btn confirm ${dialogState.type === 'scale' && (scaleError || !inputValue) ? 'disabled' : ''}`} 
+              <button
+                className={`hud-btn custom-dialog-btn confirm ${dialogState.type === 'scale' && (scaleError || !inputValue) ? 'disabled' : ''}`}
                 onClick={handleConfirm}
                 disabled={dialogState.type === 'scale' && (scaleError || !inputValue)}
               >

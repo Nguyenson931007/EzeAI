@@ -9,8 +9,8 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
   const handleDeleteClick = async (e, index) => {
     e.stopPropagation();
     const isConfirmed = await showConfirm(
-      "Xóa trang bản vẽ?",
-      "Việc này sẽ xóa toàn bộ phòng, tường, cửa trên trang này. Bạn có chắc chắn muốn xóa không?"
+      "Delete this drawing?",
+      "This will delete all rooms, walls, doors on this page. Are you sure you want to delete?"
     );
     if (isConfirmed && onDeletePage) {
       onDeletePage(index);

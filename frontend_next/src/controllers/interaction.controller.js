@@ -912,7 +912,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       setWallsByPage(prev => ({ ...prev, [currentPage]: recalculated }));
       setInteractionMode("select");
     } else {
-      alert("Không tìm thấy phòng hoặc tường nào để tự động ôm! Hãy click vẽ thủ công.");
+      alert("Can not find room or wall to auto-fit! Please click to draw manually.");
     }
   };
 
@@ -1406,7 +1406,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
             upgradedExistingEntry = true;
           }
         }
-      } catch {}
+      } catch { }
     }
     if (!upgradedExistingEntry) appendCadHistorySnapshot(snapshot);
 
@@ -1476,7 +1476,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const past = historyRef.current || [];
     let lastMainSnapshot = null;
     if (past.length > 0) {
-      try { lastMainSnapshot = JSON.parse(past[past.length - 1]); } catch {}
+      try { lastMainSnapshot = JSON.parse(past[past.length - 1]); } catch { }
     }
     const hasPendingTaskUndo = Boolean(lastMainSnapshot?.taskState);
 
@@ -1522,7 +1522,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     const ahead = futureRef.current || [];
     let nextMainSnapshot = null;
     if (ahead.length > 0) {
-      try { nextMainSnapshot = JSON.parse(ahead[0]); } catch {}
+      try { nextMainSnapshot = JSON.parse(ahead[0]); } catch { }
     }
     const hasPendingTaskRedo = Boolean(nextMainSnapshot?.taskState);
 
@@ -1676,7 +1676,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           if (typeof scaleDoorWidth === 'function') {
             updated = scaleDoorWidth(updated, newWidthPx);
           }
-        } catch (err) {}
+        } catch (err) { }
       }
 
       const effW = updated.width_mm || d.width_mm || 820;
@@ -2403,7 +2403,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
     if (wallIdsToDelete.length > 0) {
       const targetBaseIds = wallIdsToDelete.map(id => getBaseWallId(id));
       currentWalls = currentWalls.filter(w => (!wallIdsToDelete.includes(w.id) && !targetBaseIds.includes(w.id) && !targetBaseIds.includes(getBaseWallId(w.id))) || w.locked);
-      
+
       const removedLintelIds = currentLintels
         .filter(l => wallIdsToDelete.includes(l.wallId) || targetBaseIds.includes(l.wallId))
         .map(l => l.id);
@@ -3329,18 +3329,18 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
 
   function solveRoofs3D(roofs) {
     if (!roofs || roofs.length === 0) return [];
-    
+
     const graph = buildRoofAdjacency(roofs);
     const roofPlanes = {};
     for (const r of roofs) {
       roofPlanes[r.id] = getRoofPlane(r.polygon, r.pitchAngle, r.eaveEdgeIndex, r.baseHeight || 0);
     }
-    
+
     const solvedNodes = {};
     for (const v of graph.vertices) {
       const sharedCount = v.sharedBy.length;
       let solvedPt = null;
-      
+
       if (sharedCount >= 3) {
         const pA = roofPlanes[v.sharedBy[0].roofId];
         const pB = roofPlanes[v.sharedBy[1].roofId];
@@ -3354,10 +3354,10 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
         const pA = roofPlanes[v.sharedBy[0].roofId];
         solvedPt = { x: v.x, y: v.y, z: getHeightOnPlane(pA, v.x, v.y) };
       }
-      
+
       solvedNodes[v.id] = solvedPt;
     }
-    
+
     return roofs.map(r => {
       const solvedPolygon3D = [];
       for (let i = 0; i < r.polygon.length; i++) {
@@ -5291,8 +5291,8 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
       const activeEdgeIndex = (selectedRoofEdgeIndex !== null && selectedRoofEdgeIndex !== undefined)
         ? selectedRoofEdgeIndex
         : (roofInteractionState?.edgeIndex !== null && roofInteractionState?.edgeIndex !== undefined)
-        ? roofInteractionState.edgeIndex
-        : null;
+          ? roofInteractionState.edgeIndex
+          : null;
       if (activeRoofId && activeEdgeIndex !== null && activeEdgeIndex !== undefined && typeof activeEdgeIndex === 'number') {
         let cutPoint = [p.x, p.y];
         const pageRoofs = roofsByPage[currentPage] || [];

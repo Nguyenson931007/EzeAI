@@ -426,7 +426,7 @@ export default function DoorConfigDialog({ visible, onConfirm, onClose }) {
             onMouseOver={e => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(37,99,235,0.45)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
             onMouseOut={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(37,99,235,0.3)'; e.currentTarget.style.transform = 'none'; }}
           >
-            <span>🚀</span> Run Door AI
+            Run Door AI
           </button>
         </div>
       </div>

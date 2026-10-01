@@ -76,14 +76,14 @@ export function useDocumentController({
 
       const unscaledViewport = page.getViewport({ scale: 1.0 });
       const MAX_DIMENSION = 8192; // Giới hạn cạnh dài nhất là 8K pixel để tránh crash RAM
-      
+
       let scale = 9.7222; // 700 DPI (700/72)
       const maxOriginalDim = Math.max(unscaledViewport.width, unscaledViewport.height);
-      
+
       if (maxOriginalDim * scale > MAX_DIMENSION) {
         scale = MAX_DIMENSION / maxOriginalDim;
       }
-      
+
       const viewport = page.getViewport({ scale: scale });
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
@@ -157,7 +157,7 @@ export function useDocumentController({
         if (!data.totalTextObjects || data.totalTextObjects === 0) {
           showAlert({
             title: "No Native Text Found",
-            message: "PDF không có native text layer.\nCó thể đây là PDF scan hoặc text đã được convert thành vector/path."
+            message: "PDF don't have native text layer.\nMaybe it is a scanned PDF or text has been converted to vector/path."
           });
         }
 
@@ -180,7 +180,7 @@ export function useDocumentController({
         if (!data.totalTextObjects || data.totalTextObjects === 0) {
           showAlert({
             title: "No Native Text Found",
-            message: "PDF không có native text layer.\nCó thể đây là PDF scan hoặc text đã được convert thành vector/path."
+            message: "PDF don't have native text layer.\nMaybe it is a scanned PDF or text has been converted to vector/path."
           });
         }
 
@@ -451,7 +451,7 @@ export function useDocumentController({
       return;
     }
     if (!validateRooms()) return;
-    
+
     const name = `floor_page_${currentPage}_${Math.floor(Math.random() * 10000)}`;
     const blob = await fetch(image).then(r => r.blob());
     const formData = new FormData();
@@ -788,7 +788,7 @@ export function useDocumentController({
         URL.revokeObjectURL(url);
       }
 
-      alert(`Xuất dữ liệu EZPlan thành công!\n- Đã tự động tải về tệp: ${exportName}.ezplan\n- Thư mục server: ${resData.export_dir}`);
+      alert(`Export data EZPlan success!\n- Automatically downloaded file: ${exportName}.ezplan\n- Server folder: ${resData.export_dir}`);
     } catch (err) {
       console.error("Export labels error:", err);
       alert(`Failed to export labels: ${err.message}`);
@@ -871,7 +871,7 @@ export function useDocumentController({
         URL.revokeObjectURL(url);
       }
 
-      alert(`Xuất dữ liệu Cửa (Door & Window) thành công!\n- Tải về: ${exportName}_doors.json\n- Thư mục server: ${resData.export_dir}`);
+      alert(`Export data door & window success!\n- Automatically downloaded file: ${exportName}_doors.json\n- Server folder: ${resData.export_dir}`);
     } catch (err) {
       console.error("Export door labels error:", err);
       alert(`Failed to export door labels: ${err.message}`);
@@ -929,7 +929,7 @@ export function useDocumentController({
         URL.revokeObjectURL(url);
       }
 
-      alert(`Xuất dữ liệu Phòng (Room) thành công!\n- Tải về: ${exportName}_rooms.json\n- Thư mục server: ${resData.export_dir}`);
+      alert(`Export data room success!\n- Automatically downloaded file: ${exportName}_rooms.json\n- Server folder: ${resData.export_dir}`);
     } catch (err) {
       console.error("Export room labels error:", err);
       alert(`Failed to export room labels: ${err.message}`);

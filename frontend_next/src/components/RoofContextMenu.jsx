@@ -113,7 +113,6 @@ const RoofContextMenu = ({
               onClose();
             }}
           >
-            <span>🏠</span>
             <span>Set as Hip</span>
           </div>
 
@@ -142,7 +141,6 @@ const RoofContextMenu = ({
               onClose();
             }}
           >
-            <span>🏛️</span>
             <span>Set as Gable Wall</span>
           </div>
 
@@ -171,7 +169,6 @@ const RoofContextMenu = ({
               onClose();
             }}
           >
-            <span>🎨</span>
             <span>Set as Dutch Gable {isDutch ? '(Re-draw Cut)' : ''}</span>
           </div>
 
@@ -195,7 +192,6 @@ const RoofContextMenu = ({
               onClose();
             }}
           >
-            <span>📐</span>
             <span>Convert to Shed Roof</span>
           </div>
         </>
@@ -219,7 +215,6 @@ const RoofContextMenu = ({
               onClose();
             }}
           >
-            <span>🏠</span>
             <span>Convert to Gable / Dutch / Hip</span>
           </div>
         </>
