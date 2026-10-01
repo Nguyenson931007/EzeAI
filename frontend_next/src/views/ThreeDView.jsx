@@ -2207,6 +2207,7 @@ export default function ThreeDView({
       >
         <div
           style={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -2230,12 +2231,24 @@ export default function ThreeDView({
                 transition: "all 0.2s"
               }}
             >
-              {isControlsCollapsed ? "➕ Expand" : "➖ Minimize"}
+              {isControlsCollapsed ? "➕" : "➖"}
             </button>
-            <span style={{ fontWeight: "bold", fontSize: "12px", letterSpacing: "0.05em", color: "#2563eb" }}>
-              3D VIEWER CONTROLS
-            </span>
           </div>
+          <span
+            style={{
+              position: "absolute",
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontWeight: "bold",
+              fontSize: "12px",
+              letterSpacing: "0.05em",
+              color: "#2563eb",
+              whiteSpace: "nowrap",
+              pointerEvents: "none"
+            }}
+          >
+            3D VIEWER CONTROLS
+          </span>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <button
               onClick={onClose}
@@ -2253,7 +2266,7 @@ export default function ThreeDView({
               onMouseOver={(e) => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.backgroundColor = "rgba(254, 226, 226, 0.8)"; }}
               onMouseOut={(e) => { e.currentTarget.style.color = "#64748b"; e.currentTarget.style.backgroundColor = "rgba(241, 245, 249, 0.8)"; }}
             >
-              ✕ Exit 3D
+              ✕
             </button>
           </div>
         </div>

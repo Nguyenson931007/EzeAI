@@ -1646,7 +1646,7 @@ export default function RibbonView({
                   }}
                   disabled={isDetecting || isSmartDetecting}
                   style={isDetecting && activeAiTask !== "door" ? { opacity: 0.45, cursor: "not-allowed" } : {}}
-                  title={roiRect ? "Nhận diện cửa trong vùng cắt (ROI)" : "Run YOLO Door AI detection"}
+                  title={roiRect ? "Detecting Door in ROI" : "Run YOLO Door AI detection"}
                 >
                   <span className="icon" style={activeAiTask === "door" && isDetecting ? { color: "#2563eb" } : {}}>
                     {activeAiTask === "door" && isDetecting ? <CAD_ICONS.Spinner /> : <CAD_ICONS.Door />}
