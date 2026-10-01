@@ -347,6 +347,7 @@ export default function LockupTask({
 
   const activeCustomerShortName = getActiveClientShortName();
   const isBunVic = isBunVicCustomer(activeCustomerShortName);
+  const isBunSeqld = String(activeCustomerShortName || "").trim().toUpperCase() === "BUN-SEQLD";
   const lockupParity = useMemo(() => getLockupParity(activeCustomerShortName), [activeCustomerShortName]);
   const defaultInternalHole = isBunVic ? "HL" : "HF";
 
@@ -871,16 +872,21 @@ export default function LockupTask({
   }, [activeCustomerShortName]);
 
   const externalDoorOptions = useMemo(() => {
-    return (lockupOptions.external && lockupOptions.external.length > 0) ? lockupOptions.external : FALLBACK_EXTERNAL_DOOR_TYPES;
-  }, [lockupOptions.external]);
+    if (lockupOptions.external && lockupOptions.external.length > 0) return lockupOptions.external;
+    // BUN-SEQLD options are owned by ProcurementApp. If its API is unavailable,
+    // do not fall back to the generic EzeFloor list (which can contain stale/test values).
+    return isBunSeqld ? [] : FALLBACK_EXTERNAL_DOOR_TYPES;
+  }, [lockupOptions.external, isBunSeqld]);
 
   const prehungIntDoorOptions = useMemo(() => {
-    return (lockupOptions.prehung_internal && lockupOptions.prehung_internal.length > 0) ? lockupOptions.prehung_internal : FALLBACK_PREHUNG_INTERNAL_DOOR_TYPES;
-  }, [lockupOptions.prehung_internal]);
+    if (lockupOptions.prehung_internal && lockupOptions.prehung_internal.length > 0) return lockupOptions.prehung_internal;
+    return isBunSeqld ? [] : FALLBACK_PREHUNG_INTERNAL_DOOR_TYPES;
+  }, [lockupOptions.prehung_internal, isBunSeqld]);
 
   const looseIntDoorOptions = useMemo(() => {
-    return (lockupOptions.loose_jamb_internal && lockupOptions.loose_jamb_internal.length > 0) ? lockupOptions.loose_jamb_internal : FALLBACK_LOOSE_JAMB_INTERNAL_DOOR_TYPES;
-  }, [lockupOptions.loose_jamb_internal]);
+    if (lockupOptions.loose_jamb_internal && lockupOptions.loose_jamb_internal.length > 0) return lockupOptions.loose_jamb_internal;
+    return isBunSeqld ? [] : FALLBACK_LOOSE_JAMB_INTERNAL_DOOR_TYPES;
+  }, [lockupOptions.loose_jamb_internal, isBunSeqld]);
 
   const internalDoorOptions = useMemo(() => {
     return Array.from(new Set([...prehungIntDoorOptions, ...looseIntDoorOptions]));

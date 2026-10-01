@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from app.lockup_procurement_options import BUN_SEQLD_LOCKUP_OPTIONS
 
 logger = logging.getLogger("ezefloor.lockup")
 
@@ -136,7 +137,18 @@ def _query_external_door_types(cursor, customer_id: str) -> List[str]:
 @router.get("/options")
 @router.get("/door-types")
 async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length=1, max_length=100)):
-    """Đọc toàn bộ danh sách dropdown options cho BUN-NSW-ACT LockUp từ Database."""
+    """Return LockUp selector options for the active customer.
+
+    BUN-SEQLD must mirror ProcurementApp's workbook-approved business options
+    exactly. Other customers keep the existing DB-backed EzeFloor behaviour.
+    """
+    customer_key = str(customer_id or "").strip().upper()
+    if customer_key == "BUN-SEQLD":
+        # Source of truth: ProcurementApp
+        # backend/app/customer_modules/bunnings_qld/lockup/api.py
+        res_data = {key: list(values) for key, values in BUN_SEQLD_LOCKUP_OPTIONS.items()}
+        return {"success": True, "data": res_data, **res_data}
+
     prehung_int: List[str] = []
     loose_int: List[str] = []
     external_types: List[str] = []
@@ -173,7 +185,6 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
     # response.  The frontend owns the same static workbook fallbacks used by
     # ProcurementApp when a configured option group is genuinely empty.
 
-    customer_key = str(customer_id or "").strip().upper()
     is_bun_vic = customer_key == "BUN-VIC"
 
     # Keep the customer-specific form semantics in sync with ProcurementApp.
