@@ -3417,13 +3417,20 @@ export default function CanvasView({
   const [fcViewMode, setFcViewMode] = useState("floor"); // "floor" | "ceiling"
 
   const activePage = pages?.[currentPage];
-  const activePageId = activePage?.id || activePage?.name || currentPage;
   const isFloorCeilingWorkspace = Boolean(
     activePage?.isFloorCeilingWorkspace ||
     activePage?.source === "floor_ceiling_page" ||
     activePage?.source === "floor_ceiling_workspace" ||
     activePage?.code === "FC"
   );
+  const activePageChangeKey = (() => {
+    const workspaceKind = isFloorCeilingWorkspace ? "floor-ceiling" : "regular";
+    if (activePage?.id != null) return `id:${String(activePage.id)}:${workspaceKind}`;
+    if (activePage?.name != null) return `name:${String(activePage.name)}:${workspaceKind}`;
+    // String(NaN) is stable, whereas NaN !== NaN would make the effect below
+    // believe that the page changed after every render.
+    return `index:${String(currentPage ?? "none")}:${workspaceKind}`;
+  })();
 
   // Clear detected zones and scan state on clear event
   useEffect(() => {
@@ -3436,18 +3443,18 @@ export default function CanvasView({
   }, []);
 
   // When active page changes: restore cached zones for Floor & Ceiling workspace, or reset if normal page
-  const prevPageIdRef = useRef(activePageId);
+  const prevPageChangeKeyRef = useRef(activePageChangeKey);
   useEffect(() => {
-    if (prevPageIdRef.current !== activePageId) {
-      prevPageIdRef.current = activePageId;
-      if (isFloorCeilingWorkspace && activePage?.detectedZones && activePage.detectedZones.length > 0) {
-        setFcDetectedZones(activePage.detectedZones);
-      } else if (!isFloorCeilingWorkspace) {
-        setFcDetectedZones([]);
-      }
-      setFcSelectedZoneId(null);
+    if (prevPageChangeKeyRef.current === activePageChangeKey) return;
+
+    prevPageChangeKeyRef.current = activePageChangeKey;
+    if (isFloorCeilingWorkspace && Array.isArray(activePage?.detectedZones) && activePage.detectedZones.length > 0) {
+      setFcDetectedZones((current) => current === activePage.detectedZones ? current : activePage.detectedZones);
+    } else if (!isFloorCeilingWorkspace) {
+      setFcDetectedZones((current) => current.length === 0 ? current : []);
     }
-  }, [activePageId, isFloorCeilingWorkspace, activePage]);
+    setFcSelectedZoneId((current) => current == null ? current : null);
+  }, [activePageChangeKey, isFloorCeilingWorkspace, activePage?.detectedZones]);
 
   // Floor & Ceiling Isolated Undo / Redo / Delete history stacks
   const fcHistoryRef = useRef([]);
