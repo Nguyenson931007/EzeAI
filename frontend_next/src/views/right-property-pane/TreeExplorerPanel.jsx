@@ -109,8 +109,8 @@ export default function TreeExplorerPanel({
   return (
     <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "10px", overflowY: "auto", flex: 1 }}>
       {/* Project Title & Close Button */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px" }}>
-        <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--blue)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--blue)", textTransform: "uppercase", letterSpacing: "0.5px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           PROJECT: {currentProjectName || "Modern House"}
         </div>
         <button

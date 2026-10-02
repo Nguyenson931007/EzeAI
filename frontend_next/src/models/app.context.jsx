@@ -31,6 +31,15 @@ export const AppProvider = ({ children }) => {
   const [currentProjectName, setCurrentProjectName] = useState(() => {
     return safeGetItem("ezefloor_last_active_project_name") || null;
   });
+  const [activeWorkPackUnit, setActiveWorkPackUnitState] = useState(() => safeGetItem("ezefloor_active_work_pack_unit") || "Unit 1");
+  const setActiveWorkPackUnit = useCallback((unit) => {
+    const value = String(unit || "Unit 1").trim() || "Unit 1";
+    setActiveWorkPackUnitState(value);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("ezefloor_active_work_pack_unit", value);
+      window.dispatchEvent(new CustomEvent("work-pack-unit-changed", { detail: { unit: value } }));
+    }
+  }, []);
   const [realScale, setRealScale] = useState(null);
   const [scalesByPage, setScalesByPage] = useState({});
   const [defaultScale, setDefaultScale] = useState(null);
@@ -176,6 +185,7 @@ export const AppProvider = ({ children }) => {
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
+    activeWorkPackUnit, setActiveWorkPackUnit,
     realScale, setRealScale,
     scalesByPage, setScalesByPage,
     defaultScale, setDefaultScale,

@@ -33,6 +33,7 @@ from api.routes import router as api_router
 from api.auth import router as auth_router
 from api.admin import router as admin_router
 from api.jobs import router as jobs_router
+from api.work_pack_units import router as work_pack_units_router
 from api.framework_routes import router as framework_router
 from api.eaves_routes import router as eaves_router
 from api.cladding_routes import router as cladding_router
@@ -172,6 +173,7 @@ app.include_router(api_router)
 app.include_router(auth_router, tags=["auth"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(jobs_router, tags=["jobs"])
+app.include_router(work_pack_units_router, tags=["Work-pack units"])
 app.include_router(framework_router, tags=["framework"])
 app.include_router(eaves_router, tags=["Eaves-router"])
 app.include_router(cladding_router, tags=["Cladding-router"])

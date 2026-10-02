@@ -14,6 +14,8 @@ export const getHeaders = (contentType = "application/json") => {
   const userStr = localStorage.getItem("user");
   const headers = {};
   if (contentType) headers["Content-Type"] = contentType;
+  const activeUnit = localStorage.getItem("ezefloor_active_work_pack_unit");
+  if (activeUnit) headers["X-Work-Pack-Unit"] = activeUnit;
 
   if (userStr) {
     const user = JSON.parse(userStr);
@@ -156,6 +158,22 @@ export const ApiService = {
       console.warn("[getJobByEmsId] Lỗi khi tải Job EMS:", err);
       return null;
     }
+  },
+
+
+  async getWorkPackUnits(customerId, jobId) {
+    const res = await fetch(`${BASE_URL}/api/work-pack-units/${encodeURIComponent(customerId)}/jobs/${encodeURIComponent(jobId)}?_=${Date.now()}`, {
+      cache: "no-store", headers: { ...getHeaders(), "Cache-Control": "no-cache" }, credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async addWorkPackUnit(customerId, jobId, unit = null) {
+    const res = await fetch(`${BASE_URL}/api/work-pack-units/${encodeURIComponent(customerId)}/jobs/${encodeURIComponent(jobId)}`, {
+      method: "POST", headers: getHeaders(), credentials: "include",
+      body: JSON.stringify({ unit })
+    });
+    return handleResponse(res);
   },
 
   async updateTaskModules(emsId, taskModules = []) {

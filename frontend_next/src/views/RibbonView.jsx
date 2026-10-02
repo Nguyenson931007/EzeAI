@@ -18,6 +18,7 @@ import { isFullAdmin, hasHwAccess, getDisplayRoleName } from "@/utils/permission
 import { polygonAreaM2 } from "@/utils/geometry";
 import PdfToolsRibbon from "./ribbon/PdfToolsRibbon";
 import { getActiveClientInfo } from "@/constants/clients";
+import WorkPackUnitSelector from "./right-property-pane/WorkPackUnitSelector";
 
 const CAD_ICONS = {
   Json: () => (
@@ -417,6 +418,7 @@ export default function RibbonView({
     pages, setPages,
     currentPage, setCurrentPage,
     currentProjectName, setCurrentProjectName,
+    activeWorkPackUnit, setActiveWorkPackUnit,
     roomsByPage, setRoomsByPage,
     doorsByPage, setDoorsByPage,
     wallsByPage, setWallsByPage,
@@ -1203,6 +1205,7 @@ export default function RibbonView({
     }
   };
 
+
   React.useEffect(() => {
     const handleClickOutside = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
@@ -1530,7 +1533,13 @@ export default function RibbonView({
       </div>
 
       {/* ── CAD Action Ribbon ── */}
-      <div className="cad-ribbon" style={{ overflow: "visible", position: "relative", zIndex: 1000 }}>
+      <div className="cad-ribbon" style={{ overflowX: "auto", overflowY: "visible", position: "relative", zIndex: 1000, flexWrap: "nowrap" }}>
+        <style>{`
+          .cad-ribbon > .ribbon-group,
+          .cad-ribbon > .ribbon-divider { flex-shrink: 0 !important; }
+          .cad-ribbon::-webkit-scrollbar { height: 0; }
+          .cad-ribbon { scrollbar-width: none; }
+        `}</style>
         {/* 1. FILE MENU */}
         {(activeTab === "File" || activeTab === "Home") && (
           <>
@@ -1817,8 +1826,8 @@ export default function RibbonView({
             </div>
             <div className="ribbon-divider" />
 
-            <div className="ribbon-group">
-              <div className="ribbon-buttons">
+            <div className="ribbon-group" style={{ flexShrink: 0, minWidth: "168px" }}>
+              <div className="ribbon-buttons" style={{ flexWrap: "nowrap", whiteSpace: "nowrap" }}>
                 <button className="ribbon-btn" onClick={() => { if (currentPage > 0) goPage(currentPage - 1); }} title="Previous Page">
                   <span className="icon"><CAD_ICONS.ArrowLeft /></span><span className="label">Prev</span>
                 </button>
@@ -1828,12 +1837,27 @@ export default function RibbonView({
                   title={`Page ${currentPage + 1} of ${pages.length || 1}`}
                 >
                   <span className="icon"><CAD_ICONS.Pdf /></span>
-                  <span className="label">Level {currentPage + 1}/{pages.length || 1}</span>
+                  <span className="label" style={{ whiteSpace: "nowrap", minWidth: "52px" }}>Level {currentPage + 1}/{pages.length || 1}</span>
                 </div>
                 <button className="ribbon-btn" onClick={() => { if (currentPage < pages.length - 1) goPage(currentPage + 1); }} title="Next Page">
                   <span className="icon"><CAD_ICONS.ArrowRight /></span><span className="label">Next</span>
                 </button>
               </div>
+            </div>
+            <div
+              className="ribbon-group"
+              style={{
+                marginLeft: "auto",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                padding: "0 2px 0 8px",
+                whiteSpace: "nowrap"
+              }}
+              title="Shared Unit with Procurement"
+            >
+              <WorkPackUnitSelector currentProjectName={currentProjectName} />
             </div>
           </>
         )}
