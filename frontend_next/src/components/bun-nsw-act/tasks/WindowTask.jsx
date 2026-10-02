@@ -41,6 +41,11 @@ export default function WindowTask({
   const [editDraft, setEditDraft] = useState({});
   const [saveStatus, setSaveStatus] = useState("idle");
   const [isAddingData, setIsAddingData] = useState(false);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null); // track which job was auto-loaded
   const appModel = useAppModel();
   const user = appModel?.user || {};
   const isBunVic = isBunVicCustomer(getActiveClientShortName());
@@ -53,6 +58,57 @@ export default function WindowTask({
       return fallback;
     }
   };
+
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return; // already attempted for this job
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingFromDb(true);
+      try {
+        const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
+        if (cancelled) return;
+        const savedWindows = (Array.isArray(res?.data) ? res.data : [])
+          .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
+          .filter((row) => String(row?.door_type || "").toLowerCase().includes("window"))
+          .map((row, index) => ({
+            id: `window-db-${row.fixout_id || index}`,
+            type: "window",
+            label: row.door_label || `Window ${index + 1}`,
+            windowType: "Window",
+            height: row.height || "",
+            width: row.width || "",
+            blockWork: String(row.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
+            floorLevel: row.floor_level || row.floorLevel || "GF",
+            source: "db",
+            autofill_source: "db",
+          }));
+        if (cancelled) return;
+        if (savedWindows.length > 0) {
+          onSetEntries?.(savedWindows);
+          setDataSource("db");
+          setIsReadOnly(true);
+        } else {
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("Auto-load Window data from DB skipped:", error);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingFromDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
 
   const handleSave = async () => {
     const revealRows = safeParseJson(fixoutFormData?.fixout_reveal_openings, []);
@@ -108,6 +164,8 @@ export default function WindowTask({
       });
       if (res?.success) {
         setSaveStatus("success");
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveStatus("idle"), 3000);
       } else {
         setSaveStatus("error");
@@ -140,6 +198,10 @@ export default function WindowTask({
           autofill_source: "manual",
         }));
       onSetEntries?.(savedWindows);
+      if (savedWindows.length > 0) {
+        setDataSource("db");
+        setIsReadOnly(true);
+      }
     } catch (error) {
       console.error("Add Window data from database error:", error);
     } finally {
@@ -267,6 +329,10 @@ export default function WindowTask({
             saveStatus={saveStatus}
             isOpen={isOpen}
             onToggle={() => setIsOpen((value) => !value)}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingFromDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

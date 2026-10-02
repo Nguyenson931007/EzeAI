@@ -1177,6 +1177,10 @@ export default function FixoutTask({
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingData, setIsAddingData] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   const [selectedEntryId, setSelectedEntryId] = useState(null);
   const [editingRowId, setEditingRowId] = useState(null);
@@ -1414,6 +1418,81 @@ export default function FixoutTask({
     };
   }, []);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsAddingData(true);
+      try {
+        const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
+        if (cancelled) return;
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        const revealRows = rows
+          .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
+          .map((row, index) => ({
+            id: `reveal-db-${row.fixout_id || index}`,
+            type: String(row.door_type || "Window").toLowerCase().includes("window") ? "window" : "door",
+            label: row.door_label || "",
+            height: row.height || "",
+            width: row.width || "",
+            blockWork: String(row.door_frame || "").toLowerCase().includes("yes") ? "Yes" : "No",
+            floorLevel: row.floor_level || row.floorLevel || "GF",
+            source: "db",
+            autofill_source: "db",
+          }));
+        const doorRows = rows
+          .filter((row) => String(row?.category || "").toLowerCase() !== "reveal")
+          .filter((row) => !isWindowOpening(row) && (row.door_label || row.door_type || row.height || row.width))
+          .map((row, index) => ({
+            id: `fix-db-${row.fixout_id || index}`,
+            floorLevel: row.floor_level || row.floorLevel || "GF",
+            category: row.category || "cavity",
+            door_label: row.door_label || "",
+            door_type: sanitizeProcurementDoorType(row.door_type),
+            height: row.height || 2040,
+            width: row.width || 820,
+            thicks: row.thicks ? String(row.thicks) : "35",
+            wall_width: row.wall_width ? String(row.wall_width) : "90",
+            door_frame: row.door_frame || "Timber Jamb",
+            lift_off_pivot: row.lift_off_pivot || "",
+            handing: row.handing || "",
+            hole: isBunVic && row.hole === "HF" ? "HL" : (row.hole || ""),
+            finish: row.finish || "",
+            door_furniture: row.door_furniture || (isCavityStyleCategory(row.category) ? "CSD Passage Set" : "None"),
+            door_stop: row.door_stop || "None",
+            qty: row.qty || 1,
+            source: "db",
+            autofill_source: "db",
+          }));
+        if (cancelled) return;
+        if (doorRows.length > 0 || revealRows.length > 0) {
+          if (revealRows.length > 0 && onChange) onChange("fixout", "fixout_reveal_openings", JSON.stringify(revealRows));
+          if (doorRows.length > 0 && onSetEntries) onSetEntries(doorRows);
+          setDataSource("db");
+          setIsReadOnly(true);
+        } else {
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("Auto-load Fixout data from DB skipped:", error);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsAddingData(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   const handleAddDataFromDb = async () => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
     if (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai") return;
@@ -1460,6 +1539,10 @@ export default function FixoutTask({
         }));
       if (onChange) onChange("fixout", "fixout_reveal_openings", JSON.stringify(revealRows));
       if (onSetEntries) onSetEntries(doorRows);
+      if (doorRows.length > 0 || revealRows.length > 0) {
+        setDataSource("db");
+        setIsReadOnly(true);
+      }
     } catch (error) {
       console.error("Add Fixout data from database error:", error);
     } finally {
@@ -1540,6 +1623,8 @@ export default function FixoutTask({
       const res = await ApiService.saveFixoutJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       } else {
         alert(res?.detail || res?.message || "Could not save Fixout records to database.");
@@ -1563,6 +1648,10 @@ export default function FixoutTask({
         onSave={handleSave}
         saveDisabled={isSaving}
         saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+        dataSource={dataSource}
+        isReadOnly={isReadOnly}
+        isLoadingFromDb={isAddingData}
+        onEdit={() => setIsReadOnly(false)}
       />
 
       <div style={S.card}>

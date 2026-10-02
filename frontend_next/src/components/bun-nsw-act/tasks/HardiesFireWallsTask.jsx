@@ -108,6 +108,9 @@ export default function HardiesFireWallsTask({
   // ── SAVING STATE ──
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   // Generated/GPT/cache rows may only contain values exposed by these task dropdowns.
   useEffect(() => {
@@ -146,6 +149,8 @@ export default function HardiesFireWallsTask({
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0 && (!entries || entries.length === 0)) {
           setEntries(parsed);
+          setDataSource("db");
+          setIsReadOnly(true);
         }
       }
     } catch (e) {
@@ -311,6 +316,8 @@ export default function HardiesFireWallsTask({
       }
 
       setSaveStatus("success");
+      setDataSource("db");
+      setIsReadOnly(true);
       setTimeout(() => setSaveStatus(null), 3500);
     } catch (err) {
       console.error("Error saving Hardies Fire Walls:", err);
@@ -365,6 +372,9 @@ export default function HardiesFireWallsTask({
           saveDisabled={isSaving}
           saveStatus={isSaving ? "saving" : (saveStatus || "idle")}
           autoFillLabel="Auto Fill"
+          dataSource={dataSource}
+          isReadOnly={isReadOnly}
+          onEdit={() => setIsReadOnly(false)}
         />
       </div>
 

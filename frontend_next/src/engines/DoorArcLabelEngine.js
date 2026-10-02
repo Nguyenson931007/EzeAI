@@ -125,6 +125,7 @@ export function getDoorBoundingBox(d) {
   const typeLower = type.toLowerCase();
   const classLower = (d.class || d.class_name || "").toLowerCase();
   const isWindow = typeLower === "window" || classLower === "window";
+  const isBifold = typeLower === "bifold" || classLower.includes("bifold") || (d.doorTypeId && d.doorTypeId.includes("bifold"));
 
   if (type === "sliding" || isWindow) {
     const ux = dx / len;
@@ -139,6 +140,33 @@ export function getDoorBoundingBox(d) {
       { x: p2_ext.x + nx * halfT, y: p2_ext.y + ny * halfT },
       { x: p2_ext.x - nx * halfT, y: p2_ext.y - ny * halfT },
       { x: p1_ext.x - nx * halfT, y: p1_ext.y - ny * halfT }
+    ];
+  }
+
+  if (isBifold) {
+    const ux = dx / len;
+    const uy = dy / len;
+    const isInward = (d.swing || d.swing_direction || "inward") === "inward";
+    const sideFactor = isInward ? 1 : -1;
+    const nx = -uy * sideFactor;
+    const ny = ux * sideFactor;
+    const foldReach = Math.min(len * 0.45, 60);
+    const p1_ext = { x: p1.x - ux * pad, y: p1.y - uy * pad };
+    const p2_ext = { x: p2.x + ux * pad, y: p2.y + uy * pad };
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const apexPt = { x: midX + nx * foldReach, y: midY + ny * foldReach };
+    const bXs = [p1_ext.x, p2_ext.x, apexPt.x];
+    const bYs = [p1_ext.y, p2_ext.y, apexPt.y];
+    const minX = Math.min(...bXs) - pad;
+    const minY = Math.min(...bYs) - pad;
+    const maxX = Math.max(...bXs) + pad;
+    const maxY = Math.max(...bYs) + pad;
+    return [
+      { x: minX, y: minY },
+      { x: maxX, y: minY },
+      { x: maxX, y: maxY },
+      { x: minX, y: maxY }
     ];
   }
 

@@ -593,6 +593,10 @@ export default function FowPlumbingTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState({ text: "", type: "info" });
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
   const editingRowIdRef = useRef(null);
   const editRowDataRef = useRef({});
 
@@ -669,6 +673,60 @@ export default function FowPlumbingTask({
     }
   };
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchFowPlumbingJobs(resolvedJobKey);
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const loaded = res.data
+            .filter((r) => r.item_name || r.code || r.description)
+            .map((r, idx) => {
+              const fl = String(r.floor_level || r.FloorLevel || "GF").trim().toUpperCase();
+              return {
+                id: `plumb-${r.id || Date.now()}-${idx}`,
+                itemName: r.item_name || "",
+                code: r.code || "",
+                description: r.description || "",
+                qty: r.qty != null ? Number(r.qty) : 1,
+                note: r.note || "",
+                floorLevel: fl || "GF",
+                floor_level: fl || "GF",
+                source: "db",
+                autofill_source: "db",
+              };
+            });
+          if (loaded.length > 0 && onSetEntries) {
+            onSetEntries(loaded);
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load FOW Plumbing data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   // ── Reload FOW Plumbing entries from DB ──
   const handleReloadFromDb = useCallback(async (manual = false) => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
@@ -705,6 +763,8 @@ export default function FowPlumbingTask({
           });
         if (loaded.length > 0 && onSetEntries) {
           onSetEntries(loaded);
+          setDataSource("db");
+          setIsReadOnly(true);
           if (manual) {
             setReloadMsg({ text: `Loaded ${loaded.length} fixtures from SQL`, type: "success" });
             setTimeout(() => setReloadMsg({ text: "", type: "info" }), 3500);
@@ -814,6 +874,8 @@ export default function FowPlumbingTask({
       const res = await ApiService.saveFowPlumbingJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       } else {
         alert(res?.detail || res?.message || "Could not save FOW Plumbing records to database.");
@@ -963,10 +1025,13 @@ export default function FowPlumbingTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingDb}
+            onEdit={() => setIsReadOnly(false)}
           />
           <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>{isSection2Open ? "▲" : "▼"}</span>
         </div>

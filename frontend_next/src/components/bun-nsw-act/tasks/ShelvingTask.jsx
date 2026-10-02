@@ -272,6 +272,10 @@ export default function ShelvingTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   const totalCount = (entries || []).length;
 
@@ -384,6 +388,61 @@ export default function ShelvingTask({
     };
   }, []);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchShelvingJobs(resolvedJobKey);
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const loaded = res.data
+            .filter((r) => r.type || r.size || r.qty)
+            .map((r, idx) => ({
+              id: `shv-${r.shelving_id || Date.now()}-${idx}`,
+              floorLevel: r.floor_level || r.floorLevel || "GF",
+              type: r.type || "Robe",
+              size: normalizeShelvingSize(r.size),
+              qty: r.qty != null ? Number(r.qty) : 1,
+              source: "db",
+              autofill_source: "db",
+            }));
+
+          if (loaded.length > 0 && onSetEntries) {
+            onSetEntries(loaded);
+            const first = loaded[0];
+            if (first) {
+              setTypeDraft(first.type || "Robe");
+              setSizeDraft(first.size || "1500x450");
+              setQtyDraft(String(first.qty || 1));
+            }
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Shelving data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   const handleReloadFromDb = async (force = true) => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
     if (!force && (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai")) return;
@@ -407,6 +466,8 @@ export default function ShelvingTask({
 
         if (loaded.length > 0 && onSetEntries) {
           onSetEntries(loaded);
+          setDataSource("db");
+          setIsReadOnly(true);
           const first = loaded[0];
           if (first) {
             setTypeDraft(first.type || "Robe");
@@ -496,6 +557,8 @@ export default function ShelvingTask({
       const res = await ApiService.saveShelvingJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       } else {
         alert(res?.detail || res?.message || "Could not save Shelving records to database.");
@@ -624,6 +687,10 @@ export default function ShelvingTask({
         onSave={handleSaveToDatabase}
         saveDisabled={isSaving}
         saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+        dataSource={dataSource}
+        isReadOnly={isReadOnly}
+        isLoadingFromDb={isLoadingDb}
+        onEdit={() => setIsReadOnly(false)}
       >
           <TaskSummaryTable minWidth="560px" compact>
               <thead>

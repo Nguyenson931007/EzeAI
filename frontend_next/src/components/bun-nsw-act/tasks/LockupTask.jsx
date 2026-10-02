@@ -357,6 +357,11 @@ export default function LockupTask({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [locationFilter, setLocationFilter] = useState(null); // null | "external" | "internal"
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
   
   // Excel-style inline row editing: one double-click edits the whole row.
   const [editingDoorData, setEditingDoorData] = useState(null);
@@ -1385,6 +1390,73 @@ export default function LockupTask({
     }
   }, [onSetEntries, suppressAutoInit]);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingFromDb(true);
+      try {
+        const res = await ApiService.fetchLockoutJobs(resolvedJobKey);
+        if (cancelled) return;
+        if (res && res.data) {
+          const matchedRows = res.data.filter(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === resolvedJobKey.toLowerCase()) || (hw && hw === resolvedJobKey.toLowerCase());
+          });
+          const validRows = matchedRows.filter(r => !isWindowOpening(r) && (r.door_type || r.height || r.width || r.jamb_or_wall || r.label));
+          if (validRows.length > 0 && onSetEntries) {
+            const loaded = validRows.map((r, idx) => ({
+              id: `door-loaded-${Date.now()}-${idx}`,
+              mode: normalizeLockupModeValue(r.mode)
+                || (String(r.scope || "").toLowerCase() === "external" ? "Prehung" : "Loose"),
+              floorLevel: r.floorLevel || r.floor_level || "GF",
+              scope: r.scope || null,
+              label: r.label || null,
+              door_type: r.door_type || null,
+              height: r.height || null,
+              width: r.width || null,
+              thickness: r.thickness || null,
+              jamb_or_wall: r.jamb_or_wall || null,
+              jamb_size: r.jamb_size || null,
+              hung: r.hung || null,
+              type: r.type || null,
+              weatherguard: r.weatherguard || r.Weatherguard || "No",
+              dbl_rebated: r.dbl_rebated || r.DBLRebated || "No",
+              door_stop: r.door_stop || null,
+              internal_type: r.internal_type || null,
+              color: r.color || null,
+              default_qty: r.default_qty || 1,
+              source: "db",
+              autofill_source: "db"
+            }));
+            onSetEntries(loaded);
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("Auto-load LockUp data from DB skipped:", error);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingFromDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   // ── Lưu toàn bộ danh sách LockUp vào [ProcurementApp].[dbo].[LockUp] ──
   const handleSaveToDatabase = async () => {
     if (!entries || entries.length === 0) return;
@@ -1441,6 +1513,8 @@ export default function LockupTask({
       const res = await ApiService.saveLockoutJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 4000);
       } else {
         alert(res?.detail || res?.message || "Could not save LockUp records to ProcurementApp.");
@@ -1492,6 +1566,8 @@ export default function LockupTask({
               autofill_source: "manual"
             }));
             onSetEntries(loaded);
+            setDataSource("db");
+            setIsReadOnly(true);
           }
         }
       } catch (e) {
@@ -2422,6 +2498,10 @@ export default function LockupTask({
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving || !entries || entries.length === 0}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingFromDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

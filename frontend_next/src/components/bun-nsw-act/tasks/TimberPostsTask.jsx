@@ -278,26 +278,6 @@ export default function TimberPostsTask({
       });
   }, [combinedCatalog]);
 
-  useEffect(() => {
-    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
-    let changed = false;
-    const next = entries.map((row) => {
-      const generated = row?.autofill_source && row.autofill_source !== "manual"
-        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
-      if (!generated) return row;
-      const postTypeValue = resolveDropdownValue(row.postType || row.post_type, POST_TYPE_OPTIONS, { fallback: "" });
-      const sizeOptions = getSizesForPostType(postTypeValue);
-      const postSizeValue = resolveDropdownValue(row.postSize || row.post_size, sizeOptions, { fallback: "" });
-      const stockOptions = getStocksForTypeAndSize(postTypeValue, postSizeValue).map(postOptionKey);
-      const postValue = resolveDropdownValue(row.post || row.product, ["", ...stockOptions], { fallback: "" });
-      const postOverValue = resolveDropdownValue(row.postOver || row.post_over, ["slab", "timber"], { fallback: "" });
-      const patch = { ...row, postType: postTypeValue, postSize: postSizeValue, post: postValue, postOver: postOverValue };
-      if (["postType","postSize","post","postOver"].some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
-      return patch;
-    });
-    if (changed) onSetEntries(next);
-  }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
-
   // Cascading Post Stock options based on selected postType AND postSize
   const POST_STOCK_OPTIONS = useMemo(() => {
     return getStocksForTypeAndSize(postType, postSize);
@@ -321,6 +301,26 @@ export default function TimberPostsTask({
     if (specialUnknown) return specialUnknown;
     return candidates[candidates.length - 1] || null;
   }, [combinedCatalog]);
+
+  useEffect(() => {
+    if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
+    let changed = false;
+    const next = entries.map((row) => {
+      const generated = row?.autofill_source && row.autofill_source !== "manual"
+        || row?.ai_generated === true || row?.generatedByAI === true || row?.source === "document_ai";
+      if (!generated) return row;
+      const postTypeValue = resolveDropdownValue(row.postType || row.post_type, POST_TYPE_OPTIONS, { fallback: "" });
+      const sizeOptions = getSizesForPostType(postTypeValue);
+      const postSizeValue = resolveDropdownValue(row.postSize || row.post_size, sizeOptions, { fallback: "" });
+      const stockOptions = getStocksForTypeAndSize(postTypeValue, postSizeValue).map(postOptionKey);
+      const postValue = resolveDropdownValue(row.post || row.product, ["", ...stockOptions], { fallback: "" });
+      const postOverValue = resolveDropdownValue(row.postOver || row.post_over, ["slab", "timber"], { fallback: "" });
+      const patch = { ...row, postType: postTypeValue, postSize: postSizeValue, post: postValue, postOver: postOverValue };
+      if (["postType","postSize","post","postOver"].some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
+      return patch;
+    });
+    if (changed) onSetEntries(next);
+  }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
 
   const matchedPost = useMemo(() => {
     const hMm = normalizeMm(postHeight);
@@ -347,6 +347,10 @@ export default function TimberPostsTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   useEffect(() => {
     editingRowIdRef.current = editingRowId;
@@ -469,6 +473,67 @@ export default function TimberPostsTask({
     };
   }, []);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchTimberPostsJobs();
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const target = resolvedJobKey.toLowerCase();
+          const matchedJob = res.data.find(j => {
+            const jn = String(j.job_number || "").trim().toLowerCase();
+            const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+            return (jn && jn === target) || (hw && hw === target);
+          });
+          if (matchedJob && matchedJob.posts && matchedJob.posts.length > 0) {
+            const savedSupportTotal = matchedJob.posts.reduce((sum, p) => {
+              const value = Number.parseInt(String(p.gal_post_supports ?? "0").trim(), 10);
+              return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+            }, 0);
+            const loaded = matchedJob.posts.map((p, idx) => ({
+              id: p.id || `tp-loaded-${Date.now()}-${idx}`,
+              floorLevel: p.floor_level || p.floorLevel || "GF",
+              postType: p.post_type || "MERBAU GL17 FJL POST",
+              postHeight: p.post_height ? (String(p.post_height).includes("mm") ? p.post_height : `${p.post_height} mm`) : "2700 mm",
+              postSize: p.post_size || "90×90 mm",
+              post: p.post || `${p.post_type || "MERBAU GL17 FJL POST"} ${p.post_size || "90×90 mm"} @ ${p.post_height || "2700mm"}`,
+              qty: p.qty || 1,
+              postOver: "timber",
+              galPostSupports: p.gal_post_supports !== undefined ? String(p.gal_post_supports) : "0",
+              source: "db",
+              autofill_source: "db"
+            }));
+            if (onSetEntries) onSetEntries(loaded);
+            setExtraSupportQty(String(savedSupportTotal));
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load TimberPosts data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   const handleReloadFromDb = async (force = true) => {
     const target = String(currentProjectName || currentJobId || activeJobNumber || "").trim().toLowerCase();
     if (!force && (!target || target === "default" || target === "testai")) return;
@@ -513,6 +578,8 @@ export default function TimberPostsTask({
             onSetEntries(loaded);
           }
           setExtraSupportQty(String(savedSupportTotal));
+          setDataSource("db");
+          setIsReadOnly(true);
           const first = loaded[0];
           if (first) {
             setPostType(first.postType || "Please Select");
@@ -656,6 +723,8 @@ export default function TimberPostsTask({
       const res = await ApiService.saveTimberPostsJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       } else {
         alert(res?.detail || res?.message || "Error saving TimberPosts data.");
@@ -869,10 +938,13 @@ export default function TimberPostsTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 

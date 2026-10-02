@@ -334,6 +334,8 @@ export default function RightPropertyPaneView({
     currentProjectName, setCurrentProjectName,
     currentJobId, setCurrentJobId,
     setActiveTab,
+    levels, setLevels,
+    currentLevelIndex, setCurrentLevelIndex,
     user,
     setShowFrameworkModal,
     setShowAreaSummaryModal,
@@ -777,7 +779,14 @@ export default function RightPropertyPaneView({
         if (pendingJobStr) pendingJob = JSON.parse(pendingJobStr);
       } catch (_) { }
 
-      if (pendingJob) {
+      // Kiểm tra xem pendingJob có trùng khớp với project đang mở hay không
+      const isMatchingEmsJob = pendingJob && currentProjectName && (
+        String(pendingJob.job_number || pendingJob.job_num || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
+        String(pendingJob.hw_id || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
+        String(pendingJob.id_job_ems || pendingJob.ems_id || pendingJob.id || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase()
+      );
+
+      if (pendingJob && isMatchingEmsJob) {
         const nextFloors = normalizeTaskFloorCodes(pendingJob.floor_levels);
         setFlooringTaskFloors((prev) => JSON.stringify(prev) === JSON.stringify(nextFloors) ? prev : nextFloors);
         if (typeof window !== "undefined") {
@@ -786,13 +795,6 @@ export default function RightPropertyPaneView({
           }));
         }
       }
-
-      // Kiểm tra xem pendingJob có trùng khớp với project đang mở hay không
-      const isMatchingEmsJob = pendingJob && currentProjectName && (
-        String(pendingJob.job_number || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
-        String(pendingJob.hw_id || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase() ||
-        String(pendingJob.id_job_ems || "").trim().toLowerCase() === String(currentProjectName || "").trim().toLowerCase()
-      );
 
       const pendingCustomer = isMatchingEmsJob ? getCustomerFromPendingEmsJob() : null;
       const storedCustomer =
@@ -2105,179 +2107,68 @@ export default function RightPropertyPaneView({
     if (!task) return;
     const targetName = task.job_number || task.hw_id || "Project";
 
-    // IMPORTANT: the Client displayed on the clicked Task HW card is the
-    // authoritative customer selection. The detail API can contain older or
-    // differently-shaped customer fields, so it must not overwrite task.client.
+    // 0. If user clicks on the currently active project, do nothing
+    if (currentProjectName && targetName === currentProjectName) {
+      return;
+    }
+
+    // Check if the current workspace has active drawing data (pages, walls, etc.)
+    const hasCurrentDrawing = (pagesProp && pagesProp.length > 0) ||
+      (pagesContext && pagesContext.length > 0) ||
+      (wallsByPageProp && Object.values(wallsByPageProp).some(arr => arr && arr.length > 0)) ||
+      (wallsByPageCtx && Object.values(wallsByPageCtx).some(arr => arr && arr.length > 0));
+
+    if (hasCurrentDrawing) {
+      const confirmed = await showConfirm(
+        `You have unsaved changes in project "${currentProjectName || "current"}".\n` +
+        `Switching to project "${targetName}" will discard any unsaved changes.\n\n` +
+        `Do you want to continue?`
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
     const taskListClient = task.client || null;
-    let currentTask = task;
     const emsId = task.id_job_ems || task.ems_id || task.hw_id || task.id;
-    if (emsId) {
-      try {
-        const emsRes = await ApiService.getJobByEmsId(emsId);
-        if (emsRes?.status === "success" && emsRes.data) {
-          currentTask = {
-            ...task,
-            ...emsRes.data,
-            client: taskListClient || emsRes.data.client || null,
-            task_client: taskListClient || emsRes.data.task_client || emsRes.data.client || null,
-          };
-        }
-      } catch (err) {
-        console.warn("Could not fetch EMS details for task:", err);
-      }
-    }
+    const localJobId = task.local_job?.id;
+    const localJobData = task.local_job?.data;
+    const hasLocalKnown = Boolean(localJobId || localJobData || task.has_local_job);
+    const activeLoadingKey = task.id || task.job_number || task.hw_id;
 
-    const taskClientKey = resolveCustomerPackKey(taskListClient || currentTask.client || currentTask.task_client);
-    const taskFloors = normalizeTaskFloorCodes(currentTask.floor_levels || task.floor_levels);
-    setFlooringTaskFloors(taskFloors);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
-        detail: { floor_levels: taskFloors, source: "tasklist-job-api" }
-      }));
-    }
+    // Helper: Reset all drawing states to empty immediately (0ms delay)
+    const resetWorkspaceState = () => {
+      // 1. Determine target floor levels immediately
+      const initialFloors = normalizeTaskFloorCodes(task?.floor_levels);
 
-    // Persist the clicked job + its exact card Client BEFORE changing the
-    // active project name. The project-name effect reads these values; doing
-    // this in the opposite order created a race where the previous customer's
-    // form/header could survive after a new job was selected.
-    try {
-      const { local_job, ...metaWithoutDrawing } = currentTask;
-      const cleanTaskMeta = {
-        ...metaWithoutDrawing,
-        client: taskListClient || metaWithoutDrawing.client || null,
-        task_client: taskListClient || metaWithoutDrawing.task_client || metaWithoutDrawing.client || null,
-        local_job: local_job ? {
-          id: local_job.id,
-          project_name: local_job.project_name,
-          room_count: local_job.room_count,
-          total_area: local_job.total_area
-        } : null
-      };
-      sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
-      try { localStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta)); } catch (_) { }
-      if (taskClientKey) {
-        sessionStorage.setItem("selectedCustomerClient", taskClientKey);
-        localStorage.setItem("selectedCustomerClient", taskClientKey);
-      }
-    } catch (_) { }
-
-    if (taskClientKey) {
-      setSelectedCustomerClient(taskClientKey);
-    }
-    if (setCurrentProjectName) setCurrentProjectName(targetName);
-
-    // 0. Sử dụng task_modules / selected_modules từ API làm nguồn chân lý cao nhất
-    const authoritativeMods = Array.isArray(currentTask.task_modules)
-      ? currentTask.task_modules
-      : (Array.isArray(currentTask.selected_modules)
-        ? currentTask.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
-        : null);
-
-    if (Array.isArray(authoritativeMods)) {
-      setEnabledModuleIds(authoritativeMods);
-      try {
-        sessionStorage.setItem("selectedModules", JSON.stringify(authoritativeMods));
-      } catch (_) { }
-    } else {
-      const taskModules = sanitizeModuleIds(resolveTaskModules(currentTask), taskClientKey || selectedCustomerClient);
-      if (taskModules && taskModules.length > 0) {
-        setEnabledModuleIds(taskModules);
-        try {
-          sessionStorage.setItem("selectedModules", JSON.stringify(taskModules));
-        } catch (_) { }
-      }
-    }
-
-    // Notify ribbon/module consumers only after the authoritative job + Client
-    // context is fully stored.
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: currentTask }));
-    }
-
-    // 1. Kiểm tra đối chiếu xem Job đã có dữ liệu bản vẽ đã lưu trong CSDL SQLite hay chưa
-    let loadedSuccess = false;
-    const localJobId = currentTask.local_job?.id || task.local_job?.id;
-    const localJobData = currentTask.local_job?.data || task.local_job?.data;
-
-    // A. Nếu có local_job data inline
-    if (localJobData) {
-      try {
-        const parsed = typeof localJobData === "string" ? JSON.parse(localJobData) : localJobData;
-        if (onLoadJob) {
-          onLoadJob(parsed, currentTask.local_job?.project_name || task.local_job?.project_name || targetName, localJobId);
-        }
-        if (setActiveTab) setActiveTab("Home");
-        loadedSuccess = true;
-      } catch (err) {
-        console.warn("[handleOpenJobTask] Lỗi parse inline local_job data:", err);
-      }
-    } else if (localJobId) {
-      // B. Nếu có ID trong SQLite -> tải chi tiết bản vẽ
-      try {
-        setLoadingJobId(task.hw_id);
-        const res = await ApiService.getJobData(localJobId);
-        if (res && res.status === "success" && res.data) {
-          const parsed = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-          if (onLoadJob) {
-            onLoadJob(parsed, currentTask.local_job?.project_name || task.local_job?.project_name || targetName, localJobId);
-          }
-          if (setActiveTab) setActiveTab("Home");
-          loadedSuccess = true;
-        }
-      } catch (err) {
-        console.warn("[handleOpenJobTask] Could not load local job data by ID:", err);
-      } finally {
-        setLoadingJobId(null);
-      }
-    }
-
-    // C. Nếu chưa tìm thấy qua task metadata, thử tìm trực tiếp trong SQLite qua ApiService.findJob
-    if (!loadedSuccess && targetName) {
-      try {
-        setLoadingJobId(task.hw_id);
-        const findRes = await ApiService.findJob(targetName);
-        if (findRes && findRes.status === "success" && findRes.found && findRes.data) {
-          const parsed = typeof findRes.data === "string" ? JSON.parse(findRes.data) : findRes.data;
-          if (onLoadJob) {
-            onLoadJob(parsed, findRes.project_name || targetName, findRes.job_id);
-          }
-          if (setActiveTab) setActiveTab("Home");
-          loadedSuccess = true;
-        }
-      } catch (err) {
-        console.warn("[handleOpenJobTask] Could not find job by name in SQLite:", err);
-      } finally {
-        setLoadingJobId(null);
-      }
-    }
-
-    if (!loadedSuccess) {
-      // 2. Nếu chưa có bản vẽ trong SQLite: XÓA SẠCH workspace cũ mở trang mới trắng
-      console.log("[handleOpenJobTask] Job don't have draw in SQLite, reset workspace open new page for:", targetName);
-
-      // 2a. ĐẶT FLAG chặn restore — phải đặt TRƯỚC khi clear state để App.jsx không restore lại data cũ
+      // 2. Immediately build & save the new job's pending metadata to sessionStorage & localStorage
+      // so any background sync or event reading pendingEmsJob reads the new job and default floors!
       try {
         sessionStorage.setItem("ezefloor_skip_restore", "1");
-      } catch (_) { }
-
-      // 2b. Clear IndexedDB workspace cache TRƯỚC (await để đảm bảo xóa xong trước khi state thay đổi)
-      try {
-        await clearWorkspaceState("active_session");
-        console.log("[handleOpenJobTask] IndexedDB active_session cleared successfully");
-      } catch (err) {
-        console.warn("[handleOpenJobTask] Could not clear IndexedDB:", err);
-      }
-
-      // 2c. Clear relevant localStorage keys
-      try {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("ezefloor_last_active_job_id");
-          localStorage.removeItem("ezefloor_last_active_project_name");
+        const cleanInitialMeta = {
+          id: task.id || emsId,
+          id_job_ems: emsId || task.id,
+          hw_id: task.hw_id || null,
+          job_number: targetName,
+          job_num: targetName,
+          floor_levels: initialFloors,
+          client: taskListClient,
+          task_client: taskListClient,
+          local_job: task.local_job || null
+        };
+        sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanInitialMeta));
+        localStorage.setItem("pendingEmsJob", JSON.stringify(cleanInitialMeta));
+        if (taskListClient) {
+          const clientKey = resolveCustomerPackKey(taskListClient);
+          if (clientKey) {
+            sessionStorage.setItem("selectedCustomerClient", clientKey);
+            localStorage.setItem("selectedCustomerClient", clientKey);
+          }
         }
       } catch (_) { }
 
-      // 2d. Clear React state — pages, walls, rooms, doors, roofs, lintels, trusses, scales, annotations
-      // (Phải thực hiện SAU khi IndexedDB đã xóa xong để restore effect không đọc được data cũ)
+      // 3. Clear React drawing states immediately
+      if (setPagesProp) setPagesProp([]);
       if (setPagesContext) setPagesContext([]);
       if (setWallsByPageCtx) setWallsByPageCtx({});
       if (setDoorsByPageCtx) setDoorsByPageCtx({});
@@ -2294,7 +2185,7 @@ export default function RightPropertyPaneView({
       if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
       if (setActiveAnnotationToolCtx) setActiveAnnotationToolCtx(null);
 
-      // 2e. Clear selection & interaction state
+      // 4. Clear selection & interaction state
       if (setSelectedId) setSelectedId(null);
       if (setSelectedType) setSelectedType(null);
       if (setSelectedWallIds) setSelectedWallIds([]);
@@ -2304,43 +2195,249 @@ export default function RightPropertyPaneView({
       if (setHighlightType) setHighlightType(null);
       if (setCurrentPageProp) setCurrentPageProp(0);
 
-      // 2f. Set project name & job context for the new job
+      // 5. Reset levels and selection immediately in Context & component state (0ms delay)
+      if (setCurrentLevelIndex) setCurrentLevelIndex(0);
+      if (setLevels) {
+        setLevels(initialFloors.map((code, idx) => ({
+          id: `lvl-${idx + 1}`,
+          name: idx === 0 ? "Level 1" : `Level ${idx + 1}`,
+          code: code
+        })));
+      }
+      setFlooringTaskFloors(initialFloors);
+
+      // 6. Synchronize shared building floor registry with initialFloors immediately
+      if (onBuildingFloorLevelsChange) {
+        void onBuildingFloorLevelsChange(initialFloors, { persist: false });
+      }
+
+      // 7. Set project name & job context for the new job
       if (setCurrentProjectName) setCurrentProjectName(targetName);
       if (setCurrentJobId) setCurrentJobId(null);
       if (setActiveTab) setActiveTab("Home");
 
-      // 2g. Tự động kích hoạt chọn bản vẽ PDF / Ảnh để người dùng bắt đầu vẽ ngay
-      const fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.accept = ".pdf,image/*";
-      fileInput.style.display = "none";
-      fileInput.onchange = (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+      // 8. Broadcast reset events immediately
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+          detail: { floor_levels: initialFloors, source: "reset-workspace" }
+        }));
+        window.dispatchEvent(new CustomEvent("ezefloor:reset_workspace", {
+          detail: { floor_levels: initialFloors }
+        }));
+      }
 
-        // Đảm bảo tên dự án luôn gắn chặt với job_number của Task HW để đồng bộ SQL
-        if (setCurrentProjectName) setCurrentProjectName(targetName);
-
-        if (file.type === "application/pdf") {
-          if (loadPDF) loadPDF(file);
-        } else {
-          const url = URL.createObjectURL(file);
-          const imgData = { image: url, w: 2000, h: 1500, fileName: targetName };
-          if (setPendingPages) setPendingPages([imgData]);
-          if (setImportSelectedPages) setImportSelectedPages([0]);
-          if (setIsAddingPagesMode) setIsAddingPagesMode(false);
-          if (setShowImportPageSelector) setShowImportPageSelector(true);
+      // Non-blocking cleanup in background
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("ezefloor_last_active_job_id");
+          localStorage.removeItem("ezefloor_last_active_project_name");
         }
-      };
-      document.body.appendChild(fileInput);
-      fileInput.click();
-      setTimeout(() => {
-        try {
-          if (document.body.contains(fileInput)) {
-            document.body.removeChild(fileInput);
-          }
-        } catch (_) { }
-      }, 1000);
+      } catch (_) { }
+      clearWorkspaceState("active_session").catch(err => {
+        console.warn("[handleOpenJobTask] Could not clear IndexedDB:", err);
+      });
+    };
+
+    // Helper: Apply metadata & modules from task/EMS
+    const applyTaskMetadata = (fullTask) => {
+      const tClientKey = resolveCustomerPackKey(taskListClient || fullTask.client || fullTask.task_client);
+      const tFloors = normalizeTaskFloorCodes(fullTask.floor_levels || task.floor_levels);
+      setFlooringTaskFloors(tFloors);
+      if (setCurrentLevelIndex) setCurrentLevelIndex(0);
+      if (setLevels) {
+        setLevels(tFloors.map((code, idx) => ({
+          id: `lvl-${idx + 1}`,
+          name: idx === 0 ? "Level 1" : `Level ${idx + 1}`,
+          code: code
+        })));
+      }
+      if (onBuildingFloorLevelsChange) {
+        void onBuildingFloorLevelsChange(tFloors, { persist: false });
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("task-floor-levels-updated", {
+          detail: { floor_levels: tFloors, source: "tasklist-job-api" }
+        }));
+      }
+
+      try {
+        const { local_job, ...metaWithoutDrawing } = fullTask;
+        const cleanTaskMeta = {
+          ...metaWithoutDrawing,
+          id: fullTask.id || task.id || emsId,
+          id_job_ems: fullTask.id_job_ems || emsId || task.id,
+          job_number: fullTask.job_number || targetName,
+          job_num: fullTask.job_num || fullTask.job_number || targetName,
+          floor_levels: tFloors,
+          client: taskListClient || metaWithoutDrawing.client || null,
+          task_client: taskListClient || metaWithoutDrawing.task_client || metaWithoutDrawing.client || null,
+          local_job: local_job ? {
+            id: local_job.id,
+            project_name: local_job.project_name,
+            room_count: local_job.room_count,
+            total_area: local_job.total_area
+          } : null
+        };
+        sessionStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta));
+        try { localStorage.setItem("pendingEmsJob", JSON.stringify(cleanTaskMeta)); } catch (_) { }
+        if (tClientKey) {
+          sessionStorage.setItem("selectedCustomerClient", tClientKey);
+          localStorage.setItem("selectedCustomerClient", tClientKey);
+        }
+      } catch (_) { }
+
+      if (tClientKey) {
+        setSelectedCustomerClient(tClientKey);
+      }
+
+      const authoritativeMods = Array.isArray(fullTask.task_modules)
+        ? fullTask.task_modules
+        : (Array.isArray(fullTask.selected_modules)
+          ? fullTask.selected_modules.map(m => typeof m === "string" ? m : m.module_id).filter(Boolean)
+          : null);
+
+      if (Array.isArray(authoritativeMods)) {
+        setEnabledModuleIds(authoritativeMods);
+        try { sessionStorage.setItem("selectedModules", JSON.stringify(authoritativeMods)); } catch (_) { }
+      } else {
+        const taskModules = sanitizeModuleIds(resolveTaskModules(fullTask), tClientKey || selectedCustomerClient);
+        if (taskModules && taskModules.length > 0) {
+          setEnabledModuleIds(taskModules);
+          try { sessionStorage.setItem("selectedModules", JSON.stringify(taskModules)); } catch (_) { }
+        }
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("task-modules-updated", { detail: fullTask }));
+      }
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // BRANCH 1: Brand new Job without drawing in SQLite
+    // ─────────────────────────────────────────────────────────────
+    if (!hasLocalKnown) {
+      // 1. INSTANT OPTIMISTIC RESET: Switch to empty workspace and apply task metadata immediately (0ms delay)
+      resetWorkspaceState();
+      applyTaskMetadata(task);
+
+      // 2. Fetch EMS details in background (non-blocking) to configure client, floors & modules
+      if (emsId) {
+        ApiService.getJobByEmsId(emsId)
+          .then((emsRes) => {
+            if (emsRes?.status === "success" && emsRes.data) {
+              const enriched = {
+                ...task,
+                ...emsRes.data,
+                client: taskListClient || emsRes.data.client || null,
+                task_client: taskListClient || emsRes.data.task_client || emsRes.data.client || null,
+              };
+              applyTaskMetadata(enriched);
+            }
+          })
+          .catch((err) => {
+            console.warn("Could not fetch EMS details for task in background:", err);
+          });
+      }
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // BRANCH 2: Job has an existing drawing in SQLite
+    // ─────────────────────────────────────────────────────────────
+    // A. Inline local_job data available
+    if (localJobData) {
+      try {
+        const parsed = typeof localJobData === "string" ? JSON.parse(localJobData) : localJobData;
+        const savedPageFloors = Array.from(new Set(
+          Array.from(buildArchitecturalFloorLevelMap(parsed?.pages || []).values())
+        ));
+        const combinedFloors = normalizeTaskFloorCodes([
+          ...(task.floor_levels || []),
+          ...savedPageFloors
+        ]);
+
+        if (onLoadJob) {
+          onLoadJob(parsed, task.local_job?.project_name || targetName, localJobId);
+        }
+        if (setActiveTab) setActiveTab("Home");
+        applyTaskMetadata({ ...task, floor_levels: combinedFloors });
+        if (emsId) {
+          ApiService.getJobByEmsId(emsId).then((res) => {
+            if (res?.status === "success" && res.data) {
+              const enrichedFloors = normalizeTaskFloorCodes([
+                ...(res.data.floor_levels || combinedFloors),
+                ...savedPageFloors
+              ]);
+              applyTaskMetadata({ ...task, ...res.data, floor_levels: enrichedFloors });
+            }
+          }).catch(() => null);
+        }
+        return;
+      } catch (err) {
+        console.warn("[handleOpenJobTask] Error parsing inline local_job data:", err);
+      }
+    }
+
+    // B. Fetch EMS metadata and local job drawing in PARALLEL via Promise.all (halves network wait)
+    setLoadingJobId(activeLoadingKey);
+    try {
+      const [emsRes, localJobRes] = await Promise.all([
+        emsId ? ApiService.getJobByEmsId(emsId).catch((err) => {
+          console.warn("Could not fetch EMS details:", err);
+          return null;
+        }) : Promise.resolve(null),
+        localJobId
+          ? ApiService.getJobData(localJobId).catch(() => null)
+          : ApiService.findJob(targetName).catch(() => null)
+      ]);
+
+      const currentTask = (emsRes?.status === "success" && emsRes.data)
+        ? {
+          ...task,
+          ...emsRes.data,
+          client: taskListClient || emsRes.data.client || null,
+          task_client: taskListClient || emsRes.data.task_client || emsRes.data.client || null,
+        }
+        : task;
+
+      let drawingLoaded = false;
+      if (localJobRes?.status === "success" && (localJobRes.data || (localJobRes.found && localJobRes.data))) {
+        const rawData = localJobRes.data;
+        const parsed = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+
+        // Extract all floor codes from the saved drawing pages so all levels are preserved
+        const savedPageFloors = Array.from(new Set(
+          Array.from(buildArchitecturalFloorLevelMap(parsed?.pages || []).values())
+        ));
+        const combinedFloors = normalizeTaskFloorCodes([
+          ...(currentTask.floor_levels || task.floor_levels || []),
+          ...savedPageFloors
+        ]);
+
+        applyTaskMetadata({ ...currentTask, floor_levels: combinedFloors });
+
+        if (onLoadJob) {
+          onLoadJob(
+            parsed,
+            localJobRes.project_name || currentTask.local_job?.project_name || targetName,
+            localJobId || localJobRes.job_id
+          );
+        }
+        if (setActiveTab) setActiveTab("Home");
+        drawingLoaded = true;
+      } else {
+        applyTaskMetadata(currentTask);
+      }
+
+      if (!drawingLoaded) {
+        // Fallback: If drawing could not be loaded, reset workspace cleanly
+        resetWorkspaceState();
+      }
+    } catch (err) {
+      console.warn("[handleOpenJobTask] Error loading job:", err);
+      resetWorkspaceState();
+    } finally {
+      setLoadingJobId(null);
     }
   };
 

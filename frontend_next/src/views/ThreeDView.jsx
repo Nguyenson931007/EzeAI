@@ -1967,8 +1967,9 @@ export default function ThreeDView({
             header.receiveShadow = enableShadows;
             doorGroup.add(header);
 
+            const isBifold = dClass.includes("bifold") || dType === "bifold" || dTypeId.includes("bifold") || dName.includes("bifold");
             const isGarage = dClass.includes("garage") || dClass.includes("roller") || dType === "garage" || dTypeId.includes("garage");
-            const isDouble = (dClass.includes("double") || dName.includes("2x") || dTypeId.includes("double")) && !isSliding;
+            const isDouble = (dClass.includes("double") || dName.includes("2x") || dTypeId.includes("double")) && !isSliding && !isBifold;
 
             const slabHeight = frameHeight - postThickness;
             const slabThick = 4;
@@ -2070,8 +2071,155 @@ export default function ThreeDView({
               const slideOffset = -pWidth * 0.15; // 15% open
               activeSash.position.set(length / 4 - 0.5 + slideOffset, 0, 1.6);
               doorGroup.add(activeSash);
+            } else if (isBifold) {
+              // ── BIFOLD ACCORDION DOOR SYSTEM ──
+              const isExtBifold = dTypeId.includes("ext") || hostWallClass === "exterior_wall" || Boolean(door.is_ext);
+              const clearWidth = length - postThickness;
+              const effWidthMm = door.width_mm || (length * scaleFactor) || 2400;
+              const is4Panel = effWidthMm >= 1700 || dTypeId === "ext_bifold";
+              const numPanels = is4Panel ? 4 : 2;
+              const panelW = (clearWidth / numPanels) * 0.96;
+
+              const swingDir = (door.swing_direction || door.swing || "inward").toLowerCase();
+              const isOutward = swingDir === "outward";
+              const swingSign = isOutward ? -1 : 1;
+
+              // 1. Top Guide Track
+              const trackMat = new THREE.MeshStandardMaterial({
+                color: 0x334155, // Dark slate aluminum top track
+                roughness: 0.35,
+                metalness: 0.8
+              });
+              const trackMesh = new THREE.Mesh(new THREE.BoxGeometry(clearWidth, 1.2, 3.0), trackMat);
+              trackMesh.position.set(0, slabHeight + 0.6, 0);
+              doorGroup.add(trackMesh);
+
+              // 2. Materials for Bifold leaves
+              const bifoldFrameMat = new THREE.MeshStandardMaterial({
+                color: isExtBifold ? 0x1e293b : 0x78350f,
+                roughness: 0.4,
+                metalness: isExtBifold ? 0.8 : 0.1
+              });
+              const bifoldGlassMat = new THREE.MeshPhysicalMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.35,
+                roughness: 0.05,
+                metalness: 0.95,
+                transmission: 0.95,
+                thickness: 1.2,
+                reflectivity: 0.95
+              });
+              const hingeMat = new THREE.MeshStandardMaterial({
+                color: 0xd4af37, // Gold brass architectural hinges
+                roughness: 0.25,
+                metalness: 0.9
+              });
+
+              // Helper: creates a bifold leaf (panel)
+              const createBifoldLeaf = (w, h) => {
+                const leafGroup = new THREE.Group();
+                const leafThick = 3.0;
+
+                if (isExtBifold) {
+                  // Aluminum framed glass panel
+                  const profile = 2.0;
+                  const sLeft = new THREE.Mesh(new THREE.BoxGeometry(profile, h, leafThick), bifoldFrameMat);
+                  sLeft.position.set(-w / 2 + profile / 2, h / 2, 0);
+                  const sRight = new THREE.Mesh(new THREE.BoxGeometry(profile, h, leafThick), bifoldFrameMat);
+                  sRight.position.set(w / 2 - profile / 2, h / 2, 0);
+                  const rTop = new THREE.Mesh(new THREE.BoxGeometry(w, profile, leafThick), bifoldFrameMat);
+                  rTop.position.set(0, h - profile / 2, 0);
+                  const rBot = new THREE.Mesh(new THREE.BoxGeometry(w, profile + 1.2, leafThick), bifoldFrameMat);
+                  rBot.position.set(0, (profile + 1.2) / 2, 0);
+
+                  const gW = Math.max(1, w - profile * 2);
+                  const gH = Math.max(1, h - profile * 2 - 1.2);
+                  const glass = new THREE.Mesh(new THREE.BoxGeometry(gW, gH, 0.8), bifoldGlassMat);
+                  glass.position.set(0, (profile + 1.2) + gH / 2, 0);
+
+                  sLeft.castShadow = enableShadows;
+                  sRight.castShadow = enableShadows;
+                  rTop.castShadow = enableShadows;
+                  rBot.castShadow = enableShadows;
+                  leafGroup.add(sLeft, sRight, rTop, rBot, glass);
+                } else {
+                  // Solid architectural timber panel with beveled recess
+                  const mainSlab = new THREE.Mesh(new THREE.BoxGeometry(w, h, leafThick), slabMat);
+                  mainSlab.position.set(0, h / 2, 0);
+                  mainSlab.castShadow = enableShadows;
+                  mainSlab.receiveShadow = enableShadows;
+                  leafGroup.add(mainSlab);
+
+                  if (w > 8) {
+                    const inset = new THREE.Mesh(
+                      new THREE.BoxGeometry(w - 6, h - 16, leafThick + 0.4),
+                      new THREE.MeshStandardMaterial({ color: 0x5c2609, roughness: 0.5, metalness: 0.05 })
+                    );
+                    inset.position.set(0, h / 2, 0);
+                    leafGroup.add(inset);
+                  }
+                }
+
+                return leafGroup;
+              };
+
+              // Helper to build a folding pair
+              const buildFoldingPair = (startX, dirSign) => {
+                const pairGroup = new THREE.Group();
+                pairGroup.position.set(startX, 0, 0);
+
+                // Leaf 1
+                const leaf1 = createBifoldLeaf(panelW, slabHeight);
+                leaf1.position.set(dirSign * panelW / 2, 0, 0);
+                pairGroup.add(leaf1);
+
+                // Knuckle / Center hinge cylinder between leaf 1 and leaf 2
+                const knuckleMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, slabHeight * 0.9, 12), hingeMat);
+                knuckleMesh.position.set(dirSign * panelW, slabHeight * 0.5, 0);
+                pairGroup.add(knuckleMesh);
+
+                // Leaf 2 Group
+                const leaf2Group = new THREE.Group();
+                leaf2Group.position.set(dirSign * panelW, 0, 0);
+
+                const leaf2 = createBifoldLeaf(panelW, slabHeight);
+                leaf2.position.set(dirSign * panelW / 2, 0, 0);
+                leaf2Group.add(leaf2);
+
+                // Top guide roller pin
+                const rollerPin = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 2.4, 8), hingeMat);
+                rollerPin.position.set(dirSign * panelW, slabHeight + 0.3, 0);
+                leaf2Group.add(rollerPin);
+
+                // Folding rotation angles:
+                pairGroup.rotation.y = -dirSign * swingSign * 0.95;
+                leaf2Group.rotation.y = dirSign * swingSign * 1.90;
+
+                pairGroup.add(leaf2Group);
+                return pairGroup;
+              };
+
+              if (is4Panel) {
+                // 2 pairs: Left pair from left jamb, Right pair from right jamb
+                const leftStartX = -clearWidth / 2;
+                const rightStartX = clearWidth / 2;
+                const leftPair = buildFoldingPair(leftStartX, 1);
+                const rightPair = buildFoldingPair(rightStartX, -1);
+                doorGroup.add(leftPair, rightPair);
+              } else {
+                // 1 pair: folds from hinge side
+                const hingeSide = (door.hinge_side || door.hingeSide || "left").toLowerCase();
+                const isRight = hingeSide === "right";
+                const startX = isRight ? clearWidth / 2 : -clearWidth / 2;
+                const dirSign = isRight ? -1 : 1;
+                const singlePair = buildFoldingPair(startX, dirSign);
+                doorGroup.add(singlePair);
+              }
             } else if (isDouble) {
               const pWidth = (length - postThickness) / 2;
+              const swingDir = (door.swing_direction || door.swing || "inward").toLowerCase();
+              const isOutward = swingDir === "outward";
 
               // Left panel group (pivot on left side)
               const leftGroup = new THREE.Group();
@@ -2081,7 +2229,7 @@ export default function ThreeDView({
               leftSlab.castShadow = enableShadows;
               leftSlab.receiveShadow = enableShadows;
               leftGroup.add(leftSlab);
-              leftGroup.rotation.y = 0.8; // swing open 45 degrees
+              leftGroup.rotation.y = isOutward ? 0.8 : -0.8; // Align swing with 2D
 
               // Right panel group (pivot on right side)
               const rightGroup = new THREE.Group();
@@ -2091,7 +2239,7 @@ export default function ThreeDView({
               rightSlab.castShadow = enableShadows;
               rightSlab.receiveShadow = enableShadows;
               rightGroup.add(rightSlab);
-              rightGroup.rotation.y = -0.8; // swing open -45 degrees
+              rightGroup.rotation.y = isOutward ? -0.8 : 0.8; // Align swing with 2D
 
               doorGroup.add(leftGroup, rightGroup);
             } else {
@@ -2108,9 +2256,9 @@ export default function ThreeDView({
 
               let swingAngle = 0.85; // 48 degrees open
               if (isRightHinge) {
-                swingAngle = isOutward ? 0.85 : -0.85;
-              } else {
                 swingAngle = isOutward ? -0.85 : 0.85;
+              } else {
+                swingAngle = isOutward ? 0.85 : -0.85;
               }
 
               panelGroup.position.set(pivotX, 0, 0);

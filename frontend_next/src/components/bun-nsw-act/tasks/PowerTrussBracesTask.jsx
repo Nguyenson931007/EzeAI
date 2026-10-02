@@ -327,6 +327,10 @@ export default function PowerTrussBracesTask({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isLoadingDb, setIsLoadingDb] = useState(false);
   const [reloadMsg, setReloadMsg] = useState(null);
+  // ── Auto-load from DB: read-only / edit mode ──
+  const [dataSource, setDataSource] = useState(null);       // "db" | "local" | null
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
 
   const totalCount = (entries || []).length;
 
@@ -440,6 +444,63 @@ export default function PowerTrussBracesTask({
     };
   }, []);
 
+  // ── Auto-load saved data from DB when job changes ──
+  const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
+  useEffect(() => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    if (autoLoadAttempted === resolvedJobKey) return;
+    setAutoLoadAttempted(resolvedJobKey);
+
+    let cancelled = false;
+    const autoLoad = async () => {
+      setIsLoadingDb(true);
+      try {
+        const res = await ApiService.fetchPowerTrussJobs(resolvedJobKey);
+        if (cancelled) return;
+        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          const loaded = res.data
+            .filter((r) => r.wall_height || r.length || r.type)
+            .map((r, idx) => ({
+              id: `ptb-${r.id || Date.now()}-${idx}`,
+              floorLevel: r.floor_level || r.floorLevel || "GF",
+              wallHeight: r.wall_height || r.wallHeight || "",
+              length: r.length || "",
+              type: r.type || "Column",
+              qty: r.qty != null ? Number(r.qty) : 1,
+              source: "db",
+              autofill_source: "db",
+            }));
+
+          if (loaded.length > 0 && onSetEntries) {
+            onSetEntries(loaded);
+            const first = loaded[0];
+            if (first) {
+              setWallHeightDraft(first.wallHeight || "");
+              setLengthDraft(first.length || "");
+              setTypeDraft(first.type || "Column");
+              setQtyDraft(String(first.qty || 1));
+            }
+            setDataSource("db");
+            setIsReadOnly(true);
+          } else {
+            setDataSource(null);
+            setIsReadOnly(false);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("Auto-load Power Truss data from DB skipped:", err);
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingDb(false);
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [resolvedJobKey]);
+
   const handleReloadFromDb = async (force = true) => {
     const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
     if (!force && (!target || target.toLowerCase() === "default" || target.toLowerCase() === "testai")) return;
@@ -464,6 +525,8 @@ export default function PowerTrussBracesTask({
 
         if (loaded.length > 0 && onSetEntries) {
           onSetEntries(loaded);
+          setDataSource("db");
+          setIsReadOnly(true);
           const first = loaded[0];
           if (first) {
             setWallHeightDraft(first.wallHeight || "");
@@ -566,6 +629,8 @@ export default function PowerTrussBracesTask({
       const res = await ApiService.savePowerTrussJobs(payload);
       if (res && res.success) {
         setSaveSuccess(true);
+        setDataSource("db");
+        setIsReadOnly(true);
         setTimeout(() => setSaveSuccess(false), 3500);
       } else {
         alert(res?.detail || res?.message || "Could not save Power Truss Braces records to database.");
@@ -681,10 +746,13 @@ export default function PowerTrussBracesTask({
             onClear={onClearData}
             isOpen={isSection2Open}
             onToggle={() => setIsSection2Open((v) => !v)}
-          
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
+            dataSource={dataSource}
+            isReadOnly={isReadOnly}
+            isLoadingFromDb={isLoadingDb}
+            onEdit={() => setIsReadOnly(false)}
           />
         </div>
 
