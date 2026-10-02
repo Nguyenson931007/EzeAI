@@ -340,6 +340,25 @@ function centroidInROI(obj, roiRect, offset = { x: 0, y: 0 }) {
     cy >= ry && cy <= ry + roiRect.h;
 }
 
+function wallIntersectsROI(wall, roiRect, offset = { x: 0, y: 0 }) {
+  if (!wall || !roiRect) return false;
+  const points = Array.isArray(wall.polygon) && wall.polygon.length
+    ? wall.polygon
+    : (Array.isArray(wall.centerline) ? wall.centerline : []);
+  if (!points.length) return false;
+
+  const xs = points.map((point) => Number(point?.x ?? point?.[0])).filter(Number.isFinite);
+  const ys = points.map((point) => Number(point?.y ?? point?.[1])).filter(Number.isFinite);
+  if (!xs.length || !ys.length) return false;
+
+  const roiLeft = Number(roiRect.x) + Number(offset?.x || 0);
+  const roiTop = Number(roiRect.y) + Number(offset?.y || 0);
+  const roiRight = roiLeft + Number(roiRect.w);
+  const roiBottom = roiTop + Number(roiRect.h);
+  return Math.max(...xs) >= roiLeft && Math.min(...xs) <= roiRight &&
+    Math.max(...ys) >= roiTop && Math.min(...ys) <= roiBottom;
+}
+
 function applyROIResults(existing, detected, roiRect, mode) {
   if (mode === "replace") {
     const outside = existing.filter(r => !centroidInROI(r, roiRect));
@@ -955,6 +974,16 @@ export const useAIController = (
       } catch (e) { }
     }
     const { ext = 90, int = 70, part = 70, defaultHeight = 2700, provider = "local" } = activeThicknesses || {};
+    const requestedROI = roiRect &&
+      [roiRect.x, roiRect.y, roiRect.w, roiRect.h].every((value) => Number.isFinite(Number(value))) &&
+      Number(roiRect.w) > 0 && Number(roiRect.h) > 0
+      ? {
+          x: Number(roiRect.x),
+          y: Number(roiRect.y),
+          w: Number(roiRect.w),
+          h: Number(roiRect.h)
+        }
+      : null;
 
     const job = startROIJob();
     try {
@@ -988,7 +1017,7 @@ export const useAIController = (
         const roomsForContext = roomsByPageRef.current ? (roomsByPageRef.current[currentPage] || []) : [];
         const pageContext = {
           current_page: currentPage,
-          roi: roiRect || null,
+          roi: requestedROI,
           current_wall_count: existingWallsForOpenAI.length,
           door_count: doorsForContext.length,
           room_count: roomsForContext.length
@@ -1053,11 +1082,19 @@ export const useAIController = (
 
         if (applyOpenAI) {
           const uniqueDetectedWalls = dedupeDetectedWallCenterlines(detectedWalls);
+          const wallsOutsideROI = requestedROI
+            ? existingWallsSnapshot.filter((wall) => !wallIntersectsROI(wall, requestedROI, pdfOffset))
+            : [];
+          const nextWalls = requestedROI
+            ? [...wallsOutsideROI, ...uniqueDetectedWalls]
+            : uniqueDetectedWalls;
           setWallsByPage(prev => ({
             ...prev,
-            [currentPage]: recalculateAllWallsPolygons(uniqueDetectedWalls)
+            [currentPage]: recalculateAllWallsPolygons(nextWalls)
           }));
-          setCacheStatus(`GPT Luna applied ${uniqueDetectedWalls.length} walls`);
+          setCacheStatus(requestedROI
+            ? `GPT Luna applied ${uniqueDetectedWalls.length} wall(s) inside ROI`
+            : `GPT Luna applied ${uniqueDetectedWalls.length} walls`);
         } else {
           setCacheStatus(`GPT Luna result discarded (${detectedWalls.length} walls)`);
         }
@@ -1127,7 +1164,10 @@ export const useAIController = (
             const currentRoomsForFilter = roomsByPageRef.current && Array.isArray(roomsByPageRef.current[currentPage]) ? roomsByPageRef.current[currentPage] : [];
             cleanWalls = _filterFalsePositiveWalls(cleanWalls, currentRoomsForFilter, event.width || 1280, event.height || 960);
 
-            const allWalls = [...existingWallsSnapshot, ...cleanWalls];
+            const wallsOutsideROI = requestedROI
+              ? existingWallsSnapshot.filter((wall) => !wallIntersectsROI(wall, requestedROI, pdfOffset))
+              : existingWallsSnapshot;
+            const allWalls = [...wallsOutsideROI, ...cleanWalls];
             const mergedWalls = mergeCollinearWalls(allWalls);
 
             // Snap existing doors to the newly detected merged walls!
@@ -1174,7 +1214,7 @@ export const useAIController = (
           }
         },
         job.controller.signal,
-        roiRect
+        requestedROI
       );
     } catch (err) {
       if (err.name === "AbortError") {

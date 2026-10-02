@@ -971,9 +971,88 @@ async def openai_rebuild_walls(
     try:
         current = _json.loads(existing_walls) if existing_walls else []
         context = _json.loads(page_context) if page_context else {}
+        inference_content = content
+        audit_current = current
+        roi = context.get("roi") if isinstance(context, dict) else None
+        roi_shift_x = 0
+        roi_shift_y = 0
+        roi_applied = False
+
+        if isinstance(roi, dict) and all(roi.get(key) is not None for key in ("x", "y", "w", "h")):
+            try:
+                from PIL import Image as PILImage
+                import io as _io
+
+                roi_x = float(roi["x"])
+                roi_y = float(roi["y"])
+                roi_w = float(roi["w"])
+                roi_h = float(roi["h"])
+                if roi_w > 0 and roi_h > 0:
+                    image = PILImage.open(_io.BytesIO(content)).convert("RGB")
+                    image_w, image_h = image.size
+                    padding = 48
+                    crop_x1 = max(0, int(roi_x) - padding)
+                    crop_y1 = max(0, int(roi_y) - padding)
+                    crop_x2 = min(image_w, int(roi_x + roi_w) + padding)
+                    crop_y2 = min(image_h, int(roi_y + roi_h) + padding)
+                    if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+                        buffer = _io.BytesIO()
+                        image.crop((crop_x1, crop_y1, crop_x2, crop_y2)).save(buffer, format="PNG")
+                        inference_content = buffer.getvalue()
+                        roi_shift_x = crop_x1
+                        roi_shift_y = crop_y1
+                        roi_applied = True
+
+                        def _wall_points(wall):
+                            return wall.get("polygon") or wall.get("centerline") or []
+
+                        def _point_xy(point):
+                            if isinstance(point, dict):
+                                return float(point.get("x", 0)), float(point.get("y", 0))
+                            return float(point[0]), float(point[1])
+
+                        def _intersects_roi(wall):
+                            points = _wall_points(wall)
+                            if not points:
+                                return False
+                            coords = [_point_xy(point) for point in points]
+                            xs = [point[0] for point in coords]
+                            ys = [point[1] for point in coords]
+                            return max(xs) >= roi_x and min(xs) <= roi_x + roi_w and \
+                                max(ys) >= roi_y and min(ys) <= roi_y + roi_h
+
+                        def _shift_wall(wall, dx, dy):
+                            shifted = dict(wall)
+                            for field in ("centerline", "polygon", "junction_points"):
+                                points = shifted.get(field)
+                                if not isinstance(points, list):
+                                    continue
+                                shifted[field] = [
+                                    [x + dx, y + dy]
+                                    for x, y in (_point_xy(point) for point in points)
+                                ]
+                            return shifted
+
+                        audit_current = [
+                            _shift_wall(wall, -roi_shift_x, -roi_shift_y)
+                            for wall in current
+                            if isinstance(wall, dict) and _intersects_roi(wall)
+                        ]
+                        context = {
+                            **context,
+                            "roi": {
+                                "x": roi_x - roi_shift_x,
+                                "y": roi_y - roi_shift_y,
+                                "w": roi_w,
+                                "h": roi_h,
+                            },
+                        }
+            except Exception as roi_error:
+                logger.warning("OpenAI wall ROI crop failed; using full image: %s", roi_error)
+
         local_result = await run_in_threadpool(
             WallSegmentService.predict,
-            image_bytes=content,
+            image_bytes=inference_content,
             confidence=confidence,
             real_scale=real_scale or 1.0,
             filename=file.filename or "plan.png",
@@ -981,13 +1060,22 @@ async def openai_rebuild_walls(
         )
         result = await run_in_threadpool(
             audit_yolo_walls_with_openai,
-            image_bytes=content,
+            image_bytes=inference_content,
             raw_candidates=local_result.get("review_candidates") or local_result.get("walls") or [],
             real_scale=real_scale or 1.0,
             wall_thicknesses=wall_thicknesses,
-            existing_walls=current,
+            existing_walls=audit_current,
             page_context=context,
         )
+        if roi_applied:
+            shifted_walls = []
+            for wall in result.get("walls") or []:
+                shifted = _shift_wall(wall, roi_shift_x, roi_shift_y)
+                if _intersects_roi(shifted):
+                    shifted_walls.append(shifted)
+            result["walls"] = shifted_walls
+            result["count"] = len(shifted_walls)
+            result["roi_applied"] = True
         logger.info(
             "OpenAI regional wall audit: %s candidates -> %s walls | %s/%s approved changes | EzeFloor topology: %s exterior / %s interior",
             result.get("raw_candidate_count"),
