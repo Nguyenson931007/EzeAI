@@ -13,10 +13,11 @@ QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
 
 import logging
 from collections import defaultdict
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.insulation")
 
@@ -57,18 +58,19 @@ class SaveInsulationJobsPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_insulation_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_insulation_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
     Truy vấn danh sách Insulation jobs từ MSSQL [ProcurementApp].[dbo].[Insulation].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(ins.IsOldData, 0) = 0.
     Trả về wall_length theo đơn vị mm, diện tích m².
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
-        sql = """
+        sql = f"""
             SELECT
                 ins.ID AS insulation_id,
                 tghw.id AS IdJob_HW,
@@ -97,6 +99,7 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
             LEFT JOIN [ProcurementApp].[dbo].[Insulation] ins
                 ON tghw.id = ins.IdJob_HW
                AND ISNULL(ins.IsOldData, 0) = 0
+               {unit_filter("ins", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -164,12 +167,13 @@ async def get_insulation_jobs(office: Optional[str] = Query(None, description="F
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
+async def save_insulation_jobs(request: Request, payload: SaveInsulationJobsPayloadSchema):
     """
     Lưu danh sách bóc tách Insulation vào [ProcurementApp].[dbo].[Insulation].
     Lưu WallHeight, WallLength (mm), RValue (decimal).
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -178,7 +182,7 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
         user_update = payload.user_update or "EZE0098"
         saved_summary = []
 
-        sql_archive_old = """
+        sql_archive_old = f"""
             UPDATE [ProcurementApp].[dbo].[Insulation]
             SET
                 IsOldData = 1,
@@ -186,12 +190,14 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
                 DatetimeUpdate = GETDATE()
             WHERE
                 IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                 AND ISNULL(IsOldData, 0) = 0;
         """
 
-        sql_insert_new = """
+        sql_insert_new = f"""
             INSERT INTO [ProcurementApp].[dbo].[Insulation]
             (
+                unit,
                 ID,
                 InsulationType,
                 Product,
@@ -209,6 +215,7 @@ async def save_insulation_jobs(payload: SaveInsulationJobsPayloadSchema):
             )
             VALUES
             (
+                {unit_value_sql(active_unit)},
                 NEWID(),
                 %s,
                 %s,

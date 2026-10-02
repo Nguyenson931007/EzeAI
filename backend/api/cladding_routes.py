@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.cladding")
 
@@ -63,18 +64,19 @@ class SaveJobsPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_cladding_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_cladding_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
     Truy vấn danh sách Cladding jobs từ MSSQL [ProcurementApp].[dbo].[Cladding].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(c.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
         normalized_office = (office or "").strip().upper() or None
-        sql = """
+        sql = f"""
             SELECT
                 c.ID AS cladding_id,
                 tghw.id AS IDJob_HW,
@@ -97,6 +99,7 @@ async def get_cladding_jobs(office: Optional[str] = Query(None, description="Fil
             LEFT JOIN [ProcurementApp].[dbo].[Cladding] c
                 ON tghw.id = c.IdJob_HW
                AND ISNULL(c.IsOldData, 0) = 0
+               {unit_filter("c", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -172,6 +175,7 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
         if not job.id_job_hw:
             raise HTTPException(status_code=400, detail="id_job_hw là bắt buộc cho tất cả các Job trong danh sách")
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -251,21 +255,23 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                     job_hw_id = found_fallback[0] if isinstance(found_fallback, (list, tuple)) else found_fallback.get('id', '09a02fb8-e940-4e7b-ba93-358145170e77')
 
             # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = """
+            sql_update_history = f"""
                 UPDATE [ProcurementApp].[dbo].[Cladding]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                   AND ISNULL(IsOldData, 0) = 0;
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id))
 
             # Step 2: INSERT dữ liệu mới thành record mới (IsOldData = 0, NEWID())
-            sql_insert_new = """
+            sql_insert_new = f"""
                 INSERT INTO [ProcurementApp].[dbo].[Cladding]
                 (
+                unit,
                     ID,
                     WallHeight,
                     WallLength,
@@ -278,6 +284,7 @@ async def save_cladding_jobs(payload: SaveJobsPayloadSchema, request: Request = 
                 )
                 VALUES
                 (
+                {unit_value_sql(active_unit)},
                     NEWID(),
                     %s,
                     %s,

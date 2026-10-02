@@ -3,9 +3,10 @@ import { ApiService, BASE_URL, getHeaders } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
 import { getActiveClientInfo } from "@/constants/clients";
+import { clearWorkspaceState } from "@/utils/workspaceStorage";
 
 export default function WorkPackUnitSelector({ currentProjectName }) {
-  const { activeWorkPackUnit, setActiveWorkPackUnit } = useAppModel();
+  const { activeWorkPackUnit, setActiveWorkPackUnit, currentJobId } = useAppModel();
   const { showAlert, showConfirm } = useDialog();
   const [units, setUnits] = useState(["Unit 1"]);
   const [busy, setBusy] = useState(false);
@@ -82,8 +83,15 @@ export default function WorkPackUnitSelector({ currentProjectName }) {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.detail || `Could not delete ${unit}.`);
       const next = Array.isArray(payload?.units) && payload.units.length ? payload.units : ["Unit 1"];
+      const deletedIndex = Math.max(0, units.indexOf(unit));
+      const nearestUnit = next[Math.min(deletedIndex, next.length - 1)] || next[next.length - 1] || "Unit 1";
+      // Remove the deleted Unit's local EzeFloor workspace too, otherwise
+      // recreating the same Unit number could reopen stale canvas data.
+      const identity = String(currentJobId || job || "unsaved-job").trim() || "unsaved-job";
+      const deletedWorkspaceKey = `active_session::${encodeURIComponent(identity)}::${encodeURIComponent(unit)}`;
+      await clearWorkspaceState(deletedWorkspaceKey);
       setUnits(next);
-      setActiveWorkPackUnit(next[0] || "Unit 1");
+      setActiveWorkPackUnit(nearestUnit);
     } catch (error) {
       await showAlert(error?.message || "Could not delete Unit.");
     } finally {

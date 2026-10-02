@@ -11,10 +11,11 @@ QUẢN LÝ LỊCH SỬ & TRANSACTION (IsOldData Versioning):
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 from app.lockup_procurement_options import BUN_SEQLD_LOCKUP_OPTIONS
 
 logger = logging.getLogger("ezefloor.lockup")
@@ -226,13 +227,14 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
 
 @router.get("/jobs")
 async def get_lockout_jobs(
-    office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
+    request: Request,    office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
     job_number: Optional[str] = Query(None, description="Filter by specific JobNumber or hw_id")
 ):
     """
     Truy vấn danh sách LockUp jobs từ MSSQL [ProcurementApp].[dbo].[LockUp].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(lock.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -282,6 +284,7 @@ async def get_lockout_jobs(
             LEFT JOIN [ProcurementApp].[dbo].[LockUp] lock
                 ON tghw.id = lock.IdJob_HW
                AND ISNULL(lock.IsOldData, 0) = 0
+               {unit_filter("lock", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -360,11 +363,12 @@ def _to_bit(value: Any) -> int:
     return 1 if str(value or "").strip().lower() in {"yes", "y", "true", "1", "on"} else 0
 
 @router.post("/save-jobs")
-async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
+async def save_lockout_jobs(request: Request, payload: SaveLockoutJobsPayloadSchema):
     """
     Lưu danh sách bóc tách LockUp của nhiều Jobs vào MSSQL CSDL [ProcurementApp].[dbo].[LockUp].
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -373,7 +377,7 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
         user_update = payload.user_update or "EZE0098"
         saved_summary = []
 
-        sql_archive_old = """
+        sql_archive_old = f"""
             UPDATE [ProcurementApp].[dbo].[LockUp]
             SET
                 IsOldData = 1,
@@ -381,12 +385,14 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
                 DatetimeUpdate = GETDATE()
             WHERE
                 IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                 AND ISNULL(IsOldData, 0) = 0;
         """
 
-        sql_insert_new = """
+        sql_insert_new = f"""
             INSERT INTO [ProcurementApp].[dbo].[LockUp]
             (
+                unit,
                 ID,
                 [mode],
                 [scope],
@@ -413,6 +419,7 @@ async def save_lockout_jobs(payload: SaveLockoutJobsPayloadSchema):
             )
             VALUES
             (
+                {unit_value_sql(active_unit)},
                 NEWID(),
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );

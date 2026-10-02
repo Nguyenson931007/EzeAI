@@ -333,6 +333,7 @@ export default function RightPropertyPaneView({
     currentPage,
     currentProjectName, setCurrentProjectName,
     currentJobId, setCurrentJobId,
+    activeWorkPackUnit,
     setActiveTab,
     levels, setLevels,
     currentLevelIndex, setCurrentLevelIndex,
@@ -1069,34 +1070,50 @@ export default function RightPropertyPaneView({
 
     console.log("[TaskPanel] Entry selected for canvas highlight:", entry);
 
-    // Auto-switch to the corresponding floor level / page if needed
+    // Auto-switch to the corresponding floor/page. Do not infer a floor from
+    // array position: PDF page order is not the same thing as GF/FF order.
+    // Prefer the row's source page, then a linked object on the SAME floor, and
+    // finally the architectural floor map used everywhere else in EzeFloor.
     let targetPageIndex = -1;
-    if (entry.wallIds && entry.wallIds.length > 0) {
-      for (const [pIdxStr, pWalls] of Object.entries(effectiveWallsByPage || {})) {
-        if (Array.isArray(pWalls) && pWalls.some(pw => entry.wallIds.includes(pw.id))) {
-          targetPageIndex = Number(pIdxStr);
-          break;
-        }
-      }
+    const entryFloorLevel = normalizeTaskFloorCodes(
+      [entry.floorLevel || entry.floor_level || entry.level],
+      { defaultGF: false }
+    )[0] || null;
+    const sourcePageIndex = Number(entry.sourcePageIndex ?? entry.source_page_index);
+    const isUsablePlanPage = (pageIndex) => {
+      if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= (pages?.length || 0)) return false;
+      const page = pages?.[pageIndex];
+      return !(page?.isFloorCeilingWorkspace || page?.source === "floor_ceiling_page" || page?.source === "floor_ceiling_workspace");
+    };
+    const pageMatchesEntryFloor = (pageIndex) => (
+      !entryFloorLevel || floorLevelForPage(pageIndex) === entryFloorLevel
+    );
+
+    if (isUsablePlanPage(sourcePageIndex) && pageMatchesEntryFloor(sourcePageIndex)) {
+      targetPageIndex = sourcePageIndex;
     }
-    if (targetPageIndex < 0 && entry.floorLevel && pages && pages.length > 0) {
-      const fl = (entry.floorLevel || entry.floor_level || "GF").toUpperCase().trim();
-      targetPageIndex = pages.findIndex((p, idx) => {
-        if (p.isFloorCeilingWorkspace || p.source === "floor_ceiling_page" || p.source === "floor_ceiling_workspace") return false;
-        const pName = (p.floor_name || p.name || "").toUpperCase().trim();
-        if (fl === "GF" && (pName === "GF" || pName.includes("GROUND") || pName === "LEVEL 1" || pName.includes("TRỆT") || idx === 0)) return true;
-        if (fl === "FF" && (pName === "FF" || pName.includes("FIRST") || pName === "LEVEL 2" || pName.includes("TẦNG 1") || pName.includes("1F") || idx === 1)) return true;
-        if (fl === "SF" && (pName === "SF" || pName.includes("SECOND") || pName === "LEVEL 3" || pName.includes("TẦNG 2") || pName.includes("2F") || idx === 2)) return true;
-        if (fl === "TF" && (pName === "TF" || pName.includes("THIRD") || pName === "LEVEL 4" || pName.includes("TẦNG 3") || pName.includes("3F") || idx === 3)) return true;
-        if (pName.includes(fl)) return true;
-        return false;
-      });
-      if (targetPageIndex < 0) {
-        if (fl === "GF") targetPageIndex = 0;
-        else if (fl === "FF" && pages.length > 1) targetPageIndex = 1;
-        else if (fl === "SF" && pages.length > 2) targetPageIndex = 2;
-        else if (fl === "TF" && pages.length > 3) targetPageIndex = 3;
+
+    const linkedWallIds = Array.from(new Set([
+      ...(Array.isArray(entry.wallIds) ? entry.wallIds : []),
+      ...(entry.wallId ? [entry.wallId] : []),
+    ].filter(Boolean).map(String)));
+    if (targetPageIndex < 0 && linkedWallIds.length) {
+      const exactFloorCandidates = [];
+      const fallbackCandidates = [];
+      for (const [pIdxStr, pWalls] of Object.entries(effectiveWallsByPage || {})) {
+        const pageIndex = Number(pIdxStr);
+        if (!isUsablePlanPage(pageIndex) || !Array.isArray(pWalls)) continue;
+        if (!pWalls.some((wall) => linkedWallIds.includes(String(wall?.id)))) continue;
+        if (pageMatchesEntryFloor(pageIndex)) exactFloorCandidates.push(pageIndex);
+        else fallbackCandidates.push(pageIndex);
       }
+      targetPageIndex = exactFloorCandidates[0] ?? fallbackCandidates[0] ?? -1;
+    }
+
+    if (targetPageIndex < 0 && entryFloorLevel && Array.isArray(pages)) {
+      targetPageIndex = pages.findIndex((_, pageIndex) => (
+        isUsablePlanPage(pageIndex) && floorLevelForPage(pageIndex) === entryFloorLevel
+      ));
     }
 
     if (targetPageIndex >= 0 && targetPageIndex !== currentPage) {
@@ -3587,6 +3604,102 @@ export default function RightPropertyPaneView({
 
   const [trussEntries, setTrussEntries] = React.useState([]);
   const [hardiesFireWallEntries, setHardiesFireWallEntries] = React.useState([]);
+
+  // Each Work Pack Unit is a separate estimating workspace.
+  // Keep task/form rows isolated the same way the canvas workspace is isolated in App.jsx.
+  const unitTaskStateCacheRef = React.useRef(new Map());
+  const unitTaskKey = `${String(currentProjectName || currentJobId || "__no_project__").trim() || "__no_project__"}::${String(activeWorkPackUnit || "Unit 1").trim() || "Unit 1"}`;
+  const previousUnitTaskKeyRef = React.useRef(unitTaskKey);
+
+  const cloneUnitTaskValue = React.useCallback((value, fallback) => {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (_) {
+      return fallback;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const previousKey = previousUnitTaskKeyRef.current;
+    if (previousKey === unitTaskKey) return;
+
+    // Snapshot the Unit we are leaving before loading the newly selected Unit.
+    unitTaskStateCacheRef.current.set(previousKey, {
+      moduleFormData: cloneUnitTaskValue(moduleFormData, {}),
+      gptTaskRows: cloneUnitTaskValue(gptTaskRows, {}),
+      gptFormProposals: cloneUnitTaskValue(gptFormProposals, {}),
+      manuallyClearedTasks: cloneUnitTaskValue(manuallyClearedTasks, {}),
+      frameWallEntries: cloneUnitTaskValue(frameWallEntries, []),
+      customWallOverrides: cloneUnitTaskValue(customWallOverrides, {}),
+      flooringEntries: cloneUnitTaskValue(flooringEntries, []),
+      hebelFlooringEntries: cloneUnitTaskValue(hebelFlooringEntries, []),
+      customRoomOverrides: cloneUnitTaskValue(customRoomOverrides, {}),
+      insulationWallEntries: cloneUnitTaskValue(insulationWallEntries, []),
+      insulationAreaEntries: cloneUnitTaskValue(insulationAreaEntries, []),
+      customInsWallOverrides: cloneUnitTaskValue(customInsWallOverrides, {}),
+      customInsAreaOverrides: cloneUnitTaskValue(customInsAreaOverrides, {}),
+      claddingWallEntries: cloneUnitTaskValue(claddingWallEntries, []),
+      eavesEntries: cloneUnitTaskValue(eavesEntries, []),
+      timberPostEntries: cloneUnitTaskValue(timberPostEntries, []),
+      fixoutDoorEntries: cloneUnitTaskValue(fixoutDoorEntries, []),
+      shelvingEntries: cloneUnitTaskValue(shelvingEntries, []),
+      fowPlumbingEntries: cloneUnitTaskValue(fowPlumbingEntries, []),
+      powerTrussEntries: cloneUnitTaskValue(powerTrussEntries, []),
+      windowEntries: cloneUnitTaskValue(windowEntries, []),
+      lockupEntries: cloneUnitTaskValue(lockupEntries, []),
+      customLockupOverrides: cloneUnitTaskValue(customLockupOverrides, {}),
+      trussEntries: cloneUnitTaskValue(trussEntries, []),
+      hardiesFireWallEntries: cloneUnitTaskValue(hardiesFireWallEntries, []),
+    });
+
+    const saved = unitTaskStateCacheRef.current.get(unitTaskKey);
+    const defaultModuleFormData = {
+      frame_hardware: { wall_height: "", wall_length: "", wind_class: "", base_construction: "" },
+      eaves_soffit: { building_level: "", eave_width: "", total_eave_length: "", soffit_material: "" },
+      cladding: { elevation: "", cladding_type: "", cladding_area: "", waste_allowance: "10" },
+      insulation: { area_type: "", r_value: "", area: "", stud_centres: "450" },
+      shelving: { room_label: "", shelf_size: "", shelf_type: "", total_length: "" },
+      flooring_decking: { location: "", flooring_type: "", floor_area: "", waste_allowance: "10" },
+      doors_furniture: { category: "", finish: "", dimensions: "", quantity: "1" },
+      timber_posts: { location: "", timber_size: "", height: "2700", quantity: "1", floor_level: "GF", post_over: "timber", extra_support_qty: "0" },
+      fow_plumbing: { fixture: "", pipe_spec: "", length: "", count: "1" },
+      power_truss_braces: { truss_area: "", brace_type: "", length: "", hardware: "" },
+      hardies_fire_walls: { location: "", wall_length: "", wall_height: "2.70", system_type: "", lining_spec: "" }
+    };
+
+    setModuleFormData(cloneUnitTaskValue(saved?.moduleFormData, defaultModuleFormData));
+    setGptTaskRows(cloneUnitTaskValue(saved?.gptTaskRows, {}));
+    setGptFormProposals(cloneUnitTaskValue(saved?.gptFormProposals, {}));
+    setManuallyClearedTasks(cloneUnitTaskValue(saved?.manuallyClearedTasks, {}));
+    manuallyClearedTasksRef.current = cloneUnitTaskValue(saved?.manuallyClearedTasks, {});
+    setAiGeneratedSuccess(null);
+    setGptReport(null);
+    setShowGptReport(false);
+
+    setFrameWallEntries(cloneUnitTaskValue(saved?.frameWallEntries, []));
+    setCustomWallOverrides(cloneUnitTaskValue(saved?.customWallOverrides, {}));
+    setFlooringEntries(cloneUnitTaskValue(saved?.flooringEntries, []));
+    setHebelFlooringEntries(cloneUnitTaskValue(saved?.hebelFlooringEntries, []));
+    setCustomRoomOverrides(cloneUnitTaskValue(saved?.customRoomOverrides, {}));
+    setInsulationWallEntries(cloneUnitTaskValue(saved?.insulationWallEntries, []));
+    setInsulationAreaEntries(cloneUnitTaskValue(saved?.insulationAreaEntries, []));
+    setCustomInsWallOverrides(cloneUnitTaskValue(saved?.customInsWallOverrides, {}));
+    setCustomInsAreaOverrides(cloneUnitTaskValue(saved?.customInsAreaOverrides, {}));
+    setCladdingWallEntries(cloneUnitTaskValue(saved?.claddingWallEntries, []));
+    setEavesEntries(cloneUnitTaskValue(saved?.eavesEntries, []));
+    setTimberPostEntries(cloneUnitTaskValue(saved?.timberPostEntries, []));
+    setFixoutDoorEntries(cloneUnitTaskValue(saved?.fixoutDoorEntries, []));
+    setShelvingEntries(cloneUnitTaskValue(saved?.shelvingEntries, []));
+    setFowPlumbingEntries(cloneUnitTaskValue(saved?.fowPlumbingEntries, []));
+    setPowerTrussEntries(cloneUnitTaskValue(saved?.powerTrussEntries, []));
+    setWindowEntries(cloneUnitTaskValue(saved?.windowEntries, []));
+    setLockupEntries(cloneUnitTaskValue(saved?.lockupEntries, []));
+    setCustomLockupOverrides(cloneUnitTaskValue(saved?.customLockupOverrides, {}));
+    setTrussEntries(cloneUnitTaskValue(saved?.trussEntries, []));
+    setHardiesFireWallEntries(cloneUnitTaskValue(saved?.hardiesFireWallEntries, []));
+
+    previousUnitTaskKeyRef.current = unitTaskKey;
+  }, [unitTaskKey]);
   const handleSetHardiesFireWallEntries = React.useCallback((actionOrEntries) => {
     setHardiesFireWallEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
@@ -5756,6 +5869,7 @@ export default function RightPropertyPaneView({
       {/* ── SINGLE COLUMN TASK CALCULATION FORM PANEL (REPLACES PROPERTIES WHEN A TASK TAB IS ACTIVE) ── */}
       {isTaskModuleActive && activeModuleTab && activePaneTab !== "collapsed" && (
         <TaskModulesContainer
+          key={`${unitTaskKey}::${activeModuleTab?.id || activeModuleTab?.baseId || "task"}`}
           activeModuleTab={activeModuleTab}
           gptTaskRows={gptTaskRows}
           gptFormProposals={gptFormProposals}

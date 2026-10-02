@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.framework")
 
@@ -90,17 +91,18 @@ class SaveJobsPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_framework_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_framework_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
     Truy vấn danh sách FrameWork jobs từ MSSQL [ProcurementApp].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(fw.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
-        sql = """
+        sql = f"""
             SELECT
                 fw.ID AS framework_id,
                 tghw.id AS IDJob_HW,
@@ -126,6 +128,7 @@ async def get_framework_jobs(office: Optional[str] = Query(None, description="Fi
             LEFT JOIN [ProcurementApp].[dbo].[FrameWork] fw
                 ON tghw.id = fw.IDJob_HW
                AND ISNULL(fw.IsOldData, 0) = 0
+               {unit_filter("fw", active_unit)}
                AND ISNULL(fw.TheWallAbove, '') <> 'BUN-VIC UPPER FLOORS'
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
@@ -208,6 +211,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                     detail=f"floor_type '{wall.floor_type}' không hợp lệ cho Job {job.id_job_hw}. Chỉ chấp nhận 'Timber' hoặc 'Slab'."
                 )
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -268,21 +272,23 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                         logger.warning(f"Không thể tra cứu local SQLite job ID {input_job_id}: {e}")
 
             # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = """
+            sql_update_history = f"""
                 UPDATE [ProcurementApp].[dbo].[FrameWork]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IDJob_HW = %s
+                {unit_filter(None, active_unit)}
                   AND ISNULL(IsOldData, 0) = 0;
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id))
 
             # Step 2: INSERT dữ liệu mới thành record mới (IsOldData = 0, NEWID())
-            sql_insert_new = """
+            sql_insert_new = f"""
                 INSERT INTO [ProcurementApp].[dbo].[FrameWork]
                 (
+                unit,
                     ID,
                     IDJob_HW,
                     WallHeight,
@@ -298,6 +304,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
                 )
                 VALUES
                 (
+                {unit_value_sql(active_unit)},
                     NEWID(),
                     %s,
                     %s,

@@ -26,6 +26,12 @@ export default function HardiesFireWallsTask({
   const appModel = useAppModel ? useAppModel() : {};
   const activeCustomerShortName = getActiveClientShortName();
 
+  const hardiesCacheKey = React.useMemo(() => {
+    const jobKey = String(activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default").trim() || "default";
+    const unitKey = String(appModel?.activeWorkPackUnit || "Unit 1").trim() || "Unit 1";
+    return `ezefloor_hardies_fire_walls_v2_${encodeURIComponent(jobKey)}_${encodeURIComponent(unitKey)}`;
+  }, [activeJobNumber, appModel?.currentJobId, appModel?.currentProjectName, appModel?.activeWorkPackUnit]);
+
   // Catalog items if available under hardies or cladding or fire-walls
   const { items: catalogItems } = useCatalog(activeCustomerShortName, "hardies-fire-walls");
 
@@ -139,12 +145,7 @@ export default function HardiesFireWallsTask({
   // ── LOAD SAVED DATA FROM LOCALSTORAGE ON MOUNT ──
   useEffect(() => {
     try {
-      const savedJobId = activeJobNumber
-        || appModel?.currentJobId
-        || appModel?.currentProjectName
-        || "default";
-      const key = `ezefloor_hardies_fire_walls_${savedJobId}`;
-      const saved = localStorage.getItem(key);
+      const saved = localStorage.getItem(hardiesCacheKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0 && (!entries || entries.length === 0)) {
@@ -156,7 +157,7 @@ export default function HardiesFireWallsTask({
     } catch (e) {
       console.warn("Could not load cached Hardies Fire Walls:", e);
     }
-  }, [activeJobNumber]);
+  }, [hardiesCacheKey]);
 
   // ── SYNC SELECTED WALL FROM CANVAS IF USER CLICKS "Use Selected Wall" ──
   const handleUseSelectedWall = () => {
@@ -217,8 +218,7 @@ export default function HardiesFireWallsTask({
 
     // Save to local cache
     try {
-      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
-      localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(updated));
+      localStorage.setItem(hardiesCacheKey, JSON.stringify(updated));
     } catch (_) {}
 
     // Reset inputs
@@ -232,8 +232,7 @@ export default function HardiesFireWallsTask({
     const updated = wallEntries.filter((w) => w.id !== id);
     setEntries(updated);
     try {
-      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
-      localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(updated));
+      localStorage.setItem(hardiesCacheKey, JSON.stringify(updated));
     } catch (_) {}
   };
 
@@ -247,8 +246,7 @@ export default function HardiesFireWallsTask({
     const updated = [...wallEntries, dup];
     setEntries(updated);
     try {
-      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
-      localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(updated));
+      localStorage.setItem(hardiesCacheKey, JSON.stringify(updated));
     } catch (_) {}
   };
 
@@ -268,15 +266,13 @@ export default function HardiesFireWallsTask({
     setEditingRowId(null);
     setEditRowData({});
     try {
-      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
-      localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(updated));
+      localStorage.setItem(hardiesCacheKey, JSON.stringify(updated));
     } catch (_) {}
   };
 
   const handleClearEntries = () => {
     try {
-      const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
-      localStorage.removeItem(`ezefloor_hardies_fire_walls_${savedJobId}`);
+      localStorage.removeItem(hardiesCacheKey);
     } catch (_) {}
     onClearData?.();
   };
@@ -301,7 +297,7 @@ export default function HardiesFireWallsTask({
       const savedJobId = activeJobNumber || appModel?.currentJobId || appModel?.currentProjectName || "default";
 
       // Store in local cache always
-      localStorage.setItem(`ezefloor_hardies_fire_walls_${savedJobId}`, JSON.stringify(wallEntries));
+      localStorage.setItem(hardiesCacheKey, JSON.stringify(wallEntries));
 
       // Attempt to save through ApiService if endpoint is available
       try {

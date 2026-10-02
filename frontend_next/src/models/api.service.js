@@ -176,6 +176,14 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async renameWorkPackUnit(customerId, jobId, unit, newUnit) {
+    const res = await fetch(`${BASE_URL}/api/work-pack-units/${encodeURIComponent(customerId)}/jobs/${encodeURIComponent(jobId)}/units/${encodeURIComponent(unit)}/rename`, {
+      method: "POST", headers: getHeaders(), credentials: "include",
+      body: JSON.stringify({ new_unit: newUnit })
+    });
+    return handleResponse(res);
+  },
+
   async updateTaskModules(emsId, taskModules = []) {
     const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/task-modules`, {
       method: "PUT",

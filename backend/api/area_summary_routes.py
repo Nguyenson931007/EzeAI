@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.area_summary")
 
@@ -49,11 +50,12 @@ class SaveJobsPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_area_summary_jobs(office: Optional[str] = None):
+async def get_area_summary_jobs(request: Request, office: Optional[str] = None):
     """
     Truy vấn danh sách AreaSummary jobs từ MSSQL [ProcurementApp].[dbo].[AreaSummary].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(ars.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -91,6 +93,7 @@ async def get_area_summary_jobs(office: Optional[str] = None):
             LEFT JOIN [ProcurementApp].[dbo].[AreaSummary] ars
                 ON tghw.id = ars.IDJob_HW
                AND ISNULL(ars.IsOldData, 0) = 0
+               {unit_filter("ars", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -152,6 +155,7 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
     Lưu danh sách bóc tách AreaSummary của nhiều Jobs vào MSSQL CSDL [ProcurementApp].[dbo].[AreaSummary].
     Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         # DB safety guard: never version/archive current Flooring rows if the
@@ -194,7 +198,7 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
 
         saved_summary = []
 
-        sql_archive_old = """
+        sql_archive_old = f"""
             UPDATE [ProcurementApp].[dbo].[AreaSummary]
             SET
                 IsOldData = 1,
@@ -202,12 +206,14 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
                 DatetimeUpdate = GETDATE()
             WHERE
                 IDJob_HW = %s
+                {unit_filter(None, active_unit)}
                 AND ISNULL(IsOldData, 0) = 0;
         """
 
-        sql_insert_new = """
+        sql_insert_new = f"""
             INSERT INTO [ProcurementApp].[dbo].[AreaSummary]
             (
+                unit,
                 ID,
                 FloorLevel,
                 FloorAreaType,
@@ -221,6 +227,7 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
             )
             VALUES
             (
+                {unit_value_sql(active_unit)},
                 NEWID(),
                 %s,
                 %s,

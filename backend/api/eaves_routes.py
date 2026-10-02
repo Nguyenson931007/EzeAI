@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 from app.customer_modules.bun_nsw_act.calculators import calculate_eaves
 from app.customer_modules.base import CustomerCalculationError
 
@@ -163,18 +164,19 @@ async def calculate_eaves_procurement(payload: dict[str, Any]):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_eaves_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
     Truy vấn danh sách Eaves & Soffit jobs từ MSSQL [ProcurementApp].[dbo].[EavesSoffit].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(es.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
         normalized_office = (office or "").strip().upper() or None
-        sql = """
+        sql = f"""
             SELECT
                 es.ID AS eaves_id,
                 tghw.id AS IDJob_HW,
@@ -200,6 +202,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
             LEFT JOIN [ProcurementApp].[dbo].[EavesSoffit] es
                 ON tghw.id = es.IdJob_HW
                AND ISNULL(es.IsOldData, 0) = 0
+               {unit_filter("es", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -258,7 +261,7 @@ async def get_eaves_jobs(office: Optional[str] = Query(None, description="Filter
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
+async def save_eaves_jobs(request: Request, payload: SaveJobsPayloadSchema):
     """
     Lưu dữ liệu Eaves & Soffit theo đúng chuẩn Versioning & Transaction:
     1. Kiểm tra Validate toàn bộ Payload (id_job_hw, user_update).
@@ -283,6 +286,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
             raise HTTPException(status_code=422, detail=f"Job '{input_job_id}' appears more than once in the payload.")
         input_job_ids.add(normalized_id)
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -300,31 +304,34 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
 
             # Range-lock this job/client so concurrent requests cannot both
             # create a current row.
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT ID
                 FROM [ProcurementApp].[dbo].[EavesSoffit] WITH (UPDLOCK, HOLDLOCK)
                 WHERE IdJob_HW = %s
+                  {unit_filter(None, active_unit)}
                   AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s;
             """, (job_hw_id, short_name_val))
             cursor.fetchall()
 
             # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = """
+            sql_update_history = f"""
                 UPDATE [ProcurementApp].[dbo].[EavesSoffit]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                   AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
                   AND ISNULL(IsOldData, 0) = 0;
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id, short_name_val))
 
             # Step 2: INSERT toàn bộ record trong job.eaves thành record mới (IsOldData = 0, NEWID())
-            sql_insert_new = """
+            sql_insert_new = f"""
                 INSERT INTO [ProcurementApp].[dbo].[EavesSoffit]
                 (
+                unit,
                     ID,
                     SheetBrand,
                     SheetThickness,
@@ -340,6 +347,7 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                 )
                 VALUES
                 (
+                {unit_value_sql(active_unit)},
                     NEWID(),
                     %s,
                     %s,
@@ -390,10 +398,11 @@ async def save_eaves_jobs(payload: SaveJobsPayloadSchema):
                     ),
                 )
 
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT COUNT(*)
                 FROM [ProcurementApp].[dbo].[EavesSoffit]
                 WHERE IdJob_HW = %s
+                  {unit_filter(None, active_unit)}
                   AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
                   AND ISNULL(IsOldData, 0) = 0;
             """, (job_hw_id, short_name_val))

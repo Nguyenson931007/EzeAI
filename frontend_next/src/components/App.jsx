@@ -176,6 +176,12 @@ import { useDocumentController } from "@/controllers/document.controller";
 import { saveWorkspaceState, loadWorkspaceState, clearWorkspaceState } from "@/utils/workspaceStorage";
 import { getAppSettings } from "@/components/SettingsModal";
 
+const unitWorkspaceKey = (jobId, projectName, unit) => {
+  const identity = String(jobId || projectName || "unsaved-job").trim() || "unsaved-job";
+  const unitName = String(unit || "Unit 1").trim() || "Unit 1";
+  return `active_session::${encodeURIComponent(identity)}::${encodeURIComponent(unitName)}`;
+};
+
 export default function App() {
   const svgRef = useRef(null);
   const panStart = useRef(null);
@@ -194,6 +200,7 @@ export default function App() {
     user, setUser,
     isLoggedIn, setIsLoggedIn,
     currentProjectName, setCurrentProjectName,
+    activeWorkPackUnit,
     realScale, setRealScale,
     wasteByPage, setWasteByPage,
     pdfOffsetsByPage, setPdfOffsetsByPage,
@@ -1053,6 +1060,8 @@ export default function App() {
 
   // ── 2.5. Tự động lưu & Khôi phục Workspace khi F5 (Reload) qua IndexedDB ──
   const isRestoringSessionRef = useRef(false);
+  const isSwitchingUnitRef = useRef(false);
+  const previousWorkPackUnitRef = useRef(activeWorkPackUnit || "Unit 1");
   const saveTimeoutRef = useRef(null);
 
   // 1. Tự động khôi phục toàn bộ Workspace khi load trang/F5
@@ -1074,7 +1083,16 @@ export default function App() {
     const restoreWorkspace = async () => {
       try {
         isRestoringSessionRef.current = true;
-        const savedSession = await loadWorkspaceState("active_session");
+        const savedJobId = currentJobId || localStorage.getItem("ezefloor_last_active_job_id");
+        const savedProjectName = currentProjectName || localStorage.getItem("ezefloor_last_active_project_name");
+        const restoreUnit = activeWorkPackUnit || "Unit 1";
+        const restoreKey = unitWorkspaceKey(savedJobId, savedProjectName, restoreUnit);
+        let savedSession = await loadWorkspaceState(restoreKey);
+        // Backward compatibility: migrate the old single-workspace cache into Unit 1 only.
+        if (!savedSession && restoreUnit === "Unit 1") {
+          savedSession = await loadWorkspaceState("active_session");
+          if (savedSession) void saveWorkspaceState(restoreKey, savedSession);
+        }
 
         if (savedSession && savedSession.pages && savedSession.pages.length > 0) {
           console.log("[Restore] Restore full drawing from IndexedDB:", savedSession.currentProjectName, savedSession.pages.length, "trang");
@@ -1117,10 +1135,9 @@ export default function App() {
           return;
         }
 
-        // Fallback sang API nếu IndexedDB chưa có nhưng có savedJobId
-        const savedJobId = localStorage.getItem("ezefloor_last_active_job_id");
-        const savedProjectName = localStorage.getItem("ezefloor_last_active_project_name");
-        if (savedJobId) {
+        // Fallback sang API nếu IndexedDB chưa có nhưng có savedJobId.
+        // Only Unit 1 uses the legacy job-wide server drawing; other Units start as their own blank workspace.
+        if (restoreUnit === "Unit 1" && savedJobId) {
           const res = await ApiService.getJobData(savedJobId);
           if (res && res.status === "success" && res.data) {
             const parsed = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
@@ -1135,7 +1152,90 @@ export default function App() {
     };
 
     restoreWorkspace();
-  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setPdfOffsetsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory]);
+  }, [isLoggedIn, user, pages.length, handleLoadJob, setPages, setRoomsByPage, setWallsByPage, setDoorsByPage, setScalesByPage, setRoofsByPage, setLintelsByPage, setAnnotationsByPage, setPdfOffsetsByPage, setCurrentProjectName, setCurrentJobId, setRealScale, setCurrentPage, setImage, setImgSize, setActiveTab, setActivePdfCategory, activeWorkPackUnit, currentJobId, currentProjectName]);
+
+  // 1.25. Each Work Pack Unit owns a separate EzeFloor workspace.
+  // Switching Unit saves the current canvas, then opens the target Unit's canvas.
+  useEffect(() => {
+    const nextUnit = String(activeWorkPackUnit || "Unit 1").trim() || "Unit 1";
+    const previousUnit = String(previousWorkPackUnitRef.current || "Unit 1").trim() || "Unit 1";
+    if (nextUnit === previousUnit) return;
+
+    let cancelled = false;
+    const switchWorkspace = async () => {
+      isSwitchingUnitRef.current = true;
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+      const jobIdentity = currentJobId || localStorage.getItem("ezefloor_last_active_job_id");
+      const projectIdentity = currentProjectName || localStorage.getItem("ezefloor_last_active_project_name");
+      const previousKey = unitWorkspaceKey(jobIdentity, projectIdentity, previousUnit);
+      const nextKey = unitWorkspaceKey(jobIdentity, projectIdentity, nextUnit);
+
+      // Persist the Unit we are leaving before replacing any canvas state.
+      if (pages.length > 0) {
+        await saveWorkspaceState(previousKey, {
+          pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale,
+          wasteByPage, roofsByPage, lintelsByPage, annotationsByPage, pdfOffsetsByPage,
+          currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory,
+          savedAt: Date.now(), workPackUnit: previousUnit
+        });
+      }
+
+      const saved = await loadWorkspaceState(nextKey);
+      if (cancelled) return;
+
+      if (saved?.pages?.length) {
+        setPages(saved.pages);
+        setRoomsByPage(saved.roomsByPage || {});
+        setWallsByPage(saved.wallsByPage || {});
+        setDoorsByPage(saved.doorsByPage || {});
+        setScalesByPage(saved.scalesByPage || {});
+        setDefaultScale(saved.defaultScale || saved.realScale || saved.scalesByPage?.[0] || null);
+        setWasteByPage(saved.wasteByPage || {});
+        setRoofsByPage(saved.roofsByPage || {});
+        setLintelsByPage(saved.lintelsByPage || {});
+        setAnnotationsByPage(saved.annotationsByPage || {});
+        setPdfOffsetsByPage(saved.pdfOffsetsByPage || {});
+        setRealScale(saved.realScale || null);
+        if (saved.activePdfCategory) setActivePdfCategory(saved.activePdfCategory);
+        if (saved.activeTab) setActiveTab(saved.activeTab);
+
+        const pageIndex = Number.isInteger(saved.currentPage) && saved.currentPage >= 0 && saved.currentPage < saved.pages.length
+          ? saved.currentPage
+          : 0;
+        setCurrentPage(pageIndex);
+        const page = saved.pages[pageIndex];
+        setImage(page?.image || null);
+        setImgSize(page ? { w: page.w || 0, h: page.h || 0 } : { w: 0, h: 0 });
+      } else {
+        // New Unit = a genuinely separate blank workspace/page for the same job.
+        setPages([]);
+        setRoomsByPage({});
+        setWallsByPage({});
+        setDoorsByPage({});
+        setScalesByPage({});
+        setDefaultScale(null);
+        setWasteByPage({});
+        setRoofsByPage({});
+        setLintelsByPage({});
+        setAnnotationsByPage({});
+        setPdfOffsetsByPage({});
+        setRealScale(null);
+        setCurrentPage(0);
+        setImage(null);
+        setImgSize({ w: 0, h: 0 });
+      }
+
+      previousWorkPackUnitRef.current = nextUnit;
+      // Keep the old generic cache as a mirror of the currently-open Unit only.
+      if (saved) void saveWorkspaceState("active_session", { ...saved, workPackUnit: nextUnit });
+      window.dispatchEvent(new CustomEvent("ezefloor:unit-workspace-loaded", { detail: { unit: nextUnit } }));
+      setTimeout(() => { isSwitchingUnitRef.current = false; }, 0);
+    };
+
+    void switchWorkspace();
+    return () => { cancelled = true; };
+  }, [activeWorkPackUnit]);
 
   // 1.5. Khi pages rỗng (chẳng hạn khi chuyển sang job mới chưa có bản vẽ), đảm bảo ảnh nền và kích thước Canvas được reset sạch
   useEffect(() => {
@@ -1177,17 +1277,23 @@ export default function App() {
 
   // 2. Tự động lưu Workspace vào IndexedDB khi có thay đổi (debounce 400ms)
   useEffect(() => {
-    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current) return;
+    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current || isSwitchingUnitRef.current) return;
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      saveWorkspaceState("active_session", {
+      const workspaceKey = unitWorkspaceKey(
+        currentJobId || localStorage.getItem("ezefloor_last_active_job_id"),
+        currentProjectName || localStorage.getItem("ezefloor_last_active_project_name"),
+        activeWorkPackUnit
+      );
+      const snapshot = {
         pages,
         roomsByPage,
         wallsByPage,
         doorsByPage,
         scalesByPage,
         defaultScale,
+        wasteByPage,
         roofsByPage,
         lintelsByPage,
         annotationsByPage,
@@ -1198,14 +1304,17 @@ export default function App() {
         activeTab,
         realScale,
         activePdfCategory,
+        workPackUnit: activeWorkPackUnit || "Unit 1",
         savedAt: Date.now()
-      });
+      };
+      saveWorkspaceState(workspaceKey, snapshot);
+      saveWorkspaceState("active_session", snapshot);
     }, 400);
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale, roofsByPage, lintelsByPage, annotationsByPage, pdfOffsetsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, isLoggedIn]);
+  }, [pages, roomsByPage, wallsByPage, doorsByPage, scalesByPage, defaultScale, roofsByPage, lintelsByPage, annotationsByPage, pdfOffsetsByPage, currentPage, currentProjectName, currentJobId, activeTab, realScale, activePdfCategory, activeWorkPackUnit, isLoggedIn]);
 
   // 2.5. Tự động lưu định kỳ theo thiết lập Cài đặt (Configurable Periodic Auto-Save)
   useEffect(() => {
@@ -1219,7 +1328,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current) return;
+    if (!isLoggedIn || pages.length === 0 || isRestoringSessionRef.current || isSwitchingUnitRef.current) return;
     if (!appSettings.autoSaveEnabled) return;
 
     const intervalSeconds = Math.max(5, appSettings.autoSaveInterval || 30);
@@ -1231,13 +1340,19 @@ export default function App() {
 
         // A. Lưu vào IndexedDB (Local Workspace Session)
         if (appSettings.autoSaveIndexedDB !== false) {
-          await saveWorkspaceState("active_session", {
+          const workspaceKey = unitWorkspaceKey(
+            currentJobId || localStorage.getItem("ezefloor_last_active_job_id"),
+            currentProjectName || localStorage.getItem("ezefloor_last_active_project_name"),
+            activeWorkPackUnit
+          );
+          const snapshot = {
             pages,
             roomsByPage,
             wallsByPage,
             doorsByPage,
             scalesByPage,
             defaultScale,
+            wasteByPage,
             roofsByPage,
             lintelsByPage,
             annotationsByPage,
@@ -1247,8 +1362,12 @@ export default function App() {
             currentJobId,
             activeTab,
             realScale,
+            activePdfCategory,
+            workPackUnit: activeWorkPackUnit || "Unit 1",
             savedAt: Date.now()
-          });
+          };
+          await saveWorkspaceState(workspaceKey, snapshot);
+          await saveWorkspaceState("active_session", snapshot);
         }
 
         const now = new Date();
@@ -1269,6 +1388,8 @@ export default function App() {
     wallsByPage,
     doorsByPage,
     scalesByPage,
+    defaultScale,
+    wasteByPage,
     roofsByPage,
     lintelsByPage,
     annotationsByPage,
@@ -1278,6 +1399,8 @@ export default function App() {
     currentJobId,
     activeTab,
     realScale,
+    activePdfCategory,
+    activeWorkPackUnit,
     appSettings.autoSaveEnabled,
     appSettings.autoSaveInterval,
     appSettings.autoSaveIndexedDB
@@ -1942,6 +2065,11 @@ export default function App() {
       setCurrentPage(0);
       setImage(null);
       setImgSize({ w: 0, h: 0 });
+      clearWorkspaceState(unitWorkspaceKey(
+        currentJobId || localStorage.getItem("ezefloor_last_active_job_id"),
+        currentProjectName || localStorage.getItem("ezefloor_last_active_project_name"),
+        activeWorkPackUnit
+      ));
       clearWorkspaceState("active_session");
       return;
     }

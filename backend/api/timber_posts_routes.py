@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.timber_posts")
 
@@ -55,17 +56,18 @@ class SaveTimberPostsPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_timber_posts_jobs(office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+async def get_timber_posts_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     """
     Truy vấn danh sách TimberPosts jobs từ MSSQL [ProcurementApp].[dbo].[Beams].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(tp.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
 
-        sql = """
+        sql = f"""
             SELECT
                 tp.ID AS post_id,
                 tghw.id AS IdJob_HW,
@@ -91,6 +93,7 @@ async def get_timber_posts_jobs(office: Optional[str] = Query(None, description=
             LEFT JOIN [ProcurementApp].[dbo].[Beams] tp
                 ON tghw.id = tp.IdJob_HW
                AND ISNULL(tp.IsOldData, 0) = 0
+               {unit_filter("tp", active_unit)}
 
             LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
                 ON tghw.id_job_ems = lj.IDJob
@@ -183,11 +186,12 @@ def _positive_int(value: Any, field_name: str, minimum: int) -> int:
 # ══════════════════════════════════════════════════════
 
 @router.post("/jobs/save")
-async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
+async def save_timber_posts_jobs(request: Request, payload: SaveTimberPostsPayloadSchema):
     """
     Lưu dữ liệu TimberPosts cho danh sách Job.
     Áp dụng IsOldData versioning và Transaction.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -195,18 +199,20 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
 
         user_update = payload.user_update or "admin"
 
-        sql_archive_old = """
+        sql_archive_old = f"""
             UPDATE [ProcurementApp].[dbo].[Beams]
             SET IsOldData = 1,
                 UserUpdate = %s,
                 DatetimeUpdate = GETDATE()
             WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
               AND ISNULL(IsOldData, 0) = 0;
         """
 
-        sql_insert_new = """
+        sql_insert_new = f"""
             INSERT INTO [ProcurementApp].[dbo].[Beams]
             (
+                unit,
                 ID,
                 PostType,
                 PostHeight,
@@ -222,6 +228,7 @@ async def save_timber_posts_jobs(payload: SaveTimberPostsPayloadSchema):
             )
             VALUES
             (
+                {unit_value_sql(active_unit)},
                 NEWID(),
                 %s,
                 %s,

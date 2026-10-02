@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.shelving")
 
@@ -108,6 +109,7 @@ def _resolve_shelving_job(cursor: Any, input_job_id: str) -> str:
 
 @router.get("/jobs")
 async def get_shelving_jobs(
+    request: Request,
     id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw or job_number"),
     office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
 ):
@@ -115,6 +117,7 @@ async def get_shelving_jobs(
     Truy vấn danh sách Shelving jobs từ MSSQL [ProcurementApp].[dbo].[Shelving].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(s.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -123,7 +126,7 @@ async def get_shelving_jobs(
         normalized_office = (office or "").strip().upper() or None
         normalized_hw_id = (id_job_hw or "").strip() or None
 
-        sql = """
+        sql = f"""
             SELECT
                 s.ID AS shelving_id,
                 s.IdJob_HW,
@@ -156,6 +159,7 @@ async def get_shelving_jobs(
 
             WHERE
                 ISNULL(s.IsOldData, 0) = 0
+                {unit_filter("s", active_unit)}
                 AND (%s IS NULL OR CAST(s.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
                 AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(s.UserUpdate))) = %s)
 
@@ -201,7 +205,7 @@ async def get_shelving_jobs(
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
+async def save_shelving_jobs(request: Request, payload: SaveShelvingPayloadSchema):
     """
     Lưu dữ liệu Shelving theo Versioning & Transaction:
     1. Validate Payload (id_job_hw, user_update).
@@ -224,6 +228,7 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
             raise HTTPException(status_code=422, detail=f"Job '{input_job_id}' appears more than once in the payload.")
         input_job_ids.add(normalized_id)
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -237,21 +242,23 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
             job_hw_id = _resolve_shelving_job(cursor, input_job_id)
 
             # Step 1: Đánh dấu tất cả record hiện tại thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = """
+            sql_update_history = f"""
                 UPDATE [ProcurementApp].[dbo].[Shelving]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                   AND ISNULL(IsOldData, 0) = 0;
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id))
 
             # Step 2: INSERT tất cả Shelving items mới
-            sql_insert = """
+            sql_insert = f"""
                 INSERT INTO [ProcurementApp].[dbo].[Shelving]
                 (
+                unit,
                     ID,
                     IdJob_HW,
                     [Type],
@@ -264,6 +271,7 @@ async def save_shelving_jobs(payload: SaveShelvingPayloadSchema):
                 )
                 VALUES
                 (
+                {unit_value_sql(active_unit)},
                     NEWID(),
                     %s,
                     %s,

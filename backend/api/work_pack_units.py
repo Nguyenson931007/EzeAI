@@ -45,6 +45,10 @@ class AddUnitRequest(BaseModel):
     unit: str | None = Field(default=None, max_length=100)
 
 
+class RenameUnitRequest(BaseModel):
+    new_unit: str = Field(min_length=1, max_length=100)
+
+
 def _scope(customer_id: str, job_id: str) -> tuple[str, str]:
     customer = (customer_id or "").strip().upper()
     job = (job_id or "").strip()
@@ -223,6 +227,61 @@ async def add_job_unit(
     finally:
         if conn:
             conn.close()
+
+@router.post("/{customer_id}/jobs/{job_id}/units/{unit}/rename")
+async def rename_job_unit(
+    customer_id: str,
+    job_id: str,
+    unit: str,
+    payload: RenameUnitRequest,
+    request: Request,
+    _: str = Depends(validate_session),
+):
+    """Rename one shared Unit so EzeFloor and Procurement keep the same Unit name."""
+    customer, raw_job = _scope(customer_id, job_id)
+    _, aliases = _resolve_job_aliases(raw_job)
+    current_unit = _normalize_unit(unit)
+    next_unit = _normalize_unit(payload.new_unit)
+    if current_unit == next_unit:
+        return {"success": True, "unit": next_unit, "units": []}
+
+    conn = None
+    try:
+        conn = get_procurement_connection()
+        cursor = conn.cursor(as_dict=True)
+        current = _read_units(cursor, customer, aliases)
+        if current_unit not in current:
+            raise HTTPException(status_code=404, detail=f"{current_unit} was not found.")
+        if next_unit in current:
+            raise HTTPException(status_code=409, detail=f"{next_unit} already exists.")
+
+        placeholders = ','.join(['%s'] * len(aliases))
+        user_update = (request.headers.get("x-username") or "EzeFloor").strip() or "EzeFloor"
+        cursor.execute(f"""
+            UPDATE [ProcurementApp].[dbo].[WorkPackInput]
+            SET unit = %s, user_update = %s, datetime_update = SYSDATETIME()
+            WHERE customer_id = %s
+              AND UPPER(LTRIM(RTRIM(job_id))) IN ({placeholders})
+              AND ISNULL(unit, N'Unit 1') = %s
+        """, (next_unit, user_update, customer, *[item.upper() for item in aliases], current_unit))
+        conn.commit()
+        units = _read_units(cursor, customer, aliases)
+        return {"success": True, "unit": next_unit, "units": units}
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"Could not rename Unit: {exc}")
+    finally:
+        if conn:
+            conn.close()
+
 
 @router.delete("/{customer_id}/jobs/{job_id}/units/{unit}")
 async def delete_job_unit(

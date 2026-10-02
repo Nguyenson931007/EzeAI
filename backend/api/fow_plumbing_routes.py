@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.fow_plumbing")
 
@@ -111,6 +112,7 @@ def _resolve_fow_plumbing_job(cursor: Any, input_job_id: str) -> str:
 
 @router.get("/jobs")
 async def get_fow_plumbing_jobs(
+    request: Request,
     id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw or job_number"),
     office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
 ):
@@ -118,6 +120,7 @@ async def get_fow_plumbing_jobs(
     Truy vấn danh sách FOW Plumbing jobs từ MSSQL [ProcurementApp].[dbo].[FOWPlumbing].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(fp.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -126,7 +129,7 @@ async def get_fow_plumbing_jobs(
         normalized_office = (office or "").strip().upper() or None
         normalized_hw_id = (id_job_hw or "").strip() or None
 
-        sql = """
+        sql = f"""
             SELECT
                 fp.ID AS id,
                 fp.IdJob_HW AS id_job_hw,
@@ -161,6 +164,7 @@ async def get_fow_plumbing_jobs(
 
             WHERE
                 ISNULL(fp.IsOldData, 0) = 0
+                {unit_filter("fp", active_unit)}
                 AND (%s IS NULL OR CAST(fp.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
                 AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(fp.UserUpdate))) = %s)
 
@@ -210,7 +214,7 @@ async def get_fow_plumbing_jobs(
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
+async def save_fow_plumbing_jobs(request: Request, payload: SaveFowPlumbingPayloadSchema):
     """
     Lưu danh sách thiết bị FOW Plumbing vào MSSQL [ProcurementApp].[dbo].[FOWPlumbing].
     Quy trình versioning chuẩn:
@@ -221,23 +225,26 @@ async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
     if not user_update:
         raise HTTPException(status_code=422, detail="user_update không được để trống.")
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
         conn.autocommit(False)
         cursor = conn.cursor(as_dict=True)
 
-        sql_archive_old = """
+        sql_archive_old = f"""
             UPDATE [ProcurementApp].[dbo].[FOWPlumbing]
             SET IsOldData = 1,
                 UserUpdate = %s,
                 DatetimeUpdate = GETDATE()
             WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
               AND ISNULL(IsOldData, 0) = 0;
         """
 
-        sql_insert_new = """
+        sql_insert_new = f"""
             INSERT INTO [ProcurementApp].[dbo].[FOWPlumbing] (
+                unit,
                 IdJob_HW,
                 itemName,
                 code,
@@ -249,6 +256,7 @@ async def save_fow_plumbing_jobs(payload: SaveFowPlumbingPayloadSchema):
                 IsOldData,
                 FloorLevel
             ) VALUES (
+                {unit_value_sql(active_unit)},
                 %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
             );
         """

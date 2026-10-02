@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.fixout")
 
@@ -119,6 +120,7 @@ def _resolve_fixout_job(cursor: Any, input_job_id: str) -> str:
 
 @router.get("/jobs")
 async def get_fixout_jobs(
+    request: Request,
     id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw"),
     office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
 ):
@@ -126,6 +128,7 @@ async def get_fixout_jobs(
     Truy vấn danh sách Fixout jobs từ MSSQL [ProcurementApp].[dbo].[Fixout].
     Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(f.IsOldData, 0) = 0.
     """
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -134,7 +137,7 @@ async def get_fixout_jobs(
         normalized_office = (office or "").strip().upper() or None
         normalized_hw_id = (id_job_hw or "").strip() or None
 
-        sql = """
+        sql = f"""
             SELECT
                 f.ID AS fixout_id,
                 f.IdJob_HW,
@@ -179,6 +182,7 @@ async def get_fixout_jobs(
 
             WHERE
                 ISNULL(f.IsOldData, 0) = 0
+                {unit_filter("f", active_unit)}
                 AND (%s IS NULL OR CAST(f.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
                 AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(f.UserUpdate))) = %s)
 
@@ -224,7 +228,7 @@ async def get_fixout_jobs(
 # ══════════════════════════════════════════════════════
 
 @router.post("/save-jobs")
-async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
+async def save_fixout_jobs(request: Request, payload: SaveFixoutPayloadSchema):
     """
     Lưu dữ liệu Fixout theo đúng chuẩn Versioning & Transaction:
     1. Validate toàn bộ Payload (id_job_hw, user_update).
@@ -249,6 +253,7 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
             raise HTTPException(status_code=422, detail=f"Job '{input_job_id}' appears more than once in the payload.")
         input_job_ids.add(normalized_id)
 
+    active_unit = get_active_unit(request)
     conn = None
     try:
         conn = get_mssql_connection()
@@ -270,21 +275,23 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
             cursor.fetchall()
 
             # Step 1: Đánh dấu tất cả record hiện tại thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = """
+            sql_update_history = f"""
                 UPDATE [ProcurementApp].[dbo].[Fixout]
                 SET
                     IsOldData = 1,
                     UserUpdate = %s,
                     DatetimeUpdate = GETDATE()
                 WHERE IdJob_HW = %s
+                {unit_filter(None, active_unit)}
                   AND ISNULL(IsOldData, 0) = 0;
             """
             cursor.execute(sql_update_history, (user_update, job_hw_id))
 
             # Step 2: INSERT tất cả Fixout items mới
-            sql_insert = """
+            sql_insert = f"""
                 INSERT INTO [ProcurementApp].[dbo].[Fixout]
                 (
+                unit,
                     ID,
                     IdJob_HW,
                     category,
@@ -309,6 +316,7 @@ async def save_fixout_jobs(payload: SaveFixoutPayloadSchema):
                 )
                 VALUES
                 (
+                {unit_value_sql(active_unit)},
                     NEWID(),
                     %s,
                     %s,

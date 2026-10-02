@@ -210,7 +210,9 @@ export default function CladdingTask({
 
   // Wall labels such as W-1 are UI/drawing metadata only. Keep them in a small
   // browser cache so they survive refresh/reload, but never add them to the SQL
-  // Cladding payload. The cache is scoped per job.
+  // Cladding payload. A Work Pack Unit is a different house, so this cache MUST
+  // be scoped by both job and unit. Job-only cache keys can reattach a Unit 1 /
+  // FF wallId to a Unit 2 / GF row and make row selection jump to the wrong floor.
   const claddingWallCacheKey = useMemo(() => {
     const jobKey = String(
       activeJobNumber
@@ -219,8 +221,9 @@ export default function CladdingTask({
       || appModel?.current_hw_id
       || "default"
     ).trim().toLowerCase();
-    return `ezefloor_cladding_wall_links_v1:${encodeURIComponent(jobKey || "default")}`;
-  }, [activeJobNumber, appModel?.currentJobId, appModel?.currentProjectName, appModel?.current_hw_id]);
+    const unitKey = String(appModel?.activeWorkPackUnit || "Unit 1").trim().toLowerCase() || "unit 1";
+    return `ezefloor_cladding_wall_links_v2:${encodeURIComponent(jobKey || "default")}:${encodeURIComponent(unitKey)}`;
+  }, [activeJobNumber, appModel?.currentJobId, appModel?.currentProjectName, appModel?.current_hw_id, appModel?.activeWorkPackUnit]);
 
   const dimensionToMetres = (value) => {
     const raw = String(value ?? "").trim().toLowerCase().replace(/,/g, "");
@@ -284,11 +287,9 @@ export default function CladdingTask({
           !used.has(index) && String(link?.signature || "") === signature
         ));
       }
-      if (matchIndex < 0 && cachedLinks[rowIndex] && !used.has(rowIndex)) {
-        // Last-resort positional fallback for duplicate dimensions. It is only
-        // used inside this local cache; nothing is written to MSSQL.
-        matchIndex = rowIndex;
-      }
+      // Never use a positional fallback here. Rows from different floors can
+      // have identical dimensions; a positional match can silently bind a GF
+      // database row to an FF drawing wall. Row id/signature matches are safe.
       if (matchIndex < 0) return row;
 
       used.add(matchIndex);
