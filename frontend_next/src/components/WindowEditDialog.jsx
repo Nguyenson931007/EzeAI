@@ -256,8 +256,11 @@ export default function WindowEditDialog({
 
   const handleSave = () => {
     const parentWall = getParentWall();
+    const isRaked = windowType === 'win_raked';
     const parsedHeight = Math.max(200, Math.min(3000, parseInt(heightMm) || 1200));
-    const parsedHeight2 = Math.max(200, Math.min(3000, parseInt(height2Mm) || parsedHeight));
+    const parsedHeight2 = isRaked
+      ? Math.max(200, Math.min(3000, parseInt(height2Mm) || parsedHeight))
+      : parsedHeight;
     const parsedWidth = Math.max(200, parseInt(widthMm) || 1200);
     const parsedSill = Math.max(0, Math.min(3500, parseInt(sillHeight) || 900));
 
@@ -290,7 +293,7 @@ export default function WindowEditDialog({
       height_mm: parsedHeight,
       height2_mm: parsedHeight2,
       height: parsedHeight,
-      is_raked: parsedHeight !== parsedHeight2,
+      is_raked: isRaked && parsedHeight !== parsedHeight2,
       width_mm: parsedWidth,
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
@@ -416,7 +419,19 @@ export default function WindowEditDialog({
             <span style={labelStyle}>Window Type:</span>
             <select
               value={windowType}
-              onChange={(e) => setWindowType(e.target.value)}
+              onChange={(e) => {
+                const newType = e.target.value;
+                setWindowType(newType);
+                if (newType !== 'win_raked') {
+                  setHeight2Mm(heightMm);
+                } else {
+                  const h1 = parseInt(heightMm) || 1200;
+                  const h2 = parseInt(height2Mm) || h1;
+                  if (h1 === h2) {
+                    setHeight2Mm(h1 > 1000 ? h1 - 300 : 900);
+                  }
+                }
+              }}
               style={{ ...selectStyle, flex: 1 }}
             >
               {WINDOW_TYPE_OPTIONS.map(o => (
@@ -547,66 +562,85 @@ export default function WindowEditDialog({
             </div>
           </div>
 
-          {/* Height 1 / Left */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>
-              Height 1 / Left <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm)</span>
-              <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
-            </span>
-            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-              <input
-                type="number"
-                min="200"
-                max="3000"
-                value={heightMm}
-                onChange={(e) => setHeightMm(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {heightDisplay}
+          {/* Height section: Single input for standard window, side-by-side inputs for raked window */}
+          {windowType !== 'win_raked' ? (
+            <div style={rowStyle}>
+              <span style={labelStyle}>
+                Height <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm)</span>
+                <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
               </span>
+              <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
+                <input
+                  type="number"
+                  min="200"
+                  max="3000"
+                  value={heightMm}
+                  onChange={(e) => {
+                    setHeightMm(e.target.value);
+                    setHeight2Mm(e.target.value);
+                  }}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
+                  {heightDisplay}
+                </span>
+              </div>
             </div>
-          </div>
-
-          {/* Height 2 / Right */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>
-              Height 2 / Right <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm)</span>
-              <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
-            </span>
-            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-              <input
-                type="number"
-                min="200"
-                max="3000"
-                value={height2Mm}
-                onChange={(e) => setHeight2Mm(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const temp = heightMm;
-                  setHeightMm(height2Mm);
-                  setHeight2Mm(temp);
-                }}
-                style={{
-                  padding: '6px 10px',
-                  background: '#f1f5f9',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: '#1e293b',
-                  whiteSpace: 'nowrap'
-                }}
-                title="Flip Left and Right Heights"
-              >
-                ⇄ Flip Slope
-              </button>
+          ) : (
+            <div style={rowStyle}>
+              <span style={labelStyle}>
+                Heights <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(L & R mm)</span>
+                <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flex: 1, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '2px' }}>Height 1 / Left</div>
+                  <input
+                    type="number"
+                    min="200"
+                    max="3000"
+                    value={heightMm}
+                    onChange={(e) => setHeightMm(e.target.value)}
+                    style={inputStyle}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '2px' }}>Height 2 / Right</div>
+                  <input
+                    type="number"
+                    min="200"
+                    max="3000"
+                    value={height2Mm}
+                    onChange={(e) => setHeight2Mm(e.target.value)}
+                    style={inputStyle}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const temp = heightMm;
+                    setHeightMm(height2Mm);
+                    setHeight2Mm(temp);
+                  }}
+                  style={{
+                    padding: '8px 10px',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#1e293b',
+                    whiteSpace: 'nowrap',
+                    marginTop: '16px'
+                  }}
+                  title="Flip Left and Right Heights"
+                >
+                  ⇄ Flip
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Width */}
           <div style={rowStyle}>

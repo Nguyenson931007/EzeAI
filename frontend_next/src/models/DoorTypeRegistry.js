@@ -669,7 +669,7 @@ export function createDoorFromGeometry(p1, p2, doorTypeId, parentWall, level, re
     : (overrides.height2 !== undefined
         ? Number(overrides.height2)
         : (doorDef.defaultHeight2 !== undefined ? doorDef.defaultHeight2 : heightMm));
-  const isRaked = isWindow && height2Mm !== heightMm;
+  const isRaked = isWindow && (doorTypeId === 'win_raked' || (height2Mm !== heightMm && doorTypeId !== 'win_standard'));
   const slopedLen = isRaked ? Math.hypot(widthMm, height2Mm - heightMm) : widthMm;
   const areaMm2 = isRaked
     ? Math.round((widthMm * (heightMm + height2Mm)) / 2)
@@ -967,7 +967,7 @@ export function migrateLegacyDoor(door, walls = [], level = 0, realScale = 1) {
     height2_mm: door.height2_mm !== undefined ? Number(door.height2_mm) : heightMm,
     height: heightMm,
     heightMm: heightMm,
-    is_raked: isWindowObj && door.height2_mm !== undefined && Number(door.height2_mm) !== heightMm,
+    is_raked: isWindowObj && (door.doorTypeId === 'win_raked' || door.is_raked === true || (door.height2_mm !== undefined && Number(door.height2_mm) !== heightMm && door.doorTypeId !== 'win_standard')),
     hingeSide: door.hingeSide || door.hinge_side || 'left',
     hinge_side: door.hinge_side || door.hingeSide || 'left',
     swingDirection: door.swingDirection || door.swing_direction || door.swing || 'inward',
@@ -1092,7 +1092,7 @@ export function computeDoorMetrics(door, wall, realScale) {
   const widthMm = door.width_mm || (realScale ? Math.round(doorWidthPx * realScale) : 760);
   const heightMm = door.height_mm || 1980;
   const height2Mm = (door.height2_mm !== undefined && door.height2_mm !== null) ? Number(door.height2_mm) : heightMm;
-  const isRaked = height2Mm !== heightMm;
+  const isRaked = door.doorTypeId === 'win_raked' || door.is_raked === true || (height2Mm !== heightMm && door.doorTypeId !== 'win_standard');
   const slopedLen = isRaked ? Math.hypot(widthMm, height2Mm - heightMm) : widthMm;
   const areaMm2 = isRaked
     ? Math.round((widthMm * (heightMm + height2Mm)) / 2)

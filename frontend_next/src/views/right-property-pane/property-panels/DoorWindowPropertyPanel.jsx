@@ -291,7 +291,12 @@ export default function DoorWindowPropertyPanel({
           : "")
       : getWinH2(activeDoor);
 
-    const isRakedWindow = Number(effectiveWindowHeight2Mm) !== Number(effectiveWindowHeightMm) && Boolean(effectiveWindowHeight2Mm);
+    const isRakedWindow = Boolean(
+      activeDoor.doorTypeId === "win_raked" ||
+      activeDoor.is_raked === true ||
+      activeDoor.class === "raked_window" ||
+      (Number(effectiveWindowHeight2Mm) !== Number(effectiveWindowHeightMm) && Boolean(effectiveWindowHeight2Mm))
+    );
 
     const stackedLowerDoor = findStackedLowerDoor(activeDoor, doors, walls);
     const isStacked = Boolean(stackedLowerDoor);
@@ -301,13 +306,34 @@ export default function DoorWindowPropertyPanel({
 
     const handleFlipSlope = () => {
       const h1 = Number(activeDoor.height_mm || activeDoor.height || 1200);
-      const h2 = Number(activeDoor.height2_mm !== undefined ? activeDoor.height2_mm : h1);
+      const h2 = Number(activeDoor.height2_mm !== undefined && activeDoor.height2_mm !== null ? activeDoor.height2_mm : h1);
       handleApplyProperty({
         height_mm: h2,
         height: h2,
         heightMm: h2,
         height2_mm: h1,
         is_raked: h1 !== h2,
+      });
+    };
+
+    const handleSetWindowClass = (targetClass) => {
+      const isTargetRaked = targetClass === "win_raked";
+      const currentH = Number(activeDoor.height_mm || activeDoor.height || 1200);
+      const currentH2 = Number(activeDoor.height2_mm !== undefined && activeDoor.height2_mm !== null ? activeDoor.height2_mm : currentH);
+      const newH2 = isTargetRaked
+        ? (currentH2 !== currentH ? currentH2 : (currentH > 1000 ? currentH - 300 : 900))
+        : currentH;
+
+      handleApplyProperty({
+        doorTypeId: isTargetRaked ? "win_raked" : "win_standard",
+        penetration_type: "window",
+        class: "window",
+        type: "window",
+        is_raked: isTargetRaked,
+        height_mm: currentH,
+        height: currentH,
+        heightMm: currentH,
+        height2_mm: newH2,
       });
     };
 
@@ -462,10 +488,59 @@ export default function DoorWindowPropertyPanel({
           />
         </div>
 
+        {/* Window Class Toggle (Standard Window vs Raked Window) */}
+        <div className="panel-field">
+          <span className="panel-label">Window Class</span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+            <button
+              type="button"
+              style={{
+                padding: "7px 10px",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: !isRakedWindow ? "1.5px solid #2563eb" : "1px solid #cbd5e1",
+                background: !isRakedWindow ? "rgba(37,99,235,0.08)" : "#fff",
+                color: !isRakedWindow ? "#1d4ed8" : "#475569",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "5px"
+              }}
+              onClick={() => handleSetWindowClass("win_standard")}
+            >
+              🪟 Standard Window
+            </button>
+            <button
+              type="button"
+              style={{
+                padding: "7px 10px",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: isRakedWindow ? "1.5px solid #2563eb" : "1px solid #cbd5e1",
+                background: isRakedWindow ? "rgba(37,99,235,0.08)" : "#fff",
+                color: isRakedWindow ? "#1d4ed8" : "#475569",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "5px"
+              }}
+              onClick={() => handleSetWindowClass("win_raked")}
+            >
+              📐 Raked Window
+            </button>
+          </div>
+        </div>
+
         <div className="panel-field">
           <span className="panel-label">Window Type</span>
           <SearchableSelect
-            value={activeDoor.doorTypeId || activeDoor.penetration_type || activeDoor.penetrationType || "win_standard"}
+            value={activeDoor.doorTypeId || activeDoor.penetration_type || activeDoor.penetrationType || (isRakedWindow ? "win_raked" : "win_standard")}
             options={getDoorTypeOptions().filter((o) => {
               const def = DOOR_TYPE_REGISTRY[o.value];
               return def?.doorType === "window" || def?.renderClass === "window" || o.value.includes("win_");
@@ -473,11 +548,23 @@ export default function DoorWindowPropertyPanel({
             placeholder="Search window type..."
             onChange={(typeId) => {
               const def = DOOR_TYPE_REGISTRY[typeId];
+              const isRakeSelected = typeId === "win_raked";
+              const currentH = Number(activeDoor.height_mm || activeDoor.height || 1200);
+              const currentH2 = Number(activeDoor.height2_mm !== undefined && activeDoor.height2_mm !== null ? activeDoor.height2_mm : currentH);
+              const newH2 = isRakeSelected
+                ? (currentH2 !== currentH ? currentH2 : (currentH > 1000 ? currentH - 300 : 900))
+                : currentH;
+
               handleApplyProperty({
                 doorTypeId: typeId,
                 penetration_type: def?.renderClass || "window",
                 class: def?.renderClass || "window",
-                type: def?.doorType || "window"
+                type: def?.doorType || "window",
+                is_raked: isRakeSelected,
+                height_mm: currentH,
+                height: currentH,
+                heightMm: currentH,
+                height2_mm: newH2
               });
             }}
           />
@@ -549,107 +636,92 @@ export default function DoorWindowPropertyPanel({
           </div>
         </div>
 
-        {/* Height 1 / Left (mm) */}
-        <div className="panel-field">
-          <span className="panel-label">Height 1 / Left (mm)</span>
-          <div style={{ display: "flex", gap: "8px" }}>
+        {/* Height section: Single full-width input for standard window, side-by-side dual inputs for raked window */}
+        {!isRakedWindow ? (
+          <div className="panel-field">
+            <span className="panel-label">Height (mm)</span>
             <input
               type="number"
               className="panel-input"
-              style={{ flex: 1 }}
+              style={{ width: "100%" }}
               placeholder={isMulti && !effectiveWindowHeightMm ? "(Multiple values)" : ""}
               value={effectiveWindowHeightMm}
               onChange={(e) => {
                 const val = Number(e.target.value);
                 if (!isNaN(val) && val > 0) {
-                  handleApplyProperty({ height_mm: val, height: val });
+                  handleApplyProperty({
+                    height_mm: val,
+                    height: val,
+                    heightMm: val,
+                    height2_mm: val,
+                    is_raked: false
+                  });
                 }
               }}
             />
-            <select
-              className="panel-select"
-              style={{ width: "100px" }}
-              value={effectiveWindowHeightMm || ""}
-              onChange={(e) => {
-                if (e.target.value) {
-                  const val = Number(e.target.value);
-                  handleApplyProperty({ height_mm: val, height: val });
-                }
-              }}
-            >
-              <option value="">Presets</option>
-              <option value={600}>600</option>
-              <option value={900}>900</option>
-              <option value={1200}>1200</option>
-              <option value={1500}>1500</option>
-              <option value={1800}>1800</option>
-              <option value={2100}>2100</option>
-              <option value={2400}>2400</option>
-            </select>
           </div>
-        </div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <span className="panel-label">Height 1 / Left (mm)</span>
+                <input
+                  type="number"
+                  className="panel-input"
+                  style={{ width: "100%" }}
+                  placeholder={isMulti && !effectiveWindowHeightMm ? "(Multiple values)" : ""}
+                  value={effectiveWindowHeightMm}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!isNaN(val) && val > 0) {
+                      handleApplyProperty({
+                        height_mm: val,
+                        height: val,
+                        heightMm: val,
+                        is_raked: val !== Number(effectiveWindowHeight2Mm)
+                      });
+                    }
+                  }}
+                />
+              </div>
+              <div className="panel-field" style={{ marginBottom: 0 }}>
+                <span className="panel-label">Height 2 / Right (mm)</span>
+                <input
+                  type="number"
+                  className="panel-input"
+                  style={{ width: "100%" }}
+                  placeholder={isMulti && !effectiveWindowHeight2Mm ? "(Multiple values)" : ""}
+                  value={effectiveWindowHeight2Mm}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!isNaN(val) && val > 0) {
+                      handleApplyProperty({
+                        height2_mm: val,
+                        is_raked: val !== Number(effectiveWindowHeightMm)
+                      });
+                    }
+                  }}
+                />
+              </div>
+            </div>
 
-        {/* Height 2 / Right (mm) */}
-        <div className="panel-field">
-          <span className="panel-label">Height 2 / Right (mm)</span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <input
-              type="number"
-              className="panel-input"
-              style={{ flex: 1 }}
-              placeholder={isMulti && !effectiveWindowHeight2Mm ? "(Multiple values)" : ""}
-              value={effectiveWindowHeight2Mm}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                if (!isNaN(val) && val > 0) {
-                  handleApplyProperty({ height2_mm: val, is_raked: val !== Number(effectiveWindowHeightMm) });
-                }
-              }}
-            />
-            <select
-              className="panel-select"
-              style={{ width: "100px" }}
-              value={effectiveWindowHeight2Mm || ""}
-              onChange={(e) => {
-                if (e.target.value) {
-                  const val = Number(e.target.value);
-                  handleApplyProperty({ height2_mm: val, is_raked: val !== Number(effectiveWindowHeightMm) });
-                }
-              }}
-            >
-              <option value="">Presets</option>
-              <option value={600}>600</option>
-              <option value={900}>900</option>
-              <option value={1200}>1200</option>
-              <option value={1500}>1500</option>
-              <option value={1800}>1800</option>
-              <option value={2100}>2100</option>
-              <option value={2400}>2400</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Raked Slope Action & Badge */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 4 }}>
-          {isRakedWindow ? (
-            <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", padding: "2px 8px", borderRadius: "12px" }}>
-              📐 Raked Window (Trapezoid)
-            </span>
-          ) : (
-            <span style={{ fontSize: "11px", color: "#64748b" }}>
-              Rectangular Window
-            </span>
-          )}
-          <button
-            type="button"
-            className="rp-action-btn rp-action-btn--secondary"
-            style={{ width: "auto", padding: "4px 10px", fontSize: "11px", display: "inline-flex", alignItems: "center", gap: 4 }}
-            onClick={handleFlipSlope}
-            title="Flip Left and Right Heights"
-          >
-            ⇄ Flip Slope
-          </button>
-        </div>
+            {/* Raked Slope Action & Badge */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, marginTop: -2 }}>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", background: "#eff6ff", border: "1px solid #bfdbfe", padding: "2px 8px", borderRadius: "12px" }}>
+                📐 Raked Window (Trapezoid)
+              </span>
+              <button
+                type="button"
+                className="rp-action-btn rp-action-btn--secondary"
+                style={{ width: "auto", padding: "4px 10px", fontSize: "11px", display: "inline-flex", alignItems: "center", gap: 4 }}
+                onClick={handleFlipSlope}
+                title="Flip Left and Right Heights"
+              >
+                ⇄ Flip Slope
+              </button>
+            </div>
+          </>
+        )}
 
         <div style={{ marginTop: 12 }}>
           <button
