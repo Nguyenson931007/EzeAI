@@ -983,9 +983,9 @@ export default function WallPropertyPanel({
               const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
               exportWallExcel && exportWallExcel(targetIds.length > 0 ? targetIds : null);
             }}
-            title="Xuất bảng tính Excel khối lượng và kích thước của tường đã chọn"
+            title="Export an Excel sheet with quantity and dimensions for the selected wall"
           >
-            <span>📊 Xuất Excel (.xlsx)</span>
+            <span>📊 Export Excel (.xlsx)</span>
           </button>
           <button
             type="button"
@@ -1008,7 +1008,7 @@ export default function WallPropertyPanel({
               const targetIds = selectedWallIds.length > 0 ? selectedWallIds : selectedWall ? [selectedWall.id] : [];
               exportWallJson && exportWallJson(targetIds.length > 0 ? targetIds : null);
             }}
-            title="Xuất file JSON / EZPlan của tường đã chọn"
+            title="Export JSON / EZPlan for the selected wall"
           >
             <span>📄 JSON</span>
           </button>

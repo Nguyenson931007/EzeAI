@@ -856,7 +856,7 @@ export default function FrameworkJobsModal({ visible, onClose, walls = [], scale
                     boxShadow: "0 2px 8px rgba(139,92,246,0.3)",
                     transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6
                   }}
-                  title="Xem chi tiết bóc tách khối lượng tường của tất cả các tầng"
+                  title="View wall takeoff details for all floors"
                 >
                   🏢 View Per-Floor Breakdown ({perPageBreakdown.length} Floors)
                 </button>

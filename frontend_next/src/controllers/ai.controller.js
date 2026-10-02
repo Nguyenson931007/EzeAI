@@ -2018,7 +2018,7 @@ export const useAIController = (
       if (res && res.success && res.rooms) {
         console.log("[generateRoomsFromWalls] Setting rooms count:", res.rooms.length, res.rooms);
         if (res.rooms.length === 0) {
-          alert("Không tìm thấy đa giác khép kín nào từ tường hiện tại. Hãy kiểm tra các khoảng hở ở cửa hoặc góc tường.");
+          alert("No closed polygon could be found from the current walls. Check for gaps at doors or wall corners.");
         }
 
         // HYBRID OPTIMIZATION: Combine Auto AI (YOLO) and Wall-to-Room topology
@@ -2121,13 +2121,13 @@ export const useAIController = (
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, true);
       } else {
         const notify = showAlert || alert;
-        notify("Không tìm thấy mái nào trong hình.");
+        notify("No roof was found in the image.");
         finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
       }
     } catch (err) {
       console.error("[Roof AI] Error:", err);
       const notify = showAlert || alert;
-      notify(`Lỗi khi chạy Roof AI: ${err.message || err}`);
+      notify(`Roof AI error: ${err.message || err}`);
       finalizeROIJob(job.token, job.progressInterval, job.startTime, false, false);
     }
   }, [currentPage, image, pdfOffset, setRoofsByPage, showAlert]);

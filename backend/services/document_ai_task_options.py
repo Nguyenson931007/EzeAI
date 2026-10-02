@@ -12,6 +12,7 @@ for backwards-compatible edit/review of existing rows).
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
+import re
 
 from app.catalog_repository import get_catalog
 
@@ -292,3 +293,94 @@ def resolve_option_value(value: Any, options: List[str]) -> str | None:
     if len(matches) == 1:
         return matches[0]
     return None
+
+
+_SEMANTIC_STOP_WORDS = {
+    "the", "a", "an", "and", "or", "for", "of", "to", "with", "product",
+    "sheet", "panel", "board", "flooring", "cladding", "internal", "external",
+}
+
+
+def _semantic_tokens(value: Any) -> tuple[str, ...]:
+    """Normalize wording/order without doing fuzzy guessing.
+
+    This intentionally keeps numbers and meaningful material/spec words.  It
+    only permits a semantic match when exactly one runtime option has the same
+    meaningful token set (or uniquely contains all requested tokens).
+    """
+    text = str(value if value is not None else "").casefold()
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*mm\b", r"\1mm", text)
+    tokens = re.findall(r"[a-z0-9]+(?:\.[0-9]+)?(?:mm)?", text)
+    return tuple(sorted({t for t in tokens if len(t) > 1 and t not in _SEMANTIC_STOP_WORDS}))
+
+
+def resolve_semantic_option_value(value: Any, options: List[str]) -> str | None:
+    """Resolve harmless wording/order differences to one exact runtime option.
+
+    It never chooses between multiple candidates and never uses edit-distance
+    or approximate numeric matching.  Therefore a unique match is still
+    constrained to the real dropdown values supplied by the application.
+    """
+    exact = resolve_option_value(value, options)
+    if exact is not None:
+        return exact
+    wanted = set(_semantic_tokens(value))
+    if not wanted:
+        return None
+
+    same = []
+    containing = []
+    for option in options or []:
+        option_tokens = set(_semantic_tokens(option))
+        if not option_tokens:
+            continue
+        if option_tokens == wanted:
+            same.append(str(option).strip())
+        elif wanted.issubset(option_tokens):
+            containing.append(str(option).strip())
+    if len(same) == 1:
+        return same[0]
+    if not same and len(containing) == 1:
+        return containing[0]
+    return None
+
+
+def get_task_option_dependencies(task_key: str, customer: str) -> Dict[str, Dict[str, List[str]]]:
+    """Build safe dependent dropdown mappings from the live Procurement catalog.
+
+    Example: Flooring `typeArea=Dry` can imply the exact Product dropdown value
+    when the customer catalog contains exactly one Dry product.  Ambiguous
+    mappings stay as multiple values and are never auto-selected.
+    """
+    catalog_task = _CATALOG_TASK_KEYS.get(task_key)
+    if not catalog_task:
+        return {}
+    try:
+        items = get_catalog(customer, catalog_task)
+    except Exception:
+        return {}
+
+    raw: Dict[str, Dict[str, List[str]]] = {}
+
+    def add(dep_name: str, key: Any, product: str) -> None:
+        k = str(key if key is not None else "").strip()
+        if not k or not product:
+            return
+        raw.setdefault(dep_name, {}).setdefault(k, []).append(product)
+
+    for item in items:
+        product = _canonical_product(item)
+        params = item.get("parameters") or {}
+        if task_key in {"flooring_decking", "hebel_flooring"}:
+            add("product_by_typeArea", params.get("area_key"), product)
+        elif task_key == "cladding":
+            for key in (params.get("product_type"), params.get("category"), item.get("usage_label")):
+                add("product_by_claddingType", key, product)
+        elif task_key == "insulation":
+            add("product_by_rValue", params.get("r_value"), product)
+            add("product_by_type", params.get("category") or params.get("area_key"), product)
+
+    return {
+        dep: {key: _unique(values) for key, values in mapping.items()}
+        for dep, mapping in raw.items()
+    }

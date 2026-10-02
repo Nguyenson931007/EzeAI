@@ -1891,7 +1891,7 @@ export default function RightPropertyPaneView({
   const handleRenameFloor = async (e, pageIdx, currentName) => {
     if (e && e.stopPropagation) e.stopPropagation();
     const currentDisplayName = mapFloorName(currentName, pageIdx);
-    const newName = await showPrompt("Nhập tên tầng mới (Floor Name):", currentDisplayName);
+    const newName = await showPrompt("Enter new floor name:", currentDisplayName);
     if (newName !== null && newName.trim() && setPages) {
       const trimmed = newName.trim();
       const classVal = convertNameToClass(trimmed, pageIdx);
@@ -4963,6 +4963,21 @@ export default function RightPropertyPaneView({
     setGptFormProposals(nextForms);
   }, []);
 
+  const requestMountedTaskSave = React.useCallback((taskKey) => {
+    if (typeof window === "undefined") return;
+    const requestId = `gpt-save-${taskKey}-${Date.now()}`;
+    // Give React time to commit the GPT rows/form value before the task's normal
+    // Save handler reads its current state. Two RAFs also avoid stale closures.
+    const dispatchSave = () => window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-task", {
+      detail: { requestId, taskKey, handled: false, source: "gpt" },
+    }));
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(dispatchSave));
+    } else {
+      setTimeout(dispatchSave, 0);
+    }
+  }, []);
+
   const commitGptRowsToTask = React.useCallback((taskKey) => {
     const proposals = gptTaskRows?.[taskKey] || [];
     if (!proposals.length) return;
@@ -5032,7 +5047,8 @@ export default function RightPropertyPaneView({
     else return;
 
     setGptTaskRows((prev) => ({ ...prev, [taskKey]: [] }));
-  }, [gptTaskRows]);
+    requestMountedTaskSave(taskKey);
+  }, [gptTaskRows, requestMountedTaskSave]);
 
   const clearNonGptTaskData = React.useCallback((taskKey) => {
     const confirmed = typeof window === "undefined" || window.confirm(
@@ -5086,7 +5102,10 @@ export default function RightPropertyPaneView({
       ...prev,
       [taskKey]: (prev?.[taskKey] || []).filter((_, idx) => idx !== proposalIndex),
     }));
-  }, [gptFormProposals]);
+
+    // Single-form tasks only save after the user explicitly accepts GPT.
+    if (useGptValue && taskKey !== "final_fit") requestMountedTaskSave(taskKey);
+  }, [gptFormProposals, requestMountedTaskSave]);
 
   const openGptTask = React.useCallback((taskKey) => {
     const normalized = ({
@@ -5141,7 +5160,7 @@ export default function RightPropertyPaneView({
             e.stopPropagation();
             toggleTaskExpanded();
           }}
-          title={isTaskExpanded ? "Thu gọn form task (»)" : "Mở rộng form task hết cỡ («)"}
+          title={isTaskExpanded ? "Collapse task panel (»)" : "Expand task panel («)"}
           style={{
             position: "absolute",
             left: "-20px",

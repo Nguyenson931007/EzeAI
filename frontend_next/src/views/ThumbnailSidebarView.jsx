@@ -20,7 +20,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
   const handleRenameFloor = async (e, index, currentName) => {
     e.stopPropagation();
     const currentDisplayName = mapFloorName(currentName, index);
-    const newName = await showPrompt("Nhập tên tầng (Floor Name):", currentDisplayName);
+    const newName = await showPrompt("Enter floor name:", currentDisplayName);
     if (newName !== null && setPages) {
       const classVal = convertNameToClass(newName, index);
       setPages(prev => prev.map((p, i) =>
@@ -72,7 +72,7 @@ export default function ThumbnailSidebarView({ pages, currentPage, onPageClick, 
               <div
                 className="delete-page-btn"
                 onClick={(e) => handleDeleteClick(e, i)}
-                title="Xóa trang này"
+                title="Delete this page"
                 style={{
                   position: "absolute",
                   top: 4,

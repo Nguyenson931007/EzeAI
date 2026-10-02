@@ -76,11 +76,11 @@ export const ApiService = {
         return await res.json();
       }
       return {
-        detail: "Không thể kết nối đến Backend Server (Port 8090). Vui lòng kiểm tra Backend đã được khởi động chưa!"
+        detail: "Unable to connect to Backend Server (Port 8090). Please check that the backend is running."
       };
     } catch (err) {
       return {
-        detail: `Lỗi kết nối Backend: ${err.message}. Vui lòng khởi động Backend trên cổng 8090.`
+        detail: `Backend connection error: ${err.message}. Please start the backend on port 8090.`
       };
     }
   },

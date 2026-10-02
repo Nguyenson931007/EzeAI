@@ -898,7 +898,7 @@ export default function BOQTable({
     const [newVerText, setNewVerText] = useState("");
 
     const defaultPresetNotes = [
-      "Aluminium Frame Glazed Door (tên cửa) by Others.",
+      "Aluminium Frame Glazed Door (door name) by Others.",
       "All doors are subject to a door schedule, prior to ordering.",
       "We supplied 137x23mm Modwood Deking, please check and confirm.",
       "Joinery Door & Joinery Shelving by Others.",

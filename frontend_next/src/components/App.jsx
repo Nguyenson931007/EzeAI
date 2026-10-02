@@ -770,7 +770,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("Shared load error:", err);
-      alert("Link chia sẻ không hợp lệ hoặc đã hết hạn.");
+      alert("The share link is invalid or has expired.");
       window.location.href = "/";
     }
   }, [handleLoadJob, setIsLoggedIn, setUser, setActiveTab]);
@@ -2296,6 +2296,7 @@ export default function App() {
         exportRoofInput={exportRoofInput}
         importTarget={importTarget}
         setImportTarget={setImportTarget}
+        singleImportPageMode={Boolean(importTargetFloorCode)}
       />
 
       {activeTab === "Admin" ? (

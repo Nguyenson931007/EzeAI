@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-from services.document_ai_task_options import get_task_options
+from services.document_ai_task_options import get_task_option_dependencies, get_task_options
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[1] / "data" / "document_ai_task_schema.json"
 _TASK_ALIASES = {
@@ -103,6 +103,7 @@ def build_task_contracts(tasks: Dict[str, Any], customer: str) -> Dict[str, Any]
         contracts[key] = {
             "schema": schema,
             "options": get_task_options(key, customer, schema, current_data),
+            "dependencies": get_task_option_dependencies(key, customer),
             "current_data": current_data,
         }
     return contracts

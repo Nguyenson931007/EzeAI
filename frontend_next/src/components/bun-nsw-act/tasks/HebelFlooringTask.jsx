@@ -349,11 +349,11 @@ export default function HebelFlooringTask({
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert("Lỗi khi lưu: " + (res?.message || "Không thể lưu vào ProcurementApp AreaSummary."));
+        alert("Save failed: " + (res?.message || "Unable to save to ProcurementApp AreaSummary."));
       }
     } catch (err) {
       console.error("Lỗi khi lưu AreaSummary từ Task Panel:", err);
-      alert("Lỗi khi lưu AreaSummary: " + (err.message || err));
+      alert("Failed to save AreaSummary: " + (err.message || err));
     } finally {
       setIsSaving(false);
     }

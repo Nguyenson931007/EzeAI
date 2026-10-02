@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export default function EnteredTaskActions({
@@ -17,6 +17,10 @@ export default function EnteredTaskActions({
   saveLabel = "Save"
 }) {
   const [portalHost, setPortalHost] = useState(null);
+  const onSaveRef = useRef(onSave);
+  const saveDisabledRef = useRef(saveDisabled);
+  onSaveRef.current = onSave;
+  saveDisabledRef.current = saveDisabled;
   const isSaving = saveStatus === "saving";
   const isSaved = saveStatus === "success";
   const isSaveError = saveStatus === "error";
@@ -27,6 +31,41 @@ export default function EnteredTaskActions({
     resolveHost();
     window.addEventListener("ezefloor:task-action-slot-ready", resolveHost);
     return () => window.removeEventListener("ezefloor:task-action-slot-ready", resolveHost);
+  }, []);
+
+  // GPT Save must reuse the exact same save contract as the visible Save button.
+  // Only the currently mounted task action bar will claim the request.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleGptSaveRequest = async (event) => {
+      const detail = event?.detail || {};
+      if (detail.handled || typeof onSaveRef.current !== "function") return;
+      detail.handled = true;
+
+      const resultDetail = {
+        requestId: detail.requestId || null,
+        taskKey: detail.taskKey || null,
+        handled: true,
+        ok: false,
+      };
+
+      if (saveDisabledRef.current) {
+        resultDetail.error = "Task save is currently disabled.";
+        window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-result", { detail: resultDetail }));
+        return;
+      }
+
+      try {
+        await onSaveRef.current();
+        resultDetail.ok = true;
+      } catch (error) {
+        resultDetail.error = error?.message || String(error);
+      }
+      window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-result", { detail: resultDetail }));
+    };
+
+    window.addEventListener("ezefloor:gpt-save-task", handleGptSaveRequest);
+    return () => window.removeEventListener("ezefloor:gpt-save-task", handleGptSaveRequest);
   }, []);
 
   const actionButtons = (onAutoFill || onAddData || onClear || onSave) ? (

@@ -95,10 +95,10 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
                     });
                   }}
                   className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-emerald-700/80 hover:bg-emerald-600 text-white font-semibold transition-all shadow-sm cursor-pointer ml-1"
-                  title="Xuất toàn bộ thông tin & tọa độ 2D/3D các thanh Truss ra file JSON để debug"
+                  title="Export all Truss information and 2D/3D coordinates to JSON for debugging"
                 >
                   <span>🐞</span>
-                  <span>Xuất Debug Truss</span>
+                  <span>Export Truss Debug</span>
                 </button>
               </div>
             )}
@@ -233,7 +233,7 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
               {trussStats.partitionBoxes && trussStats.partitionBoxes.length > 0 && (
                 <div className="mt-2.5 pt-2 border-t border-slate-700/60 text-[11px]">
                   <div className="font-bold text-fuchsia-400 mb-1.5 flex items-center justify-between">
-                    <span>PHÂN RÃ HỘP ẢO</span>
+                    <span>VIRTUAL BOX DECOMPOSITION</span>
                     <span className="bg-fuchsia-500/20 text-fuchsia-300 px-1.5 py-0.5 rounded text-[10px]">
                       {trussStats.partitionBoxes.length} Boxes
                     </span>
@@ -242,7 +242,7 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
                     <div className="flex items-center justify-between text-slate-300">
                       <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-1.5 rounded-sm inline-block" style={{ background: '#f59e0b' }}></span>
-                        Mái Hip Chính:
+                        Main Hip Roof:
                       </span>
                       <span className="font-bold text-amber-400">{trussStats.dominantBox.areaM2} m²</span>
                     </div>
@@ -251,7 +251,7 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
                     <div key={sIdx} className="flex items-center justify-between text-slate-300">
                       <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-1.5 rounded-sm inline-block" style={{ background: sb.color || '#06b6d4' }}></span>
-                        {`Khối Phụ ${sIdx + 1}`}:
+                        {`Secondary Block ${sIdx + 1}`}:
                       </span>
                       <span className="font-bold text-cyan-400">{sb.areaM2} m²</span>
                     </div>
@@ -260,7 +260,7 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
                     <div className="flex items-center justify-between text-slate-300 mt-1">
                       <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-1.5 rounded-sm inline-block" style={{ background: '#ec4899' }}></span>
-                        Đường Dóng Magenta:
+                        Magenta Guide Line:
                       </span>
                       <span className="font-bold text-pink-400">{trussStats.guideLines.filter(g => g.type === 'eave_extension').length} cuts</span>
                     </div>
@@ -278,10 +278,10 @@ export default function RoofModal3D({ isOpen, onClose, v3Data, roofName = "Roof 
                     });
                   }}
                   className="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-center transition-all shadow flex items-center justify-center gap-1.5 text-xs cursor-pointer"
-                  title="Tải file JSON và in bảng console tọa độ 2D & 3D của các thanh vì kèo"
+                  title="Download JSON and print 2D & 3D truss coordinates to the console"
                 >
                   <span>🐞</span>
-                  <span>Xuất Tọa Độ Truss (2D &amp; 3D)</span>
+                  <span>Export Truss Coordinates (2D &amp; 3D)</span>
                 </button>
               </div>
             </div>

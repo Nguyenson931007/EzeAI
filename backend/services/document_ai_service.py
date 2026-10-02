@@ -15,7 +15,7 @@ import fitz
 from PIL import Image
 
 from services.openai_client import extract_response_text, get_openai_model, openai_response
-from services.document_ai_task_options import resolve_option_value
+from services.document_ai_task_options import resolve_option_value, resolve_semantic_option_value
 from services.document_ai_task_schema import (
     build_task_contracts,
     get_task_schema,
@@ -147,7 +147,8 @@ STRICT SCOPE
 - NEVER propose wall/door/window coordinates, polygons, lines or canvas edits.
 - Never invent product codes, SKUs, database IDs, dropdown values, row ids, or field names.
 - For every dropdown/enum field, use ONLY a value supplied in that task's CONTEXT.tasks[task].options[field].
-- If the document text does not match one of those values, do not approximate it; return UNRESOLVED.
+- Map harmless wording/order differences only when they resolve uniquely to one supplied runtime option; otherwise return UNRESOLVED.
+- If a task contract supplies `dependencies`, a dependent product may be omitted when its classification/spec uniquely determines that exact runtime product; the backend will derive it.
 - Fields with allow_gpt=false are read-only context and MUST NOT be proposed.
 
 COVERAGE RULE
@@ -220,8 +221,57 @@ def _normalize_gpt_field_value(*, field: str, value: Any, task_contract: Dict[st
         return False, None, f"{field}: no runtime dropdown options were available"
     resolved = resolve_option_value(value, options)
     if resolved is None:
+        resolved = resolve_semantic_option_value(value, options)
+    if resolved is None:
         return False, None, f"{field}: {value!r} is not an allowed dropdown value"
     return True, resolved, ""
+
+def _unique_dependency_value(mapping: Dict[str, List[str]], key: Any) -> Any:
+    if not isinstance(mapping, dict):
+        return None
+    target = str(key if key is not None else "").strip()
+    if not target:
+        return None
+    # Dependency keys come from the same runtime catalog, but allow harmless
+    # ordering/spacing differences just like normal dropdown resolution.
+    canonical_key = resolve_semantic_option_value(target, list(mapping.keys()))
+    if canonical_key is None:
+        return None
+    values = mapping.get(canonical_key) or []
+    return values[0] if len(values) == 1 else None
+
+
+def _apply_task_dependencies(row: Dict[str, Any], task_key: str, task_contract: Dict[str, Any]) -> None:
+    deps = task_contract.get("dependencies") or {}
+    if row.get("product"):
+        return
+    product = None
+    if task_key in {"flooring_decking", "hebel_flooring"} and row.get("typeArea"):
+        product = _unique_dependency_value(deps.get("product_by_typeArea") or {}, row.get("typeArea"))
+    elif task_key == "cladding" and row.get("claddingType"):
+        product = _unique_dependency_value(deps.get("product_by_claddingType") or {}, row.get("claddingType"))
+    elif task_key == "insulation":
+        if row.get("rValue"):
+            product = _unique_dependency_value(deps.get("product_by_rValue") or {}, row.get("rValue"))
+        if product is None and row.get("type"):
+            product = _unique_dependency_value(deps.get("product_by_type") or {}, row.get("type"))
+    if product:
+        options = (task_contract.get("options") or {}).get("product") or []
+        resolved = resolve_option_value(product, options)
+        if resolved is not None:
+            row["product"] = resolved
+            row.setdefault("_gpt_derived_fields", []).append("product")
+
+
+def _row_has_actionable_change(row: Dict[str, Any], task_key: str, customer: str) -> bool:
+    action = str(row.get("action") or "").upper()
+    if action == "DELETE":
+        return bool(row.get("row_id"))
+    if action not in {"ADD", "UPDATE"}:
+        return False
+    allowed = _allowed_row_fields(task_key, customer)
+    return any(key in row for key in allowed)
+
 
 def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, customer: str, task_contract: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not isinstance(rows, list):
@@ -249,6 +299,7 @@ def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, custome
                     clean[key] = normalized
                 else:
                     clean.setdefault("_gpt_validation_errors", []).append(validation_error)
+        _apply_task_dependencies(clean, task_key, task_contract)
         clean["action"] = _action(raw.get("action"))
         if clean.get("_gpt_validation_errors"):
             clean["action"] = "UNKNOWN"
@@ -262,26 +313,39 @@ def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, custome
         result.append(clean)
     return result
 
-def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, Any]], customer: str, tasks: Dict[str, Any], model: Optional[str] = None) -> Dict[str, Any]:
-    model_name = get_openai_model()
-    if model and model.strip() and model.strip() != model_name:
-        raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
+def _document_ai_batch_size() -> int:
+    """Small task batches keep the model focused when All Tasks is selected."""
+    try:
+        value = int(os.getenv("DOCUMENT_AI_TASK_BATCH_SIZE", "5"))
+    except Exception:
+        value = 5
+    return max(1, min(8, value))
 
-    pages = extract_selected_pages(pdf_bytes, selected_pages)
-    task_contracts = build_task_contracts(tasks, customer)
-    if not task_contracts:
-        raise RuntimeError("No supported Document AI task schemas were supplied")
+
+def _chunk_task_contracts(task_contracts: Dict[str, Any], batch_size: int) -> List[Dict[str, Any]]:
+    items = list(task_contracts.items())
+    return [dict(items[i:i + batch_size]) for i in range(0, len(items), batch_size)]
+
+
+def _review_document_batch(
+    *,
+    pages: List[Dict[str, Any]],
+    customer: str,
+    task_contracts: Dict[str, Any],
+    timeout: int,
+) -> Dict[str, Any]:
+    # Keep the system instructions only in the system message. Repeating them in
+    # the user message wastes tokens, especially when All Tasks is split into
+    # multiple batches.
     context = {
         "customer": customer,
         "selected_pages": pages,
         "tasks": task_contracts,
     }
-    prompt = SYSTEM_PROMPT + "\n\nCONTEXT\n" + json.dumps(context, ensure_ascii=False, default=str)
-    timeout = int(os.getenv("OPENAI_AGENT_TIMEOUT_SEC", os.getenv("OPENAI_TIMEOUT_SEC", "180")))
     raw = openai_response(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": "CONTEXT\n" + json.dumps(context, ensure_ascii=False, default=str)},
         ],
         response_format={"type": "json_object"},
         temperature=0.03,
@@ -291,10 +355,71 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
         parsed = json.loads(extract_response_text(raw))
     except Exception as exc:
         raise RuntimeError("OpenAI returned invalid JSON document review") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("OpenAI returned an invalid document review object")
+    return parsed
 
-    task_results = parsed.get("task_results") or []
-    if not isinstance(task_results, list):
-        task_results = []
+
+def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, Any]], customer: str, tasks: Dict[str, Any], model: Optional[str] = None) -> Dict[str, Any]:
+    model_name = get_openai_model()
+    if model and model.strip() and model.strip() != model_name:
+        raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
+
+    pages = extract_selected_pages(pdf_bytes, selected_pages)
+    task_contracts = build_task_contracts(tasks, customer)
+    if not task_contracts:
+        raise RuntimeError("No supported Document AI task schemas were supplied")
+
+    timeout = int(os.getenv("OPENAI_AGENT_TIMEOUT_SEC", os.getenv("OPENAI_TIMEOUT_SEC", "180")))
+    batch_size = _document_ai_batch_size()
+    batches = _chunk_task_contracts(task_contracts, batch_size)
+
+    # All Tasks is evaluated in focused batches instead of one oversized prompt.
+    # Page extraction is done once; only the selected task contracts change per
+    # model call. Results are merged back into the original task order below.
+    parsed_batches: List[Dict[str, Any]] = []
+    batch_diagnostics: List[Dict[str, Any]] = []
+    merged_task_results: List[Dict[str, Any]] = []
+    merged_unresolved: List[Any] = []
+    summaries: List[str] = []
+
+    for batch_index, batch_contracts in enumerate(batches, start=1):
+        parsed_batch = _review_document_batch(
+            pages=pages,
+            customer=customer,
+            task_contracts=batch_contracts,
+            timeout=timeout,
+        )
+        parsed_batches.append(parsed_batch)
+
+        raw_results = parsed_batch.get("task_results") or []
+        if not isinstance(raw_results, list):
+            raw_results = []
+        merged_task_results.extend(raw_results)
+
+        unresolved = parsed_batch.get("unresolved")
+        if isinstance(unresolved, list):
+            merged_unresolved.extend(unresolved)
+
+        summary = str(parsed_batch.get("summary") or "").strip()
+        if summary:
+            summaries.append(summary)
+
+        returned_keys = []
+        for raw_result in raw_results:
+            if not isinstance(raw_result, dict):
+                continue
+            normalized = normalize_task_key(str(raw_result.get("task_key") or ""))
+            if normalized in batch_contracts and normalized not in returned_keys:
+                returned_keys.append(normalized)
+        batch_diagnostics.append({
+            "batch": batch_index,
+            "task_keys": list(batch_contracts.keys()),
+            "expected_tasks": len(batch_contracts),
+            "model_returned_tasks": len(returned_keys),
+        })
+
+    task_results = merged_task_results
     cleaned = []
     known_tasks = set(task_contracts.keys())
     returned_tasks: set[str] = set()
@@ -331,8 +456,27 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
                 "value": normalized,
                 "confidence": _confidence(update.get("confidence")),
             })
+        cleaned_rows = _clean_proposed_rows(
+            result.get("rows"), task_context, task_key, customer, task_contracts.get(task_key) or {}
+        )
+        actionable = bool(cleaned_field_updates) or any(
+            _row_has_actionable_change(row, task_key, customer) for row in cleaned_rows
+        )
         raw_status = str(result.get("status") or "").strip().upper()
-        status = raw_status if raw_status in {"CHANGE", "KEEP", "NO_EVIDENCE", "UNRESOLVED"} else "CHANGE"
+        unresolved = result.get("unresolved") if isinstance(result.get("unresolved"), list) else []
+        if actionable:
+            status = "CHANGE"
+        elif raw_status == "KEEP":
+            status = "KEEP"
+        elif raw_status == "NO_EVIDENCE":
+            status = "NO_EVIDENCE"
+        else:
+            # Missing/invalid task status must not default to CHANGE. A model claim
+            # of CHANGE without a surviving validated field/row is never shown as
+            # a change. Evidence that cannot enter the form is unresolved.
+            status = "UNRESOLVED"
+            if raw_status == "CHANGE":
+                unresolved = [*unresolved, "Model proposed a change, but no validated form field or row survived runtime option/schema validation."]
         cleaned.append({
             "task_key": task_key,
             "mode": mode,
@@ -340,14 +484,13 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             "status": status,
             "summary": str(result.get("summary") or ""),
             "confidence": _confidence(result.get("confidence")),
-            "rows": _clean_proposed_rows(result.get("rows"), task_context, task_key, customer, task_contracts.get(task_key) or {}),
+            "rows": cleaned_rows,
             "field_updates": cleaned_field_updates,
-            "unresolved": result.get("unresolved") if isinstance(result.get("unresolved"), list) else [],
+            "unresolved": unresolved,
         })
 
-    # Coverage is a backend invariant. If the model omits a task, retain an
-    # explicit result instead of silently turning a partial response into a
-    # misleading success with fewer tasks.
+    # Coverage is a backend invariant. If a model batch omits a task, retain an
+    # explicit result instead of silently presenting a partial review as complete.
     for task_key in sorted(known_tasks - returned_tasks):
         task_schema = get_task_schema(task_key, customer)
         mode = "form" if task_schema.get("mode") == "form" else "rows"
@@ -355,21 +498,29 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             "task_key": task_key,
             "mode": mode,
             "output_mode": task_schema.get("output_mode") or ("single_form" if mode == "form" else "row"),
-            "status": "NO_EVIDENCE",
-            "summary": "No supported result was returned for this task.",
+            "status": "UNRESOLVED",
+            "summary": "The model did not return a result for this task.",
             "confidence": 0.0,
             "rows": [],
             "field_updates": [],
-            "unresolved": ["Model returned no task result; kept empty by the backend coverage contract."],
+            "unresolved": ["Model omitted this task result; backend preserved coverage and marked it unresolved."],
         })
 
-    cleaned.sort(key=lambda item: list(task_contracts.keys()).index(item["task_key"]) if item["task_key"] in task_contracts else 9999)
+    task_order = list(task_contracts.keys())
+    cleaned.sort(key=lambda item: task_order.index(item["task_key"]) if item["task_key"] in task_contracts else 9999)
+
+    status_counts = {"CHANGE": 0, "KEEP": 0, "NO_EVIDENCE": 0, "UNRESOLVED": 0}
+    for item in cleaned:
+        status_key = str(item.get("status") or "UNRESOLVED").upper()
+        if status_key not in status_counts:
+            status_key = "UNRESOLVED"
+        status_counts[status_key] += 1
 
     return {
         "status": "success",
         "provider": "openai",
         "model": model_name,
-        "summary": str(parsed.get("summary") or ""),
+        "summary": " | ".join(summaries),
         "pages": [{
             k: p[k]
             for k in (
@@ -389,6 +540,13 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             "returned_tasks": len(cleaned),
             "model_returned_tasks": len(returned_tasks),
             "complete": len(cleaned) == len(task_contracts),
+            "status_counts": status_counts,
+        },
+        "batching": {
+            "enabled": len(batches) > 1,
+            "batch_size": batch_size,
+            "batch_count": len(batches),
+            "batches": batch_diagnostics,
         },
         "diagnostics": {
             "schema_version": 1,
@@ -397,7 +555,11 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
                 task_key: {field: len(values) for field, values in (contract.get("options") or {}).items()}
                 for task_key, contract in task_contracts.items()
             },
+            "dependency_counts": {
+                task_key: {name: len(mapping) for name, mapping in (contract.get("dependencies") or {}).items()}
+                for task_key, contract in task_contracts.items()
+            },
             "page_char_counts": {str(p.get("page_number")): len(str(p.get("text") or "")) for p in pages},
         },
-        "unresolved": parsed.get("unresolved") if isinstance(parsed.get("unresolved"), list) else [],
+        "unresolved": merged_unresolved,
     }

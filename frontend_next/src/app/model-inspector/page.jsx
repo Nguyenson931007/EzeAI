@@ -115,7 +115,7 @@ export default function ModelInspectorPage() {
 
   // 1. Detect Doors & Windows
   const runDoorDetect = async () => {
-    if (!fileObj) return alert("Vui lòng nạp tệp ảnh bản vẽ trước!");
+    if (!fileObj) return alert("Please load a plan image first!");
     setLoadingType("doors");
     const t0 = performance.now();
     try {
@@ -142,7 +142,7 @@ export default function ModelInspectorPage() {
       setWindows(windowList);
       setRawJson((prev) => ({ ...(prev || {}), doors: doorList, windows: windowList }));
     } catch (err) {
-      alert("Lỗi khi chạy Door Seg Model: " + err.message);
+      alert("Door Seg Model error: " + err.message);
     } finally {
       setLoadingType(null);
     }
@@ -150,7 +150,7 @@ export default function ModelInspectorPage() {
 
   // 2. Detect Walls
   const runWallDetect = async () => {
-    if (!fileObj) return alert("Vui lòng nạp tệp ảnh bản vẽ trước!");
+    if (!fileObj) return alert("Please load a plan image first!");
     setLoadingType("walls");
     const t0 = performance.now();
     try {
@@ -174,7 +174,7 @@ export default function ModelInspectorPage() {
       setWalls(wallList);
       setRawJson((prev) => ({ ...(prev || {}), walls: wallList }));
     } catch (err) {
-      alert("Lỗi khi chạy Wall Seg Model: " + err.message);
+      alert("Wall Seg Model error: " + err.message);
     } finally {
       setLoadingType(null);
     }
@@ -182,7 +182,7 @@ export default function ModelInspectorPage() {
 
   // 3. Detect Rooms / Floor Areas
   const runRoomDetect = async () => {
-    if (!fileObj) return alert("Vui lòng nạp tệp ảnh bản vẽ trước!");
+    if (!fileObj) return alert("Please load a plan image first!");
     setLoadingType("rooms");
     const t0 = performance.now();
     try {
@@ -208,7 +208,7 @@ export default function ModelInspectorPage() {
       setRooms(roomList);
       setRawJson((prev) => ({ ...(prev || {}), rooms: roomList }));
     } catch (err) {
-      alert("Lỗi khi chạy Room Seg Model: " + err.message);
+      alert("Room Seg Model error: " + err.message);
     } finally {
       setLoadingType(null);
     }
@@ -216,7 +216,7 @@ export default function ModelInspectorPage() {
 
   // 4. Run Full Detection Pipeline (All 3 Models)
   const runAllDetect = async () => {
-    if (!fileObj) return alert("Vui lòng nạp tệp ảnh bản vẽ trước!");
+    if (!fileObj) return alert("Please load a plan image first!");
     setLoadingType("all");
     const t0 = performance.now();
     try {
@@ -251,7 +251,7 @@ export default function ModelInspectorPage() {
             href="/"
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition text-xs font-semibold"
           >
-            ← Quay Về App Chính
+            ← Back to Main App
           </Link>
           <div className="h-4 w-px bg-slate-700" />
           <h1 className="text-base font-bold tracking-wide text-amber-400 flex items-center gap-2">
@@ -262,22 +262,22 @@ export default function ModelInspectorPage() {
         {/* Counter Badges */}
         <div className="flex items-center gap-3 text-xs">
           <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-md font-mono">
-            <span>🧱 Tường:</span>
+            <span>🧱 Walls:</span>
             <strong className="text-amber-400 font-bold">{walls.length}</strong>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/10 border border-purple-500/30 text-purple-300 rounded-md font-mono">
-            <span>🚪 Cửa:</span>
+            <span>🚪 Doors:</span>
             <strong className="text-purple-400 font-bold">{doors.length}</strong>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-300 rounded-md font-mono">
-            <span>🪟 Cửa Sổ:</span>
+            <span>🪟 Windows:</span>
             <strong className="text-blue-400 font-bold">{windows.length}</strong>
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-md font-mono">
-            <span>🏠 Phòng:</span>
+            <span>🏠 Rooms:</span>
             <strong className="text-emerald-400 font-bold">{rooms.length}</strong>
           </div>
 
@@ -296,7 +296,7 @@ export default function ModelInspectorPage() {
           {/* File Upload Zone */}
           <div className="flex flex-col gap-2">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              1. Import Bản Vẽ (PNG / JPG)
+              1. Import Plan (PNG / JPG)
             </label>
             <label
               onDrop={onDrop}
@@ -305,7 +305,7 @@ export default function ModelInspectorPage() {
             >
               <span className="text-2xl mb-1">📁</span>
               <span className="text-xs text-slate-300 font-medium">
-                {fileObj ? fileObj.name : "Kéo thả ảnh hoặc Bấm để Tải lên"}
+                {fileObj ? fileObj.name : "Drag and drop an image or click to upload"}
               </span>
               {imageSize.width > 0 && (
                 <span className="text-[10px] text-slate-400 font-mono mt-1">
@@ -324,7 +324,7 @@ export default function ModelInspectorPage() {
           {/* Model Triggers */}
           <div className="flex flex-col gap-2.5">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              2. Khởi Chạy Model AI
+              2. Run AI Models
             </label>
 
             <button
@@ -332,7 +332,7 @@ export default function ModelInspectorPage() {
               disabled={!fileObj || !!loadingType}
               className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-lg shadow-lg shadow-amber-500/20 disabled:opacity-50 transition text-xs flex items-center justify-center gap-2"
             >
-              {loadingType === "all" ? "⏳ Đang Chạy Pipeline..." : "🚀 Chạy Tất Cả Model (Wall+Door+Room)"}
+              {loadingType === "all" ? "⏳ Running Pipeline..." : "🚀 Run All Models (Wall+Door+Room)"}
             </button>
 
             <div className="grid grid-cols-3 gap-2">
@@ -341,7 +341,7 @@ export default function ModelInspectorPage() {
                 disabled={!fileObj || !!loadingType}
                 className="py-2 px-2 bg-amber-900/40 hover:bg-amber-900/60 border border-amber-600/40 text-amber-300 rounded-lg text-xs font-medium disabled:opacity-50 transition text-center"
               >
-                {loadingType === "walls" ? "..." : "🧱 Tường"}
+                {loadingType === "walls" ? "..." : "🧱 Walls"}
               </button>
 
               <button
@@ -349,7 +349,7 @@ export default function ModelInspectorPage() {
                 disabled={!fileObj || !!loadingType}
                 className="py-2 px-2 bg-purple-900/40 hover:bg-purple-900/60 border border-purple-600/40 text-purple-300 rounded-lg text-xs font-medium disabled:opacity-50 transition text-center"
               >
-                {loadingType === "doors" ? "..." : "🚪 Cửa & Sổ"}
+                {loadingType === "doors" ? "..." : "🚪 Doors & Windows"}
               </button>
 
               <button
@@ -357,7 +357,7 @@ export default function ModelInspectorPage() {
                 disabled={!fileObj || !!loadingType}
                 className="py-2 px-2 bg-emerald-900/40 hover:bg-emerald-900/60 border border-emerald-600/40 text-emerald-300 rounded-lg text-xs font-medium disabled:opacity-50 transition text-center"
               >
-                {loadingType === "rooms" ? "..." : "🏠 Phòng"}
+                {loadingType === "rooms" ? "..." : "🏠 Rooms"}
               </button>
             </div>
           </div>
@@ -365,7 +365,7 @@ export default function ModelInspectorPage() {
           {/* Confidence Sliders */}
           <div className="flex flex-col gap-3 pt-2 border-t border-slate-800">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              3. Lọc Ngưỡng Confidence
+              3. Confidence Threshold
             </label>
 
             <div className="flex flex-col gap-1">
@@ -420,7 +420,7 @@ export default function ModelInspectorPage() {
           {/* Layer Visibility Toggles */}
           <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              4. Bật / Tắt Hiển Thị Lớp (Layers)
+              4. Toggle Layers
             </label>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -431,7 +431,7 @@ export default function ModelInspectorPage() {
                   onChange={(e) => setShowWalls(e.target.checked)}
                   className="accent-amber-500 rounded"
                 />
-                <span className="text-amber-400 font-semibold">🧱 Tường</span>
+                <span className="text-amber-400 font-semibold">🧱 Walls</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer text-slate-300">
@@ -441,7 +441,7 @@ export default function ModelInspectorPage() {
                   onChange={(e) => setShowDoors(e.target.checked)}
                   className="accent-purple-500 rounded"
                 />
-                <span className="text-purple-400 font-semibold">🚪 Cửa</span>
+                <span className="text-purple-400 font-semibold">🚪 Doors</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer text-slate-300">
@@ -451,7 +451,7 @@ export default function ModelInspectorPage() {
                   onChange={(e) => setShowWindows(e.target.checked)}
                   className="accent-blue-500 rounded"
                 />
-                <span className="text-blue-400 font-semibold">🪟 Cửa Sổ</span>
+                <span className="text-blue-400 font-semibold">🪟 Windows</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer text-slate-300">
@@ -461,7 +461,7 @@ export default function ModelInspectorPage() {
                   onChange={(e) => setShowRooms(e.target.checked)}
                   className="accent-emerald-500 rounded"
                 />
-                <span className="text-emerald-400 font-semibold">🏠 Phòng</span>
+                <span className="text-emerald-400 font-semibold">🏠 Rooms</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer text-slate-300">
@@ -481,7 +481,7 @@ export default function ModelInspectorPage() {
                   onChange={(e) => setShowLabels(e.target.checked)}
                   className="accent-slate-400 rounded"
                 />
-                <span>🏷️ Tên & Conf</span>
+                <span>🏷️ Labels & Confidence</span>
               </label>
             </div>
           </div>
@@ -492,7 +492,7 @@ export default function ModelInspectorPage() {
               onClick={() => setShowJsonPanel(!showJsonPanel)}
               className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold flex items-center justify-between transition"
             >
-              <span>{showJsonPanel ? "🔽 Ẩn JSON Thô API" : "▶️ Xem JSON Thô API"}</span>
+              <span>{showJsonPanel ? "🔽 Hide Raw API JSON" : "▶️ View Raw API JSON"}</span>
             </button>
           </div>
         </aside>
@@ -509,8 +509,8 @@ export default function ModelInspectorPage() {
           {!imageSrc ? (
             <div className="flex flex-col items-center justify-center gap-3 text-slate-600 pointer-events-none">
               <span className="text-6xl">🖼️</span>
-              <p className="text-sm font-medium">Chưa có ảnh bản vẽ nào được nạp</p>
-              <p className="text-xs text-slate-700">Vui lòng bấm nút Import ở bảng bên trái</p>
+              <p className="text-sm font-medium">No plan image has been loaded</p>
+              <p className="text-xs text-slate-700">Please click Import in the left panel</p>
             </div>
           ) : (
             <div
@@ -762,7 +762,7 @@ export default function ModelInspectorPage() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(JSON.stringify(rawJson, null, 2));
-                  alert("Đã sao chép JSON API vào Clipboard!");
+                  alert("API JSON copied to clipboard!");
                 }}
                 className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px]"
               >

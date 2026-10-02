@@ -685,7 +685,7 @@ export default function FrameHardwareTask({
       }
     } catch (err) {
       console.error("Lỗi khi lưu FrameWork từ Task Panel:", err);
-      alert("Lỗi khi lưu dữ liệu FrameWork: " + (err.message || err));
+      alert("Failed to save FrameWork data: " + (err.message || err));
     } finally {
       setIsSaving(false);
     }

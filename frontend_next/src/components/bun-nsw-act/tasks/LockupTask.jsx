@@ -192,7 +192,7 @@ const SearchDropdown = ({
                 e.currentTarget.style.color = "#94a3b8";
                 e.currentTarget.style.background = "transparent";
               }}
-              title="Xóa lựa chọn (Clear)"
+              title="Clear selection"
             >
               ✕
             </button>
@@ -269,7 +269,7 @@ const SearchDropdown = ({
               }}
             >
               <span>✕</span>
-              <span>-- Clear / Trống --</span>
+              <span>-- Clear / Empty --</span>
             </div>
           )}
           {filtered.map((opt, i) => (

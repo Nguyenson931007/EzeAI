@@ -138,7 +138,7 @@ export const useProjectController = (
           const pIdx = parseInt(pIdxStr, 10);
           const pWalls = wallsByPage[pIdx] || [];
           const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
-          const pageName = pages && pages[pIdx] ? (pages[pIdx].name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
+          const pageName = pages && pages[pIdx] ? (pages[pIdx].name || `Floor ${pIdx + 1}`) : `Floor ${pIdx + 1}`;
           const pScale = (scalesByPage && scalesByPage[pIdx] !== undefined)
             ? scalesByPage[pIdx]
             : (defaultScale || realScale || null);

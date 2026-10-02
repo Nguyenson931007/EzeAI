@@ -611,8 +611,8 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
     const area = Math.abs(polygonArea(polygon || []));
     return {
       guideLines: [],
-      boxes: [{ polygon, area, areaM2: Number((area / 1e6).toFixed(2)), isDominant: true, label: "Mái Hip Chính (Dominant Box)", color: "#f59e0b" }],
-      dominantBox: { polygon, area, areaM2: Number((area / 1e6).toFixed(2)), isDominant: true, label: "Mái Hip Chính (Dominant Box)", color: "#f59e0b" },
+      boxes: [{ polygon, area, areaM2: Number((area / 1e6).toFixed(2)), isDominant: true, label: "Main Hip Roof (Dominant Box)", color: "#f59e0b" }],
+      dominantBox: { polygon, area, areaM2: Number((area / 1e6).toFixed(2)), isDominant: true, label: "Main Hip Roof (Dominant Box)", color: "#f59e0b" },
       subordinateBoxes: []
     };
   }
@@ -730,7 +730,7 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
           dir,
           valleyLine: vl,
           color: '#ec4899', // Bold Magenta partition cut line
-          label: 'Phân rã: Đường dằn Eave chuẩn'
+          label: 'Decomposition: Standard Eave Guide'
         });
 
         // BẮT ĐẦU Ở ĐỈNH MÁI THẤP (apexPt = isP1Eave ? p2 : p1)
@@ -768,7 +768,7 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
           p1: { x: apexPt.x, y: apexPt.y, z: apexPt.z || (wallHeightMm + 1450) },
           p2: { x: hipEndPt.x, y: hipEndPt.y, z: wallHeightMm },
           color: '#a855f7',
-          label: 'Cạnh Hip Ảo (Đỉnh thấp -> Eave)'
+          label: 'Virtual Hip Edge (Low Apex -> Eave)'
         };
         virtualHips.push(newHip);
 
@@ -797,7 +797,7 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
             p1: { x: domApexNearGuide.x, y: domApexNearGuide.y, z: domApexNearGuide.z || (wallHeightMm + 1400) },
             p2: { x: guidePt.x, y: guidePt.y, z: wallHeightMm },
             color: '#a855f7',
-            label: 'Cạnh Hip Hoàn Thiện Mái Chính'
+            label: 'Completed Main Roof Hip Edge'
           };
           virtualHips.push(domHip);
         }
@@ -808,7 +808,7 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
           p2: { x: hipEndPt.x, y: hipEndPt.y, z: wallHeightMm },
           valleyLine: vl,
           color: '#a855f7',
-          label: 'Cạnh Hip Mới (Đỉnh thấp -> Bờ đối diện)'
+          label: 'New Hip Edge (Low Apex -> Opposite Edge)'
         });
       }
     }
@@ -862,11 +862,11 @@ export function partitionFootprintByValleyEaves(polygon, structureLines, wallHei
   for (const b of processedBoxes) {
     b.isDominant = (Math.abs(b.area - maxArea) < 1e-3);
     if (b.isDominant) {
-      b.label = 'Mái Hip Chính (Dominant Box)';
+      b.label = 'Main Hip Roof (Dominant Box)';
       b.color = '#f59e0b'; // Amber
     } else {
       subCount++;
-      b.label = `Khối Phụ ${subCount} (Subordinate Wing)`;
+      b.label = `Secondary Block ${subCount} (Subordinate Wing)`;
       b.color = subCount === 1 ? '#06b6d4' : '#a855f7'; // Cyan or Purple
     }
   }

@@ -214,13 +214,13 @@ export default function InsulationJobsModal({
         }
         const pWalls = (wallsByPage[pIdx] || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
         const pDoors = (doorsByPage && doorsByPage[pIdx]) ? doorsByPage[pIdx] : [];
-        const pageName = pObj ? (pObj.name || `Tầng ${pIdx + 1}`) : `Tầng ${pIdx + 1}`;
+        const pageName = pObj ? (pObj.name || `Floor ${pIdx + 1}`) : `Floor ${pIdx + 1}`;
         processWalls(pWalls, pDoors, pageName);
       });
     } else {
       const curPageObj = pages && pages[currentPage];
       if (!curPageObj || (!curPageObj.isFloorCeilingWorkspace && curPageObj.source !== "floor_ceiling_page" && curPageObj.source !== "floor_ceiling_workspace" && curPageObj.category !== "floor_ceiling")) {
-        const pageName = curPageObj ? (curPageObj.name || `Tầng ${currentPage + 1}`) : `Tầng ${currentPage + 1}`;
+        const pageName = curPageObj ? (curPageObj.name || `Floor ${currentPage + 1}`) : `Floor ${currentPage + 1}`;
         const validWalls = (walls || []).filter(w => !w.isFloorCeilingOnly && !w.excludeFromOtherTasks);
         processWalls(validWalls, doors, pageName);
       }
@@ -692,7 +692,7 @@ export default function InsulationJobsModal({
                               return (
                                 <button
                                   onClick={() => setViewingBreakdownRow(updatedRow)}
-                                  title="Xem chi tiết phân tách theo từng tầng"
+                                  title="View floor-by-floor breakdown"
                                   style={{
                                     background: "#f1f5f9",
                                     border: "1px solid #cbd5e1",

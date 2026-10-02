@@ -387,7 +387,7 @@ const UserManagement = ({ onLoadJob }) => {
                   </div>
                   <div className="form-group">
                     <label>Vietnamese Name</label>
-                    <input name="full_name_vi" value={formData.full_name_vi || ''} onChange={handleInputChange} placeholder="e.g. Nguyễn Văn A" />
+                    <input name="full_name_vi" value={formData.full_name_vi || ''} onChange={handleInputChange} placeholder="e.g. Alex Smith" />
                   </div>
                 </div>
                 <div className="form-row">
@@ -583,7 +583,7 @@ const UserManagement = ({ onLoadJob }) => {
                                 <button
                                   onClick={() => { setSelectedUserForProfile(user); setProfileModalMode('view'); }}
                                   className="btn-icon"
-                                  title="View & Edit Full Profile (Xem & Chỉnh sửa hồ sơ)"
+                                  title="View & Edit Full Profile"
                                   style={{ background: '#0284c7', color: '#ffffff', border: 'none' }}
                                 >
                                   👤

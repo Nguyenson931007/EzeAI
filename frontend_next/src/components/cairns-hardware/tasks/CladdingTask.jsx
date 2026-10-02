@@ -84,7 +84,7 @@ export default function CladdingTask({
     } catch (err) {
       console.error("Lỗi khi lưu Cladding vào MSSQL:", err);
       setSaveStatus("error");
-      alert(`Lỗi khi lưu Cladding vào MSSQL: ${err.message || err}`);
+      alert(`Failed to save Cladding to MSSQL: ${err.message || err}`);
     } finally {
       setIsSaving(false);
     }

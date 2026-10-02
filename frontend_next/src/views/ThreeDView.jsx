@@ -3145,7 +3145,7 @@ export default function ThreeDView({
             {/* Width & Height Inputs */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "4px" }}>
               <div>
-                <label style={{ fontSize: "11px", color: "#64748b", display: "block", marginBottom: "4px" }}>Rộng Width (mm)</label>
+                <label style={{ fontSize: "11px", color: "#64748b", display: "block", marginBottom: "4px" }}>Width (mm)</label>
                 <input
                   type="number"
                   value={widthMm}

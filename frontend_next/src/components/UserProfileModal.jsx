@@ -390,7 +390,7 @@ export default function UserProfileModal({
                 {/* Position */}
                 <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    💼 Position in Company (Vị trí)
+                    💼 Position in Company
                   </div>
                   <div style={{ fontSize: '14px', fontWeight: 700, color: '#2563eb', marginTop: '4px' }}>
                     {profile.position || <span style={{ color: '#94a3b8', fontStyle: 'italic', fontWeight: 400 }}>Not provided</span>}
@@ -493,7 +493,7 @@ export default function UserProfileModal({
                     name="full_name_vi"
                     value={formData.full_name_vi}
                     onChange={handleInputChange}
-                    placeholder="e.g. Nguyễn Văn A"
+                    placeholder="e.g. Alex Smith"
                     style={{
                       width: '100%',
                       padding: '8px 12px',

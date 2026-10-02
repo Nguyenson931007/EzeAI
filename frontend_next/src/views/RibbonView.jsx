@@ -407,6 +407,7 @@ export default function RibbonView({
   exportRoofInput,
   importTarget: propsImportTarget,
   setImportTarget: propsSetImportTarget,
+  singleImportPageMode = false,
   onOpenFloorCeilingModal
 }) {
   const { showAlert, showConfirm } = useDialog();
@@ -2284,7 +2285,7 @@ export default function RibbonView({
                   setShowWallConfig(true);
                 }}
                 disabled={isDetecting}
-                title="Nhận diện tường trong vùng cắt (ROI)"
+                title="Detect walls in selected ROI"
               >
                 🧱 Walls
               </button>
@@ -2299,7 +2300,7 @@ export default function RibbonView({
                   setShowDoorConfig(true);
                 }}
                 disabled={isDetecting}
-                title="Nhận diện cửa trong vùng cắt (ROI)"
+                title="Detect doors in selected ROI"
               >
                 🚪 Doors
               </button>
@@ -2439,6 +2440,7 @@ export default function RibbonView({
                     </h3>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
                       Total: <b>{pendingPages.length}</b> page(s) found • Selected: <b style={{ color: '#2563eb' }}>{importSelectedPages.length}</b>
+                      {singleImportPageMode ? ' • Select exactly 1 page for this floor' : ''}
                     </div>
                   </div>
 
@@ -2468,20 +2470,22 @@ export default function RibbonView({
                       <span>📐</span>
                       <span>Floor &amp; Ceiling Page</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
-                        else setImportSelectedPages(pendingPages.map((_, i) => i));
-                      }}
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#2563eb',
-                        borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
-                        fontWeight: 700, transition: 'all 0.15s'
-                      }}
-                    >
-                      {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
-                    </button>
+                    {!singleImportPageMode && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (importSelectedPages.length === pendingPages.length) setImportSelectedPages([]);
+                          else setImportSelectedPages(pendingPages.map((_, i) => i));
+                        }}
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#2563eb',
+                          borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+                          fontWeight: 700, transition: 'all 0.15s'
+                        }}
+                      >
+                        {importSelectedPages.length === pendingPages.length ? "Deselect All" : "Select All"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShowImportPageSelector(false)}
@@ -2509,6 +2513,9 @@ export default function RibbonView({
                         key={`pending-level-${i}`}
                         onClick={() => {
                           setImportSelectedPages(prev => {
+                            if (singleImportPageMode) {
+                              return prev.includes(i) ? [] : [i];
+                            }
                             const next = new Set(prev);
                             if (next.has(i)) next.delete(i);
                             else next.add(i);
@@ -2549,7 +2556,7 @@ export default function RibbonView({
 
                         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center' }}>
                           <span style={{ fontSize: 11, color: isChecked ? '#16a34a' : '#94a3b8', fontWeight: 700 }}>
-                            {isChecked ? '✓ Selected for Import' : 'Click to select'}
+                            {isChecked ? '✓ Selected for Import' : (singleImportPageMode ? 'Click to select this page' : 'Click to select')}
                           </span>
                         </div>
                       </div>
@@ -2579,7 +2586,7 @@ export default function RibbonView({
                         boxShadow: importSelectedPages.length > 0 ? '0 4px 14px rgba(37,99,235,0.3)' : 'none'
                       }}
                     >
-                      Import {importSelectedPages.length} Page(s)
+                      {singleImportPageMode ? 'Import Selected Page' : `Import ${importSelectedPages.length} Page(s)`}
                     </button>
                   </div>
                 </div>

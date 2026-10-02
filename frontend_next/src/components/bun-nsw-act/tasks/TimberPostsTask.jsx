@@ -264,6 +264,20 @@ export default function TimberPostsTask({
     return getSizesForPostType(postType);
   }, [getSizesForPostType, postType]);
 
+  // Helper to get stocks for any type & size
+  const getStocksForTypeAndSize = useCallback((type, size) => {
+    if (!type || type === "Please Select" || !size || size === "Please Select") {
+      return [];
+    }
+    return combinedCatalog
+      .filter(i => i.postType === type && i.postSize === size)
+      .sort((a, b) => {
+        if (!a.lengthKnown && b.lengthKnown) return -1;
+        if (a.lengthKnown && !b.lengthKnown) return 1;
+        return (a.stockLength || 0) - (b.stockLength || 0);
+      });
+  }, [combinedCatalog]);
+
   useEffect(() => {
     if (!onSetEntries || !Array.isArray(entries) || entries.length === 0) return;
     let changed = false;
@@ -283,20 +297,6 @@ export default function TimberPostsTask({
     });
     if (changed) onSetEntries(next);
   }, [entries, onSetEntries, POST_TYPE_OPTIONS, getSizesForPostType, getStocksForTypeAndSize]);
-
-  // Helper to get stocks for any type & size
-  const getStocksForTypeAndSize = useCallback((type, size) => {
-    if (!type || type === "Please Select" || !size || size === "Please Select") {
-      return [];
-    }
-    return combinedCatalog
-      .filter(i => i.postType === type && i.postSize === size)
-      .sort((a, b) => {
-        if (!a.lengthKnown && b.lengthKnown) return -1;
-        if (a.lengthKnown && !b.lengthKnown) return 1;
-        return (a.stockLength || 0) - (b.stockLength || 0);
-      });
-  }, [combinedCatalog]);
 
   // Cascading Post Stock options based on selected postType AND postSize
   const POST_STOCK_OPTIONS = useMemo(() => {

@@ -4804,7 +4804,7 @@ export default function CanvasView({
                   fontWeight: "600"
                 }}
               >
-                Hủy
+                Cancel
               </button>
             </div>
           </div>
@@ -5400,7 +5400,7 @@ export default function CanvasView({
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
-                                    {box.label || (box.isDominant ? 'Mái Hip Chính' : `Khối Phụ ${bIdx}`)} ({box.areaM2} m²)
+                                    {box.label || (box.isDominant ? 'Main Hip Roof' : `Secondary Block ${bIdx}`)} ({box.areaM2} m²)
                                   </text>
                                 </g>
                               )}
@@ -5449,7 +5449,7 @@ export default function CanvasView({
                                     fontWeight="bold"
                                     textAnchor="middle"
                                   >
-                                    Dóng Phân Rã
+                                    Decomposition Guide
                                   </text>
                                 </g>
                               )}

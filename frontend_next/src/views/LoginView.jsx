@@ -6,7 +6,7 @@ export default function LoginView({
   isLocked,
   handleLogin,
   ssoLoading = false,
-  ssoStatusText = "Đang đồng bộ đăng nhập SSO & Tải dự án..."
+  ssoStatusText = "Syncing SSO sign-in & loading project..."
 }) {
   return (
     <div className="login-split-root">
