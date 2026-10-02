@@ -310,6 +310,9 @@ export default function LintelPropertyPanel({
     selectedLintel?.fontSizePt !== undefined && selectedLintel?.fontSizePt !== null
       ? Number(selectedLintel.fontSizePt)
       : 14;
+  const effectiveCalloutVisible = selectedLintel?.calloutVisible !== undefined
+    ? selectedLintel.calloutVisible !== false
+    : !selectedLintel?.isAutoDoorLintel;
 
   const appDpi =
     typeof window !== "undefined" && localStorage.getItem("ezefloor_dpi")
@@ -531,6 +534,42 @@ export default function LintelPropertyPanel({
             )}
             {/* Structural Category */}
             <div>
+              {/* Callout visibility: auto-generated lintels default to No Show. */}
+              <div style={{ marginBottom: "10px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                  <span className="panel-label" style={{ margin: 0 }}>Callout Display</span>
+                  {selectedLintel.isAutoDoorLintel && (
+                    <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 700 }}>Auto: No Show</span>
+                  )}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                  <button
+                    type="button"
+                    onClick={() => lintelController?.updateLintel?.({ ...selectedLintel, calloutVisible: true })}
+                    style={{
+                      padding: "6px 8px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", fontWeight: 700,
+                      border: effectiveCalloutVisible ? "1px solid #2563eb" : "1px solid #cbd5e1",
+                      background: effectiveCalloutVisible ? "#dbeafe" : "#f8fafc",
+                      color: effectiveCalloutVisible ? "#1d4ed8" : "#475569"
+                    }}
+                  >
+                    Show
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => lintelController?.updateLintel?.({ ...selectedLintel, calloutVisible: false })}
+                    style={{
+                      padding: "6px 8px", borderRadius: "5px", cursor: "pointer", fontSize: "11px", fontWeight: 700,
+                      border: !effectiveCalloutVisible ? "1px solid #dc2626" : "1px solid #cbd5e1",
+                      background: !effectiveCalloutVisible ? "#fee2e2" : "#f8fafc",
+                      color: !effectiveCalloutVisible ? "#b91c1c" : "#475569"
+                    }}
+                  >
+                    No Show
+                  </button>
+                </div>
+              </div>
+
               {/* 1. Live Callout Box Preview */}
               <div>
                 <div
@@ -545,24 +584,28 @@ export default function LintelPropertyPanel({
                     minHeight: "44px"
                   }}
                 >
-                  <div
-                    style={{
-                      background: effectiveBgColor,
-                      border: `2px solid ${effectiveBorderColor}`,
-                      color: effectiveTextColor,
-                      padding: "4px 10px",
-                      borderRadius: "2px",
-                      fontSize: `${Math.min(18, Math.max(10, effectiveFontSizePt))}px`,
-                      fontWeight: 700,
-                      fontFamily: "'Inter', 'Outfit', sans-serif",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                      textAlign: "center",
-                      wordBreak: "break-word",
-                      maxWidth: "100%"
-                    }}
-                  >
-                    {effectiveCalloutText}
-                  </div>
+                  {effectiveCalloutVisible ? (
+                    <div
+                      style={{
+                        background: effectiveBgColor,
+                        border: `2px solid ${effectiveBorderColor}`,
+                        color: effectiveTextColor,
+                        padding: "4px 10px",
+                        borderRadius: "2px",
+                        fontSize: `${Math.min(18, Math.max(10, effectiveFontSizePt))}px`,
+                        fontWeight: 700,
+                        fontFamily: "'Inter', 'Outfit', sans-serif",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                        textAlign: "center",
+                        wordBreak: "break-word",
+                        maxWidth: "100%"
+                      }}
+                    >
+                      {effectiveCalloutText}
+                    </div>
+                  ) : (
+                    <div style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 700 }}>No Show on plan</div>
+                  )}
                 </div>
               </div>
               <span className="panel-label">Structural Category</span>

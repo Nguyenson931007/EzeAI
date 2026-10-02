@@ -735,6 +735,10 @@ export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = 
 
     if (effectiveL.isActive === false) return;
 
+    const isCalloutVisible = effectiveL.calloutVisible !== undefined
+      ? effectiveL.calloutVisible !== false
+      : !effectiveL.isAutoDoorLintel;
+
     // Resolve lintel start/end coordinates
     let startPt, endPt, wallThickness;
     const getBaseWallId = (id) => id ? String(id).split('-A-')[0].split('-B-')[0] : '';
@@ -772,6 +776,10 @@ export function drawLintelsOnCanvas(ctx, lintels = [], allLintels = [], walls = 
     ctx.lineWidth = 1.5;
     ctx.strokeRect(-len / 2, -lintelThickness / 2, len, lintelThickness);
     ctx.restore();
+
+    // No Show hides only the large callout/leader; the lintel body remains in
+    // the plan and calculations. Auto lintels default to this state.
+    if (!isCalloutVisible) return;
 
     // 2. DPI & Font Size Calculation
     const appDpi = (typeof window !== 'undefined' && localStorage.getItem('ezefloor_dpi'))

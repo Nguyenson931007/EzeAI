@@ -104,13 +104,13 @@ export default function RightPropertyTabBar({
 
           {showGptFeature && (
             <button
-              title="GPT Document Review"
+              title="EzeIn Document Review"
               onClick={onOpenDocumentAi}
               className="rp-side-tab-btn"
               style={{ color: "#7c3aed" }}
             >
               <span style={{ fontSize: "17px", lineHeight: 1 }}>✦</span>
-              <span style={{ fontSize: "10px", fontWeight: 800 }}>GPT</span>
+              <span style={{ fontSize: "10px", fontWeight: 800 }}>EzeIn</span>
             </button>
           )}
 

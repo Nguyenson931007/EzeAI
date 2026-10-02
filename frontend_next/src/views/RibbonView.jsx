@@ -1235,6 +1235,21 @@ export default function RibbonView({
         <span style={{ color: "rgba(255, 255, 255, 0.85)", fontSize: "12px", fontWeight: 600, letterSpacing: "0.2px" }}>
           {currentProjectName || "EzeFloor Workspace"}
         </span>
+        <div
+          style={{
+            marginLeft: "8px",
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "2px 5px",
+            borderRadius: "7px",
+            background: "rgba(59, 130, 246, 0.16)",
+            border: "1px solid rgba(147, 197, 253, 0.32)",
+            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+            flexShrink: 0
+          }}
+        >
+          <WorkPackUnitSelector currentProjectName={currentProjectName || "Modern House"} tone="dark" />
+        </div>
         <span
           title={`Active customer form: ${activeCustomerInfo.displayName} (${activeCustomerInfo.shortName})`}
           style={{
@@ -1843,21 +1858,6 @@ export default function RibbonView({
                   <span className="icon"><CAD_ICONS.ArrowRight /></span><span className="label">Next</span>
                 </button>
               </div>
-            </div>
-            <div
-              className="ribbon-group"
-              style={{
-                marginLeft: "auto",
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "flex-end",
-                padding: "0 2px 0 8px",
-                whiteSpace: "nowrap"
-              }}
-              title="Shared Unit with Procurement"
-            >
-              <WorkPackUnitSelector currentProjectName={currentProjectName} />
             </div>
           </>
         )}

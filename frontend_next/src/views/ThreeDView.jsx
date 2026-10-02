@@ -164,10 +164,10 @@ export default function ThreeDView({
 
   // ── 3D Wall Color Mode & Custom Colors ──
   const [wallColorMode, setWallColorMode] = useState("type"); // "type" | "height" | "default"
-  const [extWallColor, setExtWallColor] = useState("#ea580c"); // Terracotta / Exterior
-  const [intWallColor, setIntWallColor] = useState("#cbd5e1"); // Slate 300 / Interior
-  const [partWallColor, setPartWallColor] = useState("#64748b"); // Slate 500 / Partition
-  const [blockWallColor, setBlockWallColor] = useState("#78716c"); // Stone 500 / Block Wall
+  const [extWallColor, setExtWallColor] = useState("#FF9500"); // Amber / Exterior
+  const [intWallColor, setIntWallColor] = useState("#00A3FF"); // Slate Blue / Interior
+  const [partWallColor, setPartWallColor] = useState("#B026FF"); // Purple / Partition
+  const [blockWallColor, setBlockWallColor] = useState("#FF2D55"); // Brick Red / Block Wall
 
   // ── Wall Type Visibility (Bật / Tắt từng loại tường) ──
   const [showExtWalls, setShowExtWalls] = useState(true);

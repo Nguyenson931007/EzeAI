@@ -4276,10 +4276,10 @@ export default function RightPropertyPaneView({
   // 1. Calculations for Walls
   const wallData = React.useMemo(() => {
     const groups = {
-      interior_wall: { label: "Interior", color: "#facc15", walls: [] },
-      exterior_wall: { label: "Exterior", color: "#ec4899", walls: [] },
-      partition_wall: { label: "Partition", color: "#f97316", walls: [] },
-      block_wall: { label: "Block", color: "#78716c", walls: [] },
+      interior_wall: { label: "Interior", color: "#00A3FF", walls: [] },
+      exterior_wall: { label: "Exterior", color: "#FF9500", walls: [] },
+      partition_wall: { label: "Partition", color: "#B026FF", walls: [] },
+      block_wall: { label: "Block", color: "#FF2D55", walls: [] },
     };
 
     walls.forEach((w) => {

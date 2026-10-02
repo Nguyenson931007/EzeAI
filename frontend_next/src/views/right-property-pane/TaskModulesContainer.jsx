@@ -189,17 +189,17 @@ export default function TaskModulesContainer({
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
           <b style={{ color: "#6d28d9", fontSize: "11px" }}>
-            {aggregateMode ? `GPT additions (${stagedGptRows.length})` : `GPT output rows (${stagedGptRows.length})`}
+            {aggregateMode ? `EzeIn additions (${stagedGptRows.length})` : `EzeIn output rows (${stagedGptRows.length})`}
           </b>
           {aggregateMode ? (
-            <span style={{ color: "#7c3aed", fontSize: "9.5px", fontWeight: 700 }}>Separate from current totals until Save GPT</span>
+            <span style={{ color: "#7c3aed", fontSize: "9.5px", fontWeight: 700 }}>Separate from current totals until Save EzeIn</span>
           ) : (
-            <span style={{ color: "#7c3aed", fontSize: "9.5px", fontWeight: 700 }}>Separate GPT rows</span>
+            <span style={{ color: "#7c3aed", fontSize: "9.5px", fontWeight: 700 }}>Separate EzeIn rows</span>
           )}
           <div style={{ marginLeft: "auto", display: "flex", gap: "5px" }}>
-            <button type="button" onClick={() => onSaveGptRows?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #86efac", color:"#15803d", background:"#f0fdf4", borderRadius:5, padding:"4px 8px" }}>Save GPT</button>
+            <button type="button" onClick={() => onSaveGptRows?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #86efac", color:"#15803d", background:"#f0fdf4", borderRadius:5, padding:"4px 8px" }}>Save EzeIn</button>
             {!aggregateMode && (
-              <button type="button" onClick={() => onClearNonGpt?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #fed7aa", color:"#c2410c", background:"#fff7ed", borderRadius:5, padding:"4px 8px" }}>Clear non-GPT</button>
+              <button type="button" onClick={() => onClearNonGpt?.(gptTaskKey)} style={{ fontSize:"10px", fontWeight:800, border:"1px solid #fed7aa", color:"#c2410c", background:"#fff7ed", borderRadius:5, padding:"4px 8px" }}>Clear non-EzeIn</button>
             )}
           </div>
         </div>
@@ -214,12 +214,12 @@ export default function TaskModulesContainer({
               .join(" · ");
             return (
               <div key={row.id || idx} style={{ padding:"6px 0", borderTop: idx ? "1px solid #e9d5ff" : 0 }}>
-                <span style={{ display:"inline-block", background:"#7c3aed", color:"#fff", borderRadius:10, padding:"1px 6px", fontWeight:850, marginRight:6 }}>GPT</span>
+                <span style={{ display:"inline-block", background:"#7c3aed", color:"#fff", borderRadius:10, padding:"1px 6px", fontWeight:850, marginRight:6 }}>EzeIn</span>
                 <span style={{ display:"inline-block", background:"#fff", color:"#475569", border:"1px solid #ddd6fe", borderRadius:10, padding:"1px 6px", fontWeight:800, marginRight:6 }}>{action}</span>
                 {confidence > 0 && <span style={{ color:"#64748b", marginRight:6 }}>{Math.round(confidence * 100)}%</span>}
                 {values}
                 {row?._gptSourcePage ? <span style={{ color:"#64748b" }}> · page {row._gptSourcePage}</span> : null}
-                {row?._gptReason ? <div style={{ color:"#7c3aed", marginTop:3 }}><b>GPT note:</b> {row._gptReason}</div> : null}
+                {row?._gptReason ? <div style={{ color:"#7c3aed", marginTop:3 }}><b>EzeIn note:</b> {row._gptReason}</div> : null}
               </div>
             );
           })}
@@ -232,16 +232,16 @@ export default function TaskModulesContainer({
     if (!stagedGptFormProposals.length) return null;
     return (
       <div style={{ marginTop:"8px", border:"1px solid #f0abfc", background:"#fdf4ff", borderRadius:"8px", padding:"8px 10px" }}>
-        <div style={{ fontSize:"11px", fontWeight:850, color:"#86198f", marginBottom:6 }}>GPT overwrite proposals</div>
+        <div style={{ fontSize:"11px", fontWeight:850, color:"#86198f", marginBottom:6 }}>EzeIn overwrite proposals</div>
         {stagedGptFormProposals.map((proposal, idx) => (
           <div key={`${proposal?.field || "field"}-${idx}`} style={{ padding:"7px 0", borderTop: idx ? "1px solid #f5d0fe" : 0 }}>
             <div style={{ fontSize:"10.5px", color:"#334155" }}>
               <b>{proposal?.field || "Field"}</b>: {String(proposal?.old_value ?? "—")} → <b style={{ color:"#7e22ce" }}>{String(proposal?.new_value ?? "—")}</b>
             </div>
-            {proposal?.reason ? <div style={{ marginTop:3, fontSize:"9.5px", color:"#7c3aed" }}><b>GPT note:</b> {proposal.reason}</div> : null}
+            {proposal?.reason ? <div style={{ marginTop:3, fontSize:"9.5px", color:"#7c3aed" }}><b>EzeIn note:</b> {proposal.reason}</div> : null}
             <div style={{ display:"flex", gap:6, marginTop:6 }}>
               <button type="button" onClick={() => onApplyGptFormProposal?.(gptTaskKey, idx, false)} style={{ border:"1px solid #cbd5e1", background:"#fff", color:"#475569", borderRadius:5, padding:"3px 8px", fontSize:"10px", fontWeight:800, cursor:"pointer" }}>Keep Current</button>
-              <button type="button" onClick={() => onApplyGptFormProposal?.(gptTaskKey, idx, true)} style={{ border:"1px solid #c084fc", background:"#7e22ce", color:"#fff", borderRadius:5, padding:"3px 8px", fontSize:"10px", fontWeight:800, cursor:"pointer" }}>Use GPT Value</button>
+              <button type="button" onClick={() => onApplyGptFormProposal?.(gptTaskKey, idx, true)} style={{ border:"1px solid #c084fc", background:"#7e22ce", color:"#fff", borderRadius:5, padding:"3px 8px", fontSize:"10px", fontWeight:800, cursor:"pointer" }}>Use EzeIn Value</button>
             </div>
           </div>
         ))}

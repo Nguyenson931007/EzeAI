@@ -595,6 +595,9 @@ export function generateLintelsForOpenings(
       description: 'Lintels',
       ply: 1,
       isAutoDoorLintel: true,
+      // Auto-generated lintels keep their structural/body marker, but their
+      // large plan callout starts hidden to avoid covering the drawing.
+      calloutVisible: false,
       doorId: opening.id,
       openingName: opening.doorName || opening.door_name || opening.label || opening.id,
       isActive,

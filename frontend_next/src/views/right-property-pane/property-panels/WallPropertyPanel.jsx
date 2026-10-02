@@ -61,10 +61,10 @@ export default function WallPropertyPanel({
       {/* DYNAMIC SELECT ALL BUTTON - based on selected wall type */}
       {(() => {
         const typeLabels = {
-          exterior_wall: { label: "Ext", color: "#0284c7" },
-          interior_wall: { label: "Int", color: "#6366f1" },
-          partition_wall: { label: "Part", color: "#8b5cf6" },
-          block_wall: { label: "Block", color: "#64748b" }
+          exterior_wall: { label: "Ext", color: "#FF9500" },
+          interior_wall: { label: "Int", color: "#00A3FF" },
+          partition_wall: { label: "Part", color: "#B026FF" },
+          block_wall: { label: "Block", color: "#FF2D55" }
         };
 
         const selectedClass = selectedWall ? getWallClass(selectedWall) : null;

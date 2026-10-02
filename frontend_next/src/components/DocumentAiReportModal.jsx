@@ -73,19 +73,19 @@ export default function DocumentAiReportModal({ open, result, onClose, onReviewR
   const modal = (
     <>
       <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", backdropFilter: "blur(4px)", zIndex: 21000 }} />
-      <div role="dialog" aria-modal="true" aria-label="GPT Review Report" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "min(900px, 94vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 16, boxShadow: "0 24px 70px rgba(15,23,42,.28)", zIndex: 21001, overflow: "hidden" }}>
+      <div role="dialog" aria-modal="true" aria-label="EzeIn Review Report" style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "min(900px, 94vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #cbd5e1", borderRadius: 16, boxShadow: "0 24px 70px rgba(15,23,42,.28)", zIndex: 21001, overflow: "hidden" }}>
         <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: "#f3e8ff", color: "#7c3aed", display: "grid", placeItems: "center", fontSize: 20, fontWeight: 900 }}>✦</div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 850, color: "#0f172a" }}>GPT Review Report</div>
-            <div style={{ fontSize: 12, color: failed ? "#b91c1c" : "#64748b", marginTop: 2 }}>{failed ? (result?.error || result?.summary || "GPT review failed.") : (result?.summary || "Document review completed.")}</div>
+            <div style={{ fontSize: 18, fontWeight: 850, color: "#0f172a" }}>EzeIn Review Report</div>
+            <div style={{ fontSize: 12, color: failed ? "#b91c1c" : "#64748b", marginTop: 2 }}>{failed ? (result?.error || result?.summary || "EzeIn review failed.") : (result?.summary || "Document review completed.")}</div>
           </div>
           <button onClick={onClose} title="Close" style={{ marginLeft: "auto", border: 0, background: "transparent", color: "#94a3b8", fontSize: 22, cursor: "pointer" }}>×</button>
         </div>
 
         <div style={{ padding: "14px 20px", overflowY: "auto" }}>
           <div style={{ border: `1px solid ${failed ? "#fecaca" : "#bbf7d0"}`, background: failed ? "#fef2f2" : "#f0fdf4", color: failed ? "#991b1b" : "#166534", borderRadius: 9, padding: "8px 10px", marginBottom: 12, fontSize: 11.5, fontWeight: 750 }}>
-            {failed ? "GPT finished with an error. No task data was changed." : `GPT reviewed ${tasks.length}/${expectedTasks || tasks.length} selected task(s). ${modelReturnedTasks}/${expectedTasks || tasks.length} were returned directly by the model.`}
+            {failed ? "EzeIn finished with an error. No task data was changed." : `EzeIn reviewed ${tasks.length}/${expectedTasks || tasks.length} selected task(s). ${modelReturnedTasks}/${expectedTasks || tasks.length} were returned directly by the model.`}
           </div>
 
           {!failed && (

@@ -59,7 +59,7 @@ export default function EnteredTaskActions({
 
       if (saveDisabledRef.current || isReadOnlyRef.current) {
         resultDetail.error = isReadOnlyRef.current
-          ? "Task data is read-only. Enter Edit mode before saving GPT changes."
+          ? "Task data is read-only. Enter Edit mode before saving EzeIn changes."
           : "Task save is currently disabled.";
         window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-result", { detail: resultDetail }));
         return;

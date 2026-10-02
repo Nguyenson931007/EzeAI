@@ -5,7 +5,7 @@ import { useDialog } from "@/components/DialogContext";
 import { getActiveClientInfo } from "@/constants/clients";
 import { clearWorkspaceState } from "@/utils/workspaceStorage";
 
-export default function WorkPackUnitSelector({ currentProjectName }) {
+export default function WorkPackUnitSelector({ currentProjectName, tone = "light" }) {
   const { activeWorkPackUnit, setActiveWorkPackUnit, currentJobId } = useAppModel();
   const { showAlert, showConfirm } = useDialog();
   const [units, setUnits] = useState(["Unit 1"]);
@@ -102,14 +102,15 @@ export default function WorkPackUnitSelector({ currentProjectName }) {
   if (!currentProjectName || currentProjectName === "Untitled Project" || currentProjectName === "New Project") return null;
 
   const canDelete = units.length > 1 && activeWorkPackUnit !== "Unit 1";
+  const isDark = tone === "dark";
 
   const buttonStyle = {
     width: "22px",
     height: "24px",
     borderRadius: "6px",
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#334155",
+    border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1",
+    background: isDark ? "rgba(255, 255, 255, 0.08)" : "#fff",
+    color: isDark ? "#f8fafc" : "#334155",
     fontSize: "15px",
     lineHeight: 1,
     padding: 0,
@@ -120,14 +121,14 @@ export default function WorkPackUnitSelector({ currentProjectName }) {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap" }} title="Shared Unit with Procurement">
-      <span style={{ color: "#64748b", fontSize: "9px", fontWeight: 800, flexShrink: 0 }}>UNIT</span>
+      <span style={{ color: isDark ? "#dbeafe" : "#64748b", fontSize: "9px", fontWeight: 800, flexShrink: 0 }}>UNIT</span>
       <select
         value={activeWorkPackUnit || "Unit 1"}
         disabled={busy}
         onChange={(event) => setActiveWorkPackUnit(event.target.value)}
-        style={{ height: "24px", width: "84px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", color: "#0f172a", padding: "0 5px", fontSize: "11px", fontWeight: 700, outline: "none", flexShrink: 0 }}
+        style={{ height: "24px", width: "84px", borderRadius: "6px", border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1", background: isDark ? "#31456e" : "#fff", color: isDark ? "#ffffff" : "#0f172a", padding: "0 5px", fontSize: "11px", fontWeight: 700, outline: "none", flexShrink: 0 }}
       >
-        {units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+        {units.map((unit) => <option key={unit} value={unit} style={{ background: "#ffffff", color: "#0f172a" }}>{unit}</option>)}
       </select>
       <button
         type="button"
@@ -141,7 +142,7 @@ export default function WorkPackUnitSelector({ currentProjectName }) {
         disabled={busy || !canDelete}
         onClick={handleDelete}
         title={activeWorkPackUnit === "Unit 1" ? "Unit 1 is the default Unit" : `Delete ${activeWorkPackUnit}`}
-        style={{ ...buttonStyle, color: canDelete ? "#dc2626" : "#94a3b8", borderColor: canDelete ? "#fecaca" : "#e2e8f0", background: canDelete ? "#fff7f7" : "#f8fafc", cursor: busy ? "wait" : (canDelete ? "pointer" : "not-allowed"), flexShrink: 0 }}
+        style={{ ...buttonStyle, color: canDelete ? (isDark ? "#fecaca" : "#dc2626") : (isDark ? "#94a3b8" : "#94a3b8"), borderColor: canDelete ? (isDark ? "rgba(254, 202, 202, 0.5)" : "#fecaca") : (isDark ? "rgba(191, 219, 254, 0.24)" : "#e2e8f0"), background: canDelete ? (isDark ? "rgba(220, 38, 38, 0.18)" : "#fff7f7") : (isDark ? "rgba(255, 255, 255, 0.04)" : "#f8fafc"), cursor: busy ? "wait" : (canDelete ? "pointer" : "not-allowed"), flexShrink: 0 }}
       >×</button>
     </div>
   );

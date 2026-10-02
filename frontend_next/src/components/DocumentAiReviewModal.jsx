@@ -221,7 +221,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
       setError(message);
       onResult?.({
         success: false,
-        summary: "GPT review failed.",
+        summary: "EzeIn review failed.",
         error: message,
         task_results: [],
       });
@@ -246,7 +246,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Select Pages for GPT Review"
+        aria-label="Select Pages for EzeIn Review"
         style={{
           position: "fixed",
           top: "50%",
@@ -291,7 +291,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
               gap: 8,
             }}
           >
-            <span>📁</span> Select Pages for GPT Review
+            <span>📁</span> Select Pages for EzeIn Review
           </h3>
           <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
             Total: <b>{pages.length}</b> page(s) found • Selected:{" "}
@@ -715,7 +715,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
             overflowY: "auto",
           }}
         >
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>GPT Report</div>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>EzeIn Report</div>
           <div style={{ fontSize: 12, color: "#475569", marginBottom: 8 }}>
             {result.summary || "Review completed."}
           </div>
@@ -801,7 +801,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
               fontWeight: 600,
             }}
           >
-            {running ? "Reviewing..." : `Run GPT Review (${selected.size} page${selected.size === 1 ? "" : "s"}, ${selectedTasks.size} task${selectedTasks.size === 1 ? "" : "s"})`}
+            {running ? "Reviewing..." : `Run EzeIn Review (${selected.size} page${selected.size === 1 ? "" : "s"}, ${selectedTasks.size} task${selectedTasks.size === 1 ? "" : "s"})`}
           </button>
         </div>
       </div>

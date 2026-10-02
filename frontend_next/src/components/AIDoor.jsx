@@ -86,6 +86,9 @@ export default function AIDoor({
 
   const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
   const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
+  const openingColor = isWindow ? "#15803D" : "#0066CC";
+  const openingHoverColor = isWindow ? "#166534" : "#1684E8";
+  const openingFill = isWindow ? "#15803D" : "rgba(0, 102, 204, 0.80)";
 
   // Smart Architectural Dimension Snapping (CHỈ ÁP DỤNG CHO WINDOWS)
   if (isWindow && displayWidthMm) {
@@ -1320,8 +1323,8 @@ export default function AIDoor({
             y={-slidingHeight / 2}
             width={slidingWidth}
             height={slidingHeight}
-            fill={isSelected ? "rgba(255, 87, 34, 0.2)" : (isHovered ? "rgba(59, 130, 246, 0.2)" : "rgba(59, 130, 246, 0.12)")}
-            stroke={isSelected ? "#FF5722" : (isHovered ? "#60a5fa" : "#3b82f6")}
+            fill={isSelected ? "rgba(255, 87, 34, 0.2)" : openingFill}
+            stroke={isSelected ? "#FF5722" : (isHovered ? openingHoverColor : openingColor)}
             strokeWidth={isSelected ? 2.5 : 1.5}
             rx={1}
           />
@@ -1354,7 +1357,7 @@ export default function AIDoor({
             y1={-slidingHeight / 4}
             x2={slidingWidth / 2 - Math.min(14, slidingWidth / 4)}
             y2={-slidingHeight / 4}
-            stroke={isSelected ? "#FF5722" : "#2563eb"}
+            stroke={isSelected ? "#FF5722" : openingColor}
             strokeWidth={1.8}
           />
           <line
@@ -1362,7 +1365,7 @@ export default function AIDoor({
             y1={slidingHeight / 4}
             x2={slidingWidth / 2 - Math.min(14, slidingWidth / 4)}
             y2={slidingHeight / 4}
-            stroke={isSelected ? "#FF5722" : "#2563eb"}
+            stroke={isSelected ? "#FF5722" : openingColor}
             strokeWidth={1.8}
           />
         </g>
@@ -1378,8 +1381,8 @@ export default function AIDoor({
             width={garageWidth}
             height={garageHeight}
             transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
-            fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
-            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            fill={isSelected ? "rgba(255, 87, 34, 0.25)" : openingFill}
+            stroke={isSelected ? "#FF5722" : (isHovered ? openingHoverColor : openingColor)}
             strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
             style={{ pointerEvents: 'auto', cursor: 'pointer' }}
             onMouseDown={(e) => {
@@ -1410,7 +1413,7 @@ export default function AIDoor({
             x2={garageWidth / 2}
             y2={-garageHeight / 6}
             transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
-            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            stroke={isSelected ? "#FF5722" : (isHovered ? openingHoverColor : openingColor)}
             strokeWidth={1}
             opacity={0.6}
             style={{ pointerEvents: 'none' }}
@@ -1422,7 +1425,7 @@ export default function AIDoor({
             x2={garageWidth / 2}
             y2={garageHeight / 6}
             transform={`translate(${garageCx}, ${garageCy}) rotate(${garageAngle * 180 / Math.PI})`}
-            stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#a855f7")}
+            stroke={isSelected ? "#FF5722" : (isHovered ? openingHoverColor : openingColor)}
             strokeWidth={1}
             opacity={0.6}
             style={{ pointerEvents: 'none' }}
@@ -1454,7 +1457,7 @@ export default function AIDoor({
           {bifoldSweepPoly && (
             <polygon
               points={bifoldSweepPoly.map(p => `${p.x},${p.y}`).join(" ")}
-              fill={isSelected ? "rgba(255, 87, 34, 0.22)" : (isHovered ? "rgba(168, 85, 247, 0.2)" : "rgba(37, 99, 235, 0.12)")}
+              fill={isSelected ? "rgba(255, 87, 34, 0.22)" : openingFill}
               stroke="none"
               style={{ pointerEvents: 'none' }}
             />
@@ -1468,7 +1471,7 @@ export default function AIDoor({
               y1={edge.p1.y}
               x2={edge.p2.x}
               y2={edge.p2.y}
-              stroke={isSelected ? "#FF5722" : (isHovered ? "#ba75ff" : "#2563eb")}
+              stroke={isSelected ? "#FF5722" : (isHovered ? openingHoverColor : openingColor)}
               strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.0 : (isHovered ? 3.2 : 2.5))}
               strokeLinecap="round"
               style={{ pointerEvents: 'none' }}
@@ -1482,7 +1485,7 @@ export default function AIDoor({
               cx={kPt.x}
               cy={kPt.y}
               r={3}
-              fill={isSelected ? "#FF5722" : "#2563eb"}
+              fill={isSelected ? "#FF5722" : openingColor}
               stroke="#ffffff"
               strokeWidth={1}
               style={{ pointerEvents: 'none' }}
@@ -1504,7 +1507,7 @@ export default function AIDoor({
               {sectorPath1 && (
                 <path 
                   d={sectorPath1} 
-                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : openingFill}
                   stroke="transparent"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -1512,7 +1515,7 @@ export default function AIDoor({
               {sectorPath2 && (
                 <path 
                   d={sectorPath2} 
-                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : openingFill}
                   stroke="transparent"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -1523,9 +1526,8 @@ export default function AIDoor({
                 <path 
                   d={arcPath1} 
                   fill="none" 
-                  stroke={isSelected ? "#FF5722" : "purple"} 
-                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
-                  strokeDasharray="3,2" 
+                  stroke={isSelected ? "#FF5722" : openingColor} 
+                  strokeWidth={isDraggingThis ? 0.8 : 2.0} 
                   style={{ pointerEvents: 'none' }}
                 />
               )}
@@ -1533,9 +1535,8 @@ export default function AIDoor({
                 <path 
                   d={arcPath2} 
                   fill="none" 
-                  stroke={isSelected ? "#FF5722" : "purple"} 
-                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
-                  strokeDasharray="3,2" 
+                  stroke={isSelected ? "#FF5722" : openingColor} 
+                  strokeWidth={isDraggingThis ? 0.8 : 2.0} 
                   style={{ pointerEvents: 'none' }}
                 />
               )}
@@ -1548,7 +1549,7 @@ export default function AIDoor({
                   y1={edge.p1.y}
                   x2={edge.p2.x}
                   y2={edge.p2.y}
-                  stroke={isSelected ? "#FF5722" : (edge.type === 'frame' ? "red" : "#22c55e")}
+                  stroke={isSelected ? "#FF5722" : openingColor}
                   strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3.5 : (isHovered ? 2.8 : 2))}
                   strokeLinecap="round"
                   style={{ pointerEvents: 'none' }}
@@ -1561,7 +1562,7 @@ export default function AIDoor({
               {sectorPath && (
                 <path 
                   d={sectorPath} 
-                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : (isHovered ? "rgba(168, 85, 247, 0.25)" : "rgba(168, 85, 247, 0.15)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : openingFill}
                   stroke="transparent"
                   style={{ pointerEvents: 'none' }}
                 />
@@ -1572,9 +1573,8 @@ export default function AIDoor({
                 <path 
                   d={arcPath} 
                   fill="none" 
-                  stroke={isSelected ? "#FF5722" : "purple"} 
-                  strokeWidth={isDraggingThis ? 0.8 : 1.5} 
-                  strokeDasharray="3,2" 
+                  stroke={isSelected ? "#FF5722" : openingColor} 
+                  strokeWidth={isDraggingThis ? 0.8 : 2.0} 
                   style={{ pointerEvents: 'none' }}
                 />
               )}
@@ -1587,7 +1587,7 @@ export default function AIDoor({
                   y1={edge.p1.y}
                   x2={edge.p2.x}
                   y2={edge.p2.y}
-                  stroke={isSelected ? "#FF5722" : (i === frameEdgeIndex ? "red" : "#22c55e")}
+                  stroke={isSelected ? "#FF5722" : openingColor}
                   strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4.5 : (isHovered ? 3.5 : 2.5))}
                   strokeLinecap="round"
                   style={{ pointerEvents: 'none' }}
@@ -1636,7 +1636,7 @@ export default function AIDoor({
                     <text
                       x={cxAvg}
                       y={cyAvg + 1}
-                      fontSize="14"
+                      fontSize="18"
                       textAnchor="middle"
                       dominantBaseline="middle"
                       fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#f1f5f9")}
@@ -1673,7 +1673,7 @@ export default function AIDoor({
               x={0}
               y={1}
               fill={isSelected ? "#ffffff" : "#0f172a"}
-              fontSize={14}
+              fontSize={18}
               fontWeight="700"
               textAnchor="middle"
               alignmentBaseline="middle"

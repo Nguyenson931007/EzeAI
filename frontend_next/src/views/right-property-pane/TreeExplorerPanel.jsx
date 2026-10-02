@@ -51,6 +51,8 @@ export default function TreeExplorerPanel({
   setActivePaneTab,
   autoMergeCollinearWalls
 }) {
+  const effectiveProjectName = String(currentProjectName || "Modern House").trim() || "Modern House";
+
   const stripLeadingZero = (name) => {
     if (!name || typeof name !== "string") return name;
     return name.replace(/^([A-Za-z]+[-_])0+(\d{2,})$/, "$1$2");
@@ -111,7 +113,7 @@ export default function TreeExplorerPanel({
       {/* Project Title & Close Button */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
         <div style={{ fontSize: "11px", fontWeight: 800, color: "var(--blue)", textTransform: "uppercase", letterSpacing: "0.5px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          PROJECT: {currentProjectName || "Modern House"}
+          PROJECT: {effectiveProjectName}
         </div>
         <button
           onClick={() => setActivePaneTab && setActivePaneTab("collapsed")}

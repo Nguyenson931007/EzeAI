@@ -402,6 +402,9 @@ export function createLintelForDoor(
     description: 'Lintels',
     ply: 1,
     isAutoDoorLintel: true,
+    // Auto door lintels default to No Show for the callout only.
+    // The lintel itself still exists and remains selectable/takeoff-capable.
+    calloutVisible: false,
     doorId: door.id,
     openingName: door.doorName || door.door_name || door.label || door.id,
     isActive: true

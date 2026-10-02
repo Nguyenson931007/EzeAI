@@ -232,10 +232,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.interior_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#ca8a04" />
+                  <KPICard value={scaleValue ? sumOf(wallData.interior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#00A3FF" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.interior_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#ca8a04" />
+                  <MiniBar ratio={sumOf(wallData.interior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#00A3FF" />
                 )}
               </div>
             )}
@@ -247,10 +247,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.exterior_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#db2777" />
+                  <KPICard value={scaleValue ? sumOf(wallData.exterior_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#FF9500" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.exterior_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#db2777" />
+                  <MiniBar ratio={sumOf(wallData.exterior_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#FF9500" />
                 )}
               </div>
             )}
@@ -262,10 +262,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.partition_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.partition_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.partition_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#7c3aed" />
+                  <KPICard value={scaleValue ? sumOf(wallData.partition_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#B026FF" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.partition_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.partition_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#7c3aed" />
+                  <MiniBar ratio={sumOf(wallData.partition_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#B026FF" />
                 )}
               </div>
             )}
@@ -277,10 +277,10 @@ export default function SummaryTakeoffPanel({
                 <KPIRow>
                   <KPICard value={wallData.block_wall.walls.length} label="Walls" />
                   <KPICard value={scaleValue ? sumOf(wallData.block_wall, "lengthM").toFixed(1) : "—"} label="Length" unit={scaleValue ? " m" : ""} />
-                  <KPICard value={scaleValue ? sumOf(wallData.block_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#57534e" />
+                  <KPICard value={scaleValue ? sumOf(wallData.block_wall, "areaM2").toFixed(1) : "—"} label="Area" unit={scaleValue ? " m²" : ""} color="#FF2D55" />
                 </KPIRow>
                 {scaleValue && sumOf(wallData.block_wall, "areaM2") > 0 && (
-                  <MiniBar ratio={sumOf(wallData.block_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#57534e" />
+                  <MiniBar ratio={sumOf(wallData.block_wall, "areaM2") / Math.max(grandTotalArea, 1)} color="#FF2D55" />
                 )}
               </div>
             )}

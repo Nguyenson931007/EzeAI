@@ -35,7 +35,9 @@ export default function DoorContextMenu({
   onEdit,
   onDelete,
   onSwapFrameLeaf,
-  onChangeType
+  onChangeType,
+  onSelectLintel,
+  hasLinkedLintel = false
 }) {
   const menuRef = useRef(null);
   const [showSubmenu, setShowSubmenu] = useState(false);
@@ -65,7 +67,7 @@ export default function DoorContextMenu({
 
   // Clamp position to viewport
   const menuWidth = 230;
-  const menuHeight = 420;
+  const menuHeight = hasLinkedLintel ? 455 : 420;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 10);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 10);
 
@@ -87,6 +89,7 @@ export default function DoorContextMenu({
     { icon: '🔀', label: 'Swap Frame & Leaf', action: onSwapFrameLeaf, shortcut: '' },
     { type: 'divider' },
     { icon: '🚪', label: 'Penetration Type', action: () => {}, hasSubmenu: true },
+    ...(hasLinkedLintel && onSelectLintel ? [{ icon: '▬', label: 'Select Lintel', action: onSelectLintel, shortcut: '' }] : []),
     { icon: '✏️', label: 'Edit Door...', action: onEdit, shortcut: '' },
     { type: 'divider' },
     { icon: '🗑️', label: 'Delete Selected Door', action: onDelete, danger: true, shortcut: 'Del' }

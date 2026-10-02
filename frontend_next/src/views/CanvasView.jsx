@@ -112,7 +112,7 @@ const getDoorBoundingBox = (d) => {
 // ==========================================
 // 1. FloorImageLayer (Memoized)
 // ==========================================
-const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, y: 0 } }) => {
+const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOpacity = 1, pdfOffset = { x: 0, y: 0 } }) => {
   if (!image) return null;
   return (
     <image
@@ -124,7 +124,7 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
       style={{
         pointerEvents: 'none',
         userSelect: 'none',
-        opacity: showPDF ? 1 : 0,
+        opacity: showPDF ? Math.max(0, Math.min(1, pdfOpacity)) : 0,
         transition: 'opacity 0.25s ease-in-out'
       }}
     />
@@ -134,6 +134,7 @@ const FloorImageLayer = React.memo(({ image, w, h, showPDF, pdfOffset = { x: 0, 
   prev.w === next.w &&
   prev.h === next.h &&
   prev.showPDF === next.showPDF &&
+  prev.pdfOpacity === next.pdfOpacity &&
   prev.pdfOffset?.x === next.pdfOffset?.x &&
   prev.pdfOffset?.y === next.pdfOffset?.y
 );
@@ -197,6 +198,13 @@ const LintelsLayer = React.memo(({
           : l;
 
         if (effectiveL.isActive === false) return null;
+
+        // Auto-generated lintel callouts are No Show by default. Existing
+        // project data without calloutVisible also follows this rule, while
+        // manually drawn lintels remain visible unless explicitly hidden.
+        const isCalloutVisible = effectiveL.calloutVisible !== undefined
+          ? effectiveL.calloutVisible !== false
+          : !effectiveL.isAutoDoorLintel;
 
         // Resolve lintel start/end coordinates
         let startPt, endPt, wallThickness;
@@ -451,15 +459,13 @@ const LintelsLayer = React.memo(({
               stroke={wallIndicatorColor}
               strokeWidth={isSelected ? 2 : 1.5}
               style={{
-                cursor: isDrawingLintel ? "crosshair" : "pointer",
-                pointerEvents: isDrawingLintel ? "none" : "auto"
+                // Normal select mode: let Door/Window underneath receive the click.
+                // Lintel tool mode: the lintel body becomes directly selectable.
+                cursor: isDrawingLintel ? "pointer" : "default",
+                pointerEvents: isDrawingLintel ? "auto" : "none"
               }}
               onClick={(e) => {
-                e.stopPropagation();
-                if (isDrawingLintel) return;
-                openBothLintelPanels(false);
-              }}
-              onDoubleClick={(e) => {
+                if (!isDrawingLintel) return;
                 e.stopPropagation();
                 openBothLintelPanels(false);
               }}
@@ -478,6 +484,8 @@ const LintelsLayer = React.memo(({
               style={{ pointerEvents: 'none' }}
             />
 
+            {isCalloutVisible && (
+              <>
             {/* 3. Leader Line (Landing shoulder + angled segment to lintel) */}
             <path
               d={`M ${attachX} ${attachY} L ${shoulderX} ${shoulderY} L ${tipX} ${tipY}`}
@@ -574,6 +582,8 @@ const LintelsLayer = React.memo(({
                 {calloutText}
               </text>
             </g>
+              </>
+            )}
           </g>
         );
       })}
@@ -1067,15 +1077,15 @@ const WallLayer = React.memo(({
         if (isClosed) pathData += " Z";
 
         const cls = getWallClass(chain.className);
-        let strokeColor = "#ec4899"; // pink default
+        let strokeColor = "#ec4899"; // Exterior (original palette)
         if (cls === "block_wall") {
-          strokeColor = "#64748b";
+          strokeColor = "#64748b"; // Block (original palette)
         } else if (cls === "exterior_wall") {
           strokeColor = "#ec4899";
         } else if (cls === "interior_wall") {
-          strokeColor = "#facc15";
+          strokeColor = "#facc15"; // Interior (original palette)
         } else if (cls === "partition_wall") {
-          strokeColor = "#f97316";
+          strokeColor = "#f97316"; // Partition (original palette)
         }
 
         return (
@@ -1119,15 +1129,15 @@ const WallLayer = React.memo(({
         if (isClosed) pathData += " Z";
 
         const cls = getWallClass(chain.className);
-        let fillColor = "rgba(236, 72, 153, 0.18)";
+        let fillColor = "rgba(236, 72, 153, 0.82)";
         if (cls === "block_wall") {
-          fillColor = "rgba(100, 116, 139, 0.55)";
+          fillColor = "rgba(100, 116, 139, 0.82)";
         } else if (cls === "exterior_wall") {
-          fillColor = "rgba(236, 72, 153, 0.18)";
+          fillColor = "rgba(236, 72, 153, 0.82)";
         } else if (cls === "interior_wall") {
-          fillColor = "rgba(250, 204, 21, 0.28)";
+          fillColor = "rgba(250, 204, 21, 0.82)";
         } else if (cls === "partition_wall") {
-          fillColor = "rgba(249, 115, 22, 0.18)";
+          fillColor = "rgba(249, 115, 22, 0.82)";
         }
 
         return (
@@ -1154,8 +1164,8 @@ const WallLayer = React.memo(({
           <polygon
             key={`block-wall-2d-fill-${w.id}-${idx}`}
             points={pointsStr}
-            fill="rgba(100, 116, 139, 0.55)"
-            stroke="#475569"
+            fill="rgba(100, 116, 139, 0.82)"
+            stroke="#64748b"
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -1826,7 +1836,9 @@ const DoorLayer = React.memo(({
           // Review state color mapping
           const revState = d.review_state || (d.id && String(d.id).startsWith("door_ai") ? "ai_corrected" : "AI_GENERATED");
           const revStyle = REVIEW_COLORS[revState];
-          const color = isSelected ? "#FF5722" : (revStyle ? revStyle.stroke : "#4CAF50");
+          const isWindowEntity = d.class === "window" || d.type === "window" || (d.doorTypeId && d.doorTypeId.startsWith("win_"));
+          const openingColor = isWindowEntity ? "#15803D" : "#0066CC";
+          const color = isSelected ? "#FF5722" : openingColor;
 
           const type = d.type || "single";
 
@@ -1867,7 +1879,7 @@ const DoorLayer = React.memo(({
           // ════════════════════════════════════════
           const angle = Math.atan2(dy, dx);
 
-          const isManualWindow = d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'));
+          const isManualWindow = isWindowEntity;
           const isManualGarage = type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage";
           const isManualBifold = type === "bifold" || d.doorType === "bifold" || (d.class && d.class.includes("bifold")) || (d.class_name && d.class_name.includes("bifold")) || (d.penetration_type && d.penetration_type.includes("bifold")) || (d.doorTypeId && d.doorTypeId.includes("bifold")) || (d.door_name && d.door_name.toLowerCase().includes("bifold")) || (d.doorName && d.doorName.toLowerCase().includes("bifold"));
 
@@ -1911,16 +1923,16 @@ const DoorLayer = React.memo(({
                 {/* Sector Fill */}
                 <path
                   d={`M ${geom.arcCenter.x} ${geom.arcCenter.y} L ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y} Z`}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.20)" : (isManualWindow ? "#15803D" : "rgba(0, 102, 204, 0.80)")}
                   stroke="transparent"
                   style={{ pointerEvents: 'auto' }}
                 />
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} opacity={0.9} />
                 <path
                   d={`M ${geom.other.x} ${geom.other.y} A ${geom.widthPx} ${geom.widthPx} 0 0 ${sweepFlag} ${geom.arcEnd.x} ${geom.arcEnd.y}`}
-                  fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1.5} strokeDasharray="3,2"
+                  fill="none" stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 2}
                 />
-                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} />
+                <line x1={geom.arcCenter.x} y1={geom.arcCenter.y} x2={geom.arcEnd.x} y2={geom.arcEnd.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} />
 
                 {/* CAD-Grade Arc Label with Glow Filter & Upside-down protection */}
                 {isSelected && (
@@ -1969,22 +1981,22 @@ const DoorLayer = React.memo(({
                 {/* Sector Fill 1 */}
                 <path
                   d={`M ${p1.x} ${p1.y} L ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y} Z`}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.20)" : (isManualWindow ? "#15803D" : "rgba(0, 102, 204, 0.80)")}
                   stroke="transparent"
                   style={{ pointerEvents: 'auto' }}
                 />
                 {/* Sector Fill 2 */}
                 <path
                   d={`M ${p2.x} ${p2.y} L ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y} Z`}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(168, 85, 247, 0.12)" : "rgba(59, 130, 246, 0.03)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.20)" : (isManualWindow ? "#15803D" : "rgba(0, 102, 204, 0.80)")}
                   stroke="transparent"
                   style={{ pointerEvents: 'auto' }}
                 />
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2)} opacity={0.3} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} strokeDasharray="3,2" />
-                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
-                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} strokeDasharray="3,2" />
-                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 4 : 2.5)} opacity={0.9} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 1 : 0} ${end1X} ${end1Y}`} fill="none" stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1.8} />
+                <line x1={p1.x} y1={p1.y} x2={end1X} y2={end1Y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
+                <path d={`M ${midX} ${midY} A ${halfLen} ${halfLen} 0 0 ${isInward ? 0 : 1} ${end2X} ${end2Y}`} fill="none" stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1.8} />
+                <line x1={p2.x} y1={p2.y} x2={end2X} y2={end2Y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
               </g>
             );
           };
@@ -1996,8 +2008,8 @@ const DoorLayer = React.memo(({
               <g>
                 {/* Invisible hitbox line for easier clicking */}
                 <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(0, 0, 0, 0.01)" strokeWidth={24} style={{ cursor: 'pointer' }} pointerEvents="stroke" />
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "red"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
-                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : "purple"} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
+                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
               </g>
             );
           };
@@ -2034,15 +2046,15 @@ const DoorLayer = React.memo(({
                   width={len}
                   height={thickness * 2}
                   transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
-                  fill={isSelected ? "rgba(255, 87, 34, 0.15)" : (isHovered ? "rgba(96, 165, 250, 0.15)" : "rgba(96, 165, 250, 0.05)")}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.20)" : (isManualWindow ? "#15803D" : "rgba(0, 102, 204, 0.80)")}
                   stroke="none"
                 />
 
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
-                <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
-                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : "#60a5fa"} strokeWidth={isDraggingThis ? 0.8 : 1} />
-                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
-                <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : "#3b82f6"} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
+                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 3 : 2)} />
+                <line x1={p1.x + nx * thickness} y1={p1.y + ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1} />
+                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p2.x - nx * thickness} y2={p2.y - ny * thickness} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1} />
+                <line x1={p1.x - nx * thickness} y1={p1.y - ny * thickness} x2={p1.x + nx * thickness} y2={p1.y + ny * thickness} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
+                <line x1={p2.x - nx * thickness} y1={p2.y - ny * thickness} x2={p2.x + nx * thickness} y2={p2.y + ny * thickness} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1.5} />
               </g>
             );
           };
@@ -2414,7 +2426,7 @@ const DoorLayer = React.memo(({
                       <text
                         x={(p1.x + p2.x) / 2}
                         y={(p1.y + p2.y) / 2 - 28}
-                        fontSize="12"
+                        fontSize="16"
                         textAnchor="middle"
                         fill={isSelected ? color : "#64748b"}
                         fontFamily="Inter, sans-serif"
@@ -2427,7 +2439,7 @@ const DoorLayer = React.memo(({
                     <text
                       x={(p1.x + p2.x) / 2}
                       y={(p1.y + p2.y) / 2 - 13}
-                      fontSize="14"
+                      fontSize="18"
                       textAnchor="middle"
                       fill={isSelected ? color : "#1e293b"}
                       fontFamily="Inter, sans-serif"
@@ -3398,6 +3410,11 @@ export default function CanvasView({
   const [applyGlobal, setApplyGlobal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successId, setSuccessId] = useState(null);
+  const [pdfOpacityPercent, setPdfOpacityPercent] = useState(() => {
+    if (typeof window === "undefined") return 100;
+    const saved = Number(window.localStorage.getItem("ezefloor-pdf-opacity-percent"));
+    return Number.isFinite(saved) ? Math.max(0, Math.min(100, saved)) : 100;
+  });
   const { config, heatmapMode } = useAIConfigStore();
   const {
     activeAnnotationTool,
@@ -3422,6 +3439,12 @@ export default function CanvasView({
     setPages,
     pdfOffsetsByPage = {}
   } = useAppModel();
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("ezefloor-pdf-opacity-percent", String(pdfOpacityPercent));
+    }
+  }, [pdfOpacityPercent]);
 
   // Floor & Ceiling Workspace state
   const [fcLevelConfigs, setFcLevelConfigs] = useState({});
@@ -3889,6 +3912,41 @@ export default function CanvasView({
   const closeDoorContextMenu = () => {
     setDoorContextMenu({ visible: false, x: 0, y: 0, door: null });
   };
+
+  // Resolve/select the lintel linked to the opening that owns this context menu.
+  // This keeps normal clicks targeting Door/Window while still making the
+  // overlapping lintel reachable in one explicit action.
+  const getLinkedLintelForDoor = useCallback((door) => {
+    if (!door?.id) return null;
+    return (displayLintels || []).find((l) =>
+      l?.doorId != null && String(l.doorId) === String(door.id) && l.isActive !== false
+    ) || null;
+  }, [displayLintels]);
+
+  const handleSelectLinkedLintel = useCallback(() => {
+    const door = doorContextMenu.door;
+    const lintel = getLinkedLintelForDoor(door);
+    if (!lintel) return;
+
+    if (lintelController?.clearCurrentLintel) lintelController.clearCurrentLintel();
+    if (lintelController?.cancelLintelDraw) lintelController.cancelLintelDraw();
+    if (lintelController?.setIsPostDrawCatalog) lintelController.setIsPostDrawCatalog(false);
+    if (lintelController?.setShowCatalogPanel) lintelController.setShowCatalogPanel(false);
+    if (setInteractionMode) setInteractionMode('select');
+
+    if (setSelectedDoorIds) setSelectedDoorIds([]);
+    if (setSelectedWallIds) setSelectedWallIds([]);
+    if (setSelectedRoomIds) setSelectedRoomIds([]);
+    if (setSelectedRoofId) setSelectedRoofId(null);
+    if (setSelectedAnnotationId) setSelectedAnnotationId(null);
+    if (setSelectedAnnotationIds) setSelectedAnnotationIds([]);
+    if (setSelectedWallVertex) setSelectedWallVertex(null);
+    if (setSelectedPointIndex) setSelectedPointIndex(null);
+
+    setSelectedId(lintel.id);
+    setSelectedType('lintel');
+    if (setSelectedLintelIds) setSelectedLintelIds([lintel.id]);
+  }, [doorContextMenu.door, getLinkedLintelForDoor, lintelController, setInteractionMode, setSelectedDoorIds, setSelectedWallIds, setSelectedRoomIds, setSelectedRoofId, setSelectedAnnotationId, setSelectedAnnotationIds, setSelectedWallVertex, setSelectedPointIndex, setSelectedId, setSelectedType, setSelectedLintelIds]);
 
   const handleDoorFlipHorizontal = () => {
     const d = doorContextMenu.door;
@@ -4687,6 +4745,51 @@ export default function CanvasView({
             >
               {showPDF ? "ON" : "OFF"}
             </button>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "3px",
+                paddingLeft: "2px"
+              }}
+              title="PDF opacity (0-100%)"
+            >
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="5"
+                value={pdfOpacityPercent}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setPdfOpacityPercent(0);
+                    return;
+                  }
+                  const next = Number(raw);
+                  if (Number.isFinite(next)) {
+                    setPdfOpacityPercent(Math.max(0, Math.min(100, next)));
+                  }
+                }}
+                style={{
+                  width: "44px",
+                  height: "24px",
+                  padding: "2px 4px",
+                  border: "1px solid var(--border)",
+                  borderRadius: "5px",
+                  background: "#ffffff",
+                  color: "var(--text)",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  textAlign: "center",
+                  outline: "none"
+                }}
+                aria-label="PDF opacity percentage"
+              />
+              <span style={{ fontSize: "10px", fontWeight: "700", color: "var(--text-dim)" }}>%</span>
+            </div>
             {/* <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -5058,7 +5161,7 @@ export default function CanvasView({
 
             {/* Memoized Layer 1: Base Floor Image (Standard Workspaces) */}
             {!isFloorCeilingWorkspace && (
-              <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOffset={pdfOffset} />
+              <FloorImageLayer image={image} w={imgSize.w} h={imgSize.h} showPDF={showPDF} pdfOpacity={pdfOpacityPercent / 100} pdfOffset={pdfOffset} />
             )}
 
             {/* Floor & Ceiling Workspace: Architectural PDF background for active individual level */}
@@ -7867,6 +7970,8 @@ export default function CanvasView({
         onDelete={handleDoorDelete}
         onSwapFrameLeaf={handleDoorSwapFrameLeaf}
         onChangeType={handleDoorChangeType}
+        hasLinkedLintel={Boolean(getLinkedLintelForDoor(doorContextMenu.door))}
+        onSelectLintel={handleSelectLinkedLintel}
       />
 
       {/* ===== WALL CONTEXT MENU OVERLAY ===== */}
