@@ -63,6 +63,20 @@ const getLockupCategoryForRow = (row = {}) => {
   return "-";
 };
 
+// External doors: Hung and Type are a pair (Hung A <-> Type A, Hung B <-> Type B).
+const EXT_HUNG_TO_TYPE = { "Hung A": "Type A", "Hung B": "Type B" };
+const EXT_TYPE_TO_HUNG = { "Type A": "Hung A", "Type B": "Hung B" };
+
+// Data normalization: Hung (from hinge side) wins. Only overwrite Type when it is
+// blank / "-" / Type A / Type B; other types (e.g. Type CG) are left untouched.
+const syncExtTypeToHung = (hung, type) => {
+  const paired = EXT_HUNG_TO_TYPE[hung];
+  if (!paired) return type;
+  const t = String(type || "").trim();
+  if (!t || t === "-" || t === "Type A" || t === "Type B") return paired;
+  return type;
+};
+
 // ══════════════════════════════════════════════════════
 // SEARCHABLE DROPDOWN COMPONENT (Select or search...)
 // ══════════════════════════════════════════════════════
@@ -362,7 +376,7 @@ export default function LockupTask({
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [isLoadingFromDb, setIsLoadingFromDb] = useState(false);
   const [autoLoadAttempted, setAutoLoadAttempted] = useState(null);
-  
+
   // Excel-style inline row editing: one double-click edits the whole row.
   const [editingDoorData, setEditingDoorData] = useState(null);
 
@@ -532,7 +546,7 @@ export default function LockupTask({
       jamb_size: row.jamb_size || row.jambSize || (isExt ? "Steel Frame" : (isLoose ? "112×19mm 5.4m Loose Jamb" : "92x18mm")),
       hung: hungVal,
       door_type: sanitizeProcurementDoorType(row.door_type || row.product || row.door || ""),
-      type: isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-")),
+      type: (() => { const t = isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-")); return isExt ? syncExtTypeToHung(hungVal, t) : t; })(),
       weatherguard: isExt ? (row.weatherguard || row.Weatherguard || "No") : "-",
       dbl_rebated: isExt ? (row.dbl_rebated || row.DBLRebated || "No") : "-",
       internal_type: isExt ? "-" : (isBunVic && (row.internal_type || row.hfHo) === "HF" ? "HL" : (row.internal_type || row.hfHo || defaultInternalHole)),
@@ -645,7 +659,7 @@ export default function LockupTask({
         jambSize: savedData.jamb_size || null,
         jamb_size: savedData.jamb_size || null,
         hung: savedData.hung,
-        type: isCadDoorType(savedData.type) ? (isExt ? "Type A" : "-") : (savedData.type || "-"),
+        type: (() => { const t = isCadDoorType(savedData.type) ? (isExt ? "Type A" : "-") : (savedData.type || "-"); return isExt ? syncExtTypeToHung(savedData.hung, t) : t; })(),
         weatherguard: isExt ? (savedData.weatherguard || "No") : "-",
         dbl_rebated: isExt ? (savedData.dbl_rebated || "No") : "-",
         hfHo: isExt ? "-" : (savedData.internal_type || defaultInternalHole),
@@ -669,6 +683,16 @@ export default function LockupTask({
   useEffect(() => {
     if (!editingDoorData?.id) return undefined;
     const saveWhenClickingOutsideRow = (event) => {
+      // Dragging a scrollbar (table horizontal scroll) must not count as an
+      // "outside click": its mousedown targets the scroll container itself.
+      const el = event.target;
+      if (el && el.nodeType === 1 && typeof el.getBoundingClientRect === "function") {
+        const rect = el.getBoundingClientRect();
+        const onHScrollbar = el.scrollWidth > el.clientWidth && event.clientY >= rect.top + el.clientTop + el.clientHeight && event.clientY <= rect.bottom;
+        const onVScrollbar = el.scrollHeight > el.clientHeight && event.clientX >= rect.left + el.clientLeft + el.clientWidth && event.clientX <= rect.right;
+        if (onHScrollbar || onVScrollbar) return;
+      }
+      if (el?.closest?.("[data-lockup-keep-edit]")) return;
       const targetRow = event.target?.closest?.("[data-lockup-row-id]");
       if (targetRow?.dataset?.lockupRowId === String(editingDoorData.id)) return;
       commitInlineEdit(editingDoorData);
@@ -707,12 +731,12 @@ export default function LockupTask({
     }
     lastTargetDoorIdRef.current = currentSelectionKey;
 
-    const canvasDoor = targetDoorObj || (doors || []).find(d => 
+    const canvasDoor = targetDoorObj || (doors || []).find(d =>
       matchId(d.id, targetDoorId) || matchId(d.doorId, targetDoorId) || matchId(d.door_id, targetDoorId) || matchId(d.uuid, targetDoorId)
     );
 
     if (entries && entries.length > 0) {
-      const matchingRow = entries.find(r => 
+      const matchingRow = entries.find(r =>
         (targetDoorId && (matchId(r.doorId, targetDoorId) || matchId(r.id, targetDoorId) || matchId(r.door_id, targetDoorId))) ||
         (canvasDoor && (
           matchId(r.doorId, canvasDoor.id) ||
@@ -965,7 +989,8 @@ export default function LockupTask({
         internal_type: isExt ? "" : resolveDropdownValue(row.internal_type || row.hole, internalHoleOptions, { fallback: "" }),
         color: isExt ? "" : resolveDropdownValue(row.color || row.finish, internalFinishOptions, { fallback: "" }),
       };
-      const keys = ["height","width","thickness","door_type","jamb_size","hung","type","door_stop","internal_type","color"];
+      if (isExt) patch.type = syncExtTypeToHung(patch.hung, patch.type);
+      const keys = ["height", "width", "thickness", "door_type", "jamb_size", "hung", "type", "door_stop", "internal_type", "color"];
       if (keys.some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
       return patch;
     });
@@ -1223,7 +1248,7 @@ export default function LockupTask({
           jamb_size: "",
           jamb_size_candidate: d.jamb_size || d.jambSize || "",
           hung: doorHung,
-          type: isCadDoorType(d.type) ? "-" : d.type,
+          type: isExt ? syncExtTypeToHung(doorHung, isCadDoorType(d.type) ? "-" : d.type) : (isCadDoorType(d.type) ? "-" : d.type),
           weatherguard: d.weatherguard || d.Weatherguard || (isExt ? "No" : "No"),
           dbl_rebated: d.dbl_rebated || d.DBLRebated || "No",
           door_stop: isExt ? "DS2 with Riser" : "Cushion",
@@ -1240,7 +1265,7 @@ export default function LockupTask({
         if (res.success && res.rows && res.rows.length > 0) {
           resRows = res.rows;
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // Map rows to entries (same mapping as LockoutJobsModal)
       const finalRows = (resRows.length > 0 ? resRows : enrichedDoors).map((r, idx) => {
@@ -1318,7 +1343,7 @@ export default function LockupTask({
           jamb_size: resolveDropdownValue(r.jamb_size || r.jamb_size_candidate || origDoor.jamb_size || origDoor.jambSize, isExt ? jambSizeExternalOptions : jambSizeInternalOptions, { fallback: "" }),
           jamb_size_candidate: r.jamb_size || r.jamb_size_candidate || origDoor.jamb_size || origDoor.jambSize || "",
           hung: resolveDropdownValue(hungVal, isExt ? externalHungOptions : internalHungOptions, { fallback: "" }),
-          type: resolveDropdownValue(isCadDoorType(r.type || origDoor.type) ? "" : (r.type || origDoor.type), isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
+          type: resolveDropdownValue(isExt ? syncExtTypeToHung(hungVal, isCadDoorType(r.type || origDoor.type) ? "" : (r.type || origDoor.type)) : (isCadDoorType(r.type || origDoor.type) ? "" : (r.type || origDoor.type)), isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
           weatherguard: isExt ? resolveDropdownValue(r.weatherguard || r.Weatherguard || origDoor.weatherguard || origDoor.Weatherguard, WEATHERGUARD_OPTIONS, { fallback: "" }) : "",
           dbl_rebated: isExt ? resolveDropdownValue(r.dbl_rebated || r.DBLRebated || origDoor.dbl_rebated || origDoor.DBLRebated, DBL_REBATED_OPTIONS, { fallback: "" }) : "",
           door_stop: resolveDropdownValue(r.door_stop || origDoor.door_stop, doorStopOptions, { fallback: "" }),
@@ -1369,7 +1394,7 @@ export default function LockupTask({
             jamb_size: resolveDropdownValue(r.jamb_size, isExt ? jambSizeExternalOptions : jambSizeInternalOptions, { fallback: "" }),
             jamb_size_candidate: r.jamb_size || "",
             hung: resolveDropdownValue(r.hung, isExt ? externalHungOptions : internalHungOptions, { fallback: "" }),
-            type: resolveDropdownValue(r.type, isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
+            type: resolveDropdownValue(isExt ? syncExtTypeToHung(r.hung, r.type) : r.type, isExt ? externalTypeOptions : internalTypeOptions, { fallback: "" }),
             weatherguard: isExt ? resolveDropdownValue(r.weatherguard || r.Weatherguard, WEATHERGUARD_OPTIONS, { fallback: "" }) : "",
             dbl_rebated: isExt ? resolveDropdownValue(r.dbl_rebated || r.DBLRebated, DBL_REBATED_OPTIONS, { fallback: "" }) : "",
             door_stop: resolveDropdownValue(r.door_stop, doorStopOptions, { fallback: "" }),
@@ -1528,51 +1553,51 @@ export default function LockupTask({
   };
 
   const handleAddDataFromDb = async () => {
-      const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
-      if (!target || target === "default" || target === "testai") return;
+    const target = String(activeJobNumber || currentProjectName || currentJobId || "").trim().toLowerCase();
+    if (!target || target === "default" || target === "testai") return;
 
-      try {
-        const res = await ApiService.fetchLockoutJobs(target);
-        if (res && res.data) {
-          const matchedRows = res.data.filter(j => {
-            const jn = String(j.job_number || "").trim().toLowerCase();
-            const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
-            return (jn && jn === target) || (hw && hw === target);
-          });
-          const validRows = matchedRows.filter(r => !isWindowOpening(r) && (r.door_type || r.height || r.width || r.jamb_or_wall || r.label));
-          if (validRows.length > 0 && onSetEntries) {
-            const loaded = validRows.map((r, idx) => ({
-              id: `door-loaded-${Date.now()}-${idx}`,
-              mode: normalizeLockupModeValue(r.mode)
-                || (String(r.scope || "").toLowerCase() === "external" ? "Prehung" : "Loose"),
-              floorLevel: r.floorLevel || r.floor_level || "GF",
-              scope: r.scope || null,
-              label: r.label || null,
-              door_type: r.door_type || null,
-              height: r.height || null,
-              width: r.width || null,
-              thickness: r.thickness || null,
-              jamb_or_wall: r.jamb_or_wall || null,
-              jamb_size: r.jamb_size || null,
-              hung: r.hung || null,
-              type: r.type || null,
-              weatherguard: r.weatherguard || r.Weatherguard || "No",
-              dbl_rebated: r.dbl_rebated || r.DBLRebated || "No",
-              door_stop: r.door_stop || null,
-              internal_type: r.internal_type || null,
-              color: r.color || null,
-              default_qty: r.default_qty || 1,
-              source: "manual",
-              autofill_source: "manual"
-            }));
-            onSetEntries(loaded);
-            setDataSource("db");
-            setIsReadOnly(true);
-          }
+    try {
+      const res = await ApiService.fetchLockoutJobs(target);
+      if (res && res.data) {
+        const matchedRows = res.data.filter(j => {
+          const jn = String(j.job_number || "").trim().toLowerCase();
+          const hw = String(j.IdJob_HW || j.hw_id || "").trim().toLowerCase();
+          return (jn && jn === target) || (hw && hw === target);
+        });
+        const validRows = matchedRows.filter(r => !isWindowOpening(r) && (r.door_type || r.height || r.width || r.jamb_or_wall || r.label));
+        if (validRows.length > 0 && onSetEntries) {
+          const loaded = validRows.map((r, idx) => ({
+            id: `door-loaded-${Date.now()}-${idx}`,
+            mode: normalizeLockupModeValue(r.mode)
+              || (String(r.scope || "").toLowerCase() === "external" ? "Prehung" : "Loose"),
+            floorLevel: r.floorLevel || r.floor_level || "GF",
+            scope: r.scope || null,
+            label: r.label || null,
+            door_type: r.door_type || null,
+            height: r.height || null,
+            width: r.width || null,
+            thickness: r.thickness || null,
+            jamb_or_wall: r.jamb_or_wall || null,
+            jamb_size: r.jamb_size || null,
+            hung: r.hung || null,
+            type: r.type || null,
+            weatherguard: r.weatherguard || r.Weatherguard || "No",
+            dbl_rebated: r.dbl_rebated || r.DBLRebated || "No",
+            door_stop: r.door_stop || null,
+            internal_type: r.internal_type || null,
+            color: r.color || null,
+            default_qty: r.default_qty || 1,
+            source: "manual",
+            autofill_source: "manual"
+          }));
+          onSetEntries(loaded);
+          setDataSource("db");
+          setIsReadOnly(true);
         }
-      } catch (e) {
-        console.error("Add LockUp data from database error:", e);
       }
+    } catch (e) {
+      console.error("Add LockUp data from database error:", e);
+    }
   };
 
   // Render input matching Image 1
@@ -1665,765 +1690,765 @@ export default function LockupTask({
         </div>
 
         {isSection1Open && (
-        <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
-          {/* GROUP 1: PREHUNG */}
-          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
-            <div
-              onClick={() => setIsPrehungOpen(!isPrehungOpen)}
-              style={{
-                padding: "7px 10px",
-                background: "#f1f5f9",
-                borderBottom: isPrehungOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#1e293b",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>Prehung</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isPrehungOpen ? "▲" : "▼"}
-              </span>
-            </div>
-
-            {isPrehungOpen && (
-            <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
-              {/* SUBSECTION: Prehung - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
-                <div
-                  onClick={() => setIsPreExtOpen(!isPreExtOpen)}
-                  style={{
-                    padding: "7px 10px",
-                    background: "#fafafa",
-                    borderBottom: isPreExtOpen ? "1px solid #e2e8f0" : "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    userSelect: "none"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
-                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                      {preExtHeight} × {preExtWidth}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                    {isPreExtOpen ? "▲" : "▼"}
-                  </span>
-                </div>
-
-                {isPreExtOpen && (
-                <div style={{ padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Entry Door"
-                      value={preExtDoorName}
-                      onChange={(e) => setPreExtDoorName(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "2 1 150px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <SearchDropdown
-                      value={preExtDoorProduct}
-                      options={externalDoorOptions}
-                      onChange={setPreExtDoorProduct}
-                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
-                    />
-                  </div>
-
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
-                    <select value={preExtHeight} onChange={(e) => setPreExtHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
-                    <select value={preExtWidth} onChange={(e) => setPreExtWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.6 1 55px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
-                    <select value={preExtThick} onChange={(e) => setPreExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "1.4 1 120px" }}>
-                    <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    <input
-                      type="text"
-                      placeholder="Enter jamb or wall"
-                      value={preExtJambWall}
-                      onChange={(e) => setPreExtJambWall(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "0.5 1 45px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
-                    <input
-                      type="number"
-                      value={preExtQty}
-                      onChange={(e) => setPreExtQty(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "1.2 1 100px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
-                    <select value={preExtJambSize} onChange={(e) => setPreExtJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {jambSizeExternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.9 1 85px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
-                    <select value={preExtHung} onChange={(e) => setPreExtHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {externalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.9 1 85px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
-                    <select value={preExtType} onChange={(e) => setPreExtType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {externalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Weatherguard</span>
-                    <select value={preExtWeatherguard} onChange={(e) => setPreExtWeatherguard(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {WEATHERGUARD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>DBL Rebated</span>
-                    <select value={preExtDblRebated} onChange={(e) => setPreExtDblRebated(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DBL_REBATED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
-                    <select value={preExtStop} onChange={(e) => setPreExtStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddDoor({
-                        mode: "Prehung",
-                        scope: "external",
-                        location: "External",
-                        label: preExtDoorName || "Entry Door",
-                        door_type: preExtDoorProduct || null,
-                        height: Number(preExtHeight),
-                        width: Number(preExtWidth),
-                        thickness: Number(preExtThick),
-                        jamb_or_wall: preExtJambWall || null,
-                        jamb_size: preExtJambSize,
-                        hung: preExtHung,
-                        type: preExtType,
-                        weatherguard: preExtWeatherguard,
-                        dbl_rebated: preExtDblRebated,
-                        door_stop: preExtStop,
-                        internal_type: "-",
-                        color: "-",
-                        default_qty: Number(preExtQty) || 1
-                      });
-                      setPreExtDoorName("");
-                    }}
-                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    + Add door
-                  </button>
-                </div>
-                <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
-                </div>
-                )}
+            {/* GROUP 1: PREHUNG */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
+              <div
+                onClick={() => setIsPrehungOpen(!isPrehungOpen)}
+                style={{
+                  padding: "7px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isPrehungOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
+                }}
+              >
+                <span>Prehung</span>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isPrehungOpen ? "▲" : "▼"}
+                </span>
               </div>
 
-              {/* SUBSECTION: Prehung - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
-                <div
-                  onClick={() => setIsPreIntOpen(!isPreIntOpen)}
-                  style={{
-                    padding: "7px 10px",
-                    background: "#fafafa",
-                    borderBottom: isPreIntOpen ? "1px solid #e2e8f0" : "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    userSelect: "none"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
-                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                      {preIntHeight} × {preIntWidth}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                    {isPreIntOpen ? "▲" : "▼"}
-                  </span>
-                </div>
+              {isPrehungOpen && (
+                <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {/* SUBSECTION: Prehung - External Door */}
+                  <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
+                    <div
+                      onClick={() => setIsPreExtOpen(!isPreExtOpen)}
+                      style={{
+                        padding: "7px 10px",
+                        background: "#fafafa",
+                        borderBottom: isPreExtOpen ? "1px solid #e2e8f0" : "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        userSelect: "none"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
+                        <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                          {preExtHeight} × {preExtWidth}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                        {isPreExtOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
 
-                {isPreIntOpen && (
-                <div style={{ padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Bedroom Door"
-                      value={preIntDoorName}
-                      onChange={(e) => setPreIntDoorName(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
+                    {isPreExtOpen && (
+                      <div style={{ padding: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Entry Door"
+                              value={preExtDoorName}
+                              onChange={(e) => setPreExtDoorName(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
 
-                  <div style={{ flex: "1.8 1 140px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <SearchDropdown
-                      value={preIntDoorProduct}
-                      options={prehungIntDoorOptions}
-                      onChange={setPreIntDoorProduct}
-                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
-                    />
-                  </div>
+                          <div style={{ flex: "2 1 150px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
+                            <SearchDropdown
+                              value={preExtDoorProduct}
+                              options={externalDoorOptions}
+                              onChange={setPreExtDoorProduct}
+                              placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
-                    <select value={preIntHeight} onChange={(e) => setPreIntHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
+                            <select value={preExtHeight} onChange={(e) => setPreExtHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
-                    <select value={preIntWidth} onChange={(e) => setPreIntWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
+                            <select value={preExtWidth} onChange={(e) => setPreExtWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 55px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
-                    <select value={preIntThick} onChange={(e) => setPreIntThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.6 1 55px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
+                            <select value={preExtThick} onChange={(e) => setPreExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    {isBunVic ? (
-                      <select
-                        value={String(preIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
-                        onChange={(e) => setPreIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      >
-                        <option value="">-</option>
-                        <option value="">-</option>
-                        {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder="Enter jamb or wall"
-                        value={preIntJambWall}
-                        onChange={(e) => setPreIntJambWall(e.target.value)}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
+                          <div style={{ flex: "1.4 1 120px" }}>
+                            <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
+                            <input
+                              type="text"
+                              placeholder="Enter jamb or wall"
+                              value={preExtJambWall}
+                              onChange={(e) => setPreExtJambWall(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "0.5 1 45px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
+                            <input
+                              type="number"
+                              value={preExtQty}
+                              onChange={(e) => setPreExtQty(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "1.2 1 100px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
+                            <select value={preExtJambSize} onChange={(e) => setPreExtJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {jambSizeExternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.9 1 85px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
+                            <select value={preExtHung} onChange={(e) => { const v = e.target.value; setPreExtHung(v); if (EXT_HUNG_TO_TYPE[v]) setPreExtType(EXT_HUNG_TO_TYPE[v]); }} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {externalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.9 1 85px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
+                            <select value={preExtType} onChange={(e) => { const v = e.target.value; setPreExtType(v); if (EXT_TYPE_TO_HUNG[v]) setPreExtHung(EXT_TYPE_TO_HUNG[v]); }} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {externalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Weatherguard</span>
+                            <select value={preExtWeatherguard} onChange={(e) => setPreExtWeatherguard(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {WEATHERGUARD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>DBL Rebated</span>
+                            <select value={preExtDblRebated} onChange={(e) => setPreExtDblRebated(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DBL_REBATED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
+                            <select value={preExtStop} onChange={(e) => setPreExtStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddDoor({
+                                mode: "Prehung",
+                                scope: "external",
+                                location: "External",
+                                label: preExtDoorName || "Entry Door",
+                                door_type: preExtDoorProduct || null,
+                                height: Number(preExtHeight),
+                                width: Number(preExtWidth),
+                                thickness: Number(preExtThick),
+                                jamb_or_wall: preExtJambWall || null,
+                                jamb_size: preExtJambSize,
+                                hung: preExtHung,
+                                type: preExtType,
+                                weatherguard: preExtWeatherguard,
+                                dbl_rebated: preExtDblRebated,
+                                door_stop: preExtStop,
+                                internal_type: "-",
+                                color: "-",
+                                default_qty: Number(preExtQty) || 1
+                              });
+                              setPreExtDoorName("");
+                            }}
+                            style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            + Add door
+                          </button>
+                        </div>
+                        <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
+                      </div>
                     )}
                   </div>
 
-                  <div style={{ flex: "0.5 1 45px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
-                    <input
-                      type="number"
-                      value={preIntQty}
-                      onChange={(e) => setPreIntQty(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
+                  {/* SUBSECTION: Prehung - Internal Door */}
+                  <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
+                    <div
+                      onClick={() => setIsPreIntOpen(!isPreIntOpen)}
+                      style={{
+                        padding: "7px 10px",
+                        background: "#fafafa",
+                        borderBottom: isPreIntOpen ? "1px solid #e2e8f0" : "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        userSelect: "none"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
+                        <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                          {preIntHeight} × {preIntWidth}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                        {isPreIntOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
 
-                  <div style={{ flex: "1.2 1 100px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
-                    <select value={preIntJambSize} onChange={(e) => setPreIntJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {jambSizeInternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                    {isPreIntOpen && (
+                      <div style={{ padding: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Prehung Doors</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Bedroom Door"
+                              value={preIntDoorName}
+                              onChange={(e) => setPreIntDoorName(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 80px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
-                    <select value={preIntHung} onChange={(e) => setPreIntHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "1.8 1 140px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
+                            <SearchDropdown
+                              value={preIntDoorProduct}
+                              options={prehungIntDoorOptions}
+                              onChange={setPreIntDoorProduct}
+                              placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 80px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
-                    <select value={preIntType} onChange={(e) => setPreIntType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
+                            <select value={preIntHeight} onChange={(e) => setPreIntHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.7 1 70px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
-                    <select value={preIntStop} onChange={(e) => setPreIntStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
+                            <select value={preIntWidth} onChange={(e) => setPreIntWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 60px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Internal</span>
-                    <select value={preIntInternalType} onChange={(e) => setPreIntInternalType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalHoleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.6 1 55px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
+                            <select value={preIntThick} onChange={(e) => setPreIntThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 60px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Color</span>
-                    <select value={preIntColor} onChange={(e) => setPreIntColor(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalFinishOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
+                            {isBunVic ? (
+                              <select
+                                value={String(preIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
+                                onChange={(e) => setPreIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
+                                style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                              >
+                                <option value="">-</option>
+                                <option value="">-</option>
+                                {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                placeholder="Enter jamb or wall"
+                                value={preIntJambWall}
+                                onChange={(e) => setPreIntJambWall(e.target.value)}
+                                style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                              />
+                            )}
+                          </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddDoor({
-                        mode: "Prehung",
-                        scope: "internal",
-                        location: "Internal",
-                        label: preIntDoorName || "Internal Door",
-                        door_type: preIntDoorProduct || null,
-                        height: Number(preIntHeight),
-                        width: Number(preIntWidth),
-                        thickness: Number(preIntThick),
-                        jamb_or_wall: preIntJambWall || null,
-                        jamb_size: preIntJambSize,
-                        hung: preIntHung,
-                        type: preIntType,
-                        weatherguard: "-",
-                        dbl_rebated: "-",
-                        door_stop: preIntStop,
-                        internal_type: preIntInternalType,
-                        color: preIntColor,
-                        default_qty: Number(preIntQty) || 1
-                      });
-                      setPreIntDoorName("");
-                    }}
-                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    + Add door
-                  </button>
+                          <div style={{ flex: "0.5 1 45px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
+                            <input
+                              type="number"
+                              value={preIntQty}
+                              onChange={(e) => setPreIntQty(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "1.2 1 100px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
+                            <select value={preIntJambSize} onChange={(e) => setPreIntJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {jambSizeInternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 80px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
+                            <select value={preIntHung} onChange={(e) => setPreIntHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 80px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
+                            <select value={preIntType} onChange={(e) => setPreIntType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.7 1 70px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
+                            <select value={preIntStop} onChange={(e) => setPreIntStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.6 1 60px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Internal</span>
+                            <select value={preIntInternalType} onChange={(e) => setPreIntInternalType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalHoleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.6 1 60px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Color</span>
+                            <select value={preIntColor} onChange={(e) => setPreIntColor(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalFinishOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddDoor({
+                                mode: "Prehung",
+                                scope: "internal",
+                                location: "Internal",
+                                label: preIntDoorName || "Internal Door",
+                                door_type: preIntDoorProduct || null,
+                                height: Number(preIntHeight),
+                                width: Number(preIntWidth),
+                                thickness: Number(preIntThick),
+                                jamb_or_wall: preIntJambWall || null,
+                                jamb_size: preIntJambSize,
+                                hung: preIntHung,
+                                type: preIntType,
+                                weatherguard: "-",
+                                dbl_rebated: "-",
+                                door_stop: preIntStop,
+                                internal_type: preIntInternalType,
+                                color: preIntColor,
+                                default_qty: Number(preIntQty) || 1
+                              });
+                              setPreIntDoorName("");
+                            }}
+                            style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            + Add door
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                </div>
-                )}
-              </div>
+              )}
             </div>
-            )}
-          </div>
 
-          {/* GROUP 2: LOOSE JAMB */}
-          <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
-            <div
-              onClick={() => setIsLooseOpen(!isLooseOpen)}
-              style={{
-                padding: "7px 10px",
-                background: "#f1f5f9",
-                borderBottom: isLooseOpen ? "1px solid #e2e8f0" : "none",
-                fontSize: "11px",
-                fontWeight: 800,
-                color: "#1e293b",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                userSelect: "none"
-              }}
-            >
-              <span>Loose Jamb</span>
-              <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                {isLooseOpen ? "▲" : "▼"}
-              </span>
-            </div>
-
-            {isLooseOpen && (
-            <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
-              {/* SUBSECTION: Loose Jamb - External Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
-                <div
-                  onClick={() => setIsLooseExtOpen(!isLooseExtOpen)}
-                  style={{
-                    padding: "7px 10px",
-                    background: "#fafafa",
-                    borderBottom: isLooseExtOpen ? "1px solid #e2e8f0" : "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    userSelect: "none"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
-                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                      {looseExtHeight} × {looseExtWidth}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                    {isLooseExtOpen ? "▲" : "▼"}
-                  </span>
-                </div>
-
-                {isLooseExtOpen && (
-                <div style={{ padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Entry Door"
-                      value={looseExtDoorName}
-                      onChange={(e) => setLooseExtDoorName(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "2 1 150px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <SearchDropdown
-                      value={looseExtDoorProduct}
-                      options={externalDoorOptions}
-                      onChange={setLooseExtDoorProduct}
-                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
-                    />
-                  </div>
-
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
-                    <select value={looseExtHeight} onChange={(e) => setLooseExtHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
-                    <select value={looseExtWidth} onChange={(e) => setLooseExtWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.6 1 55px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
-                    <select value={looseExtThick} onChange={(e) => setLooseExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "1.4 1 120px" }}>
-                    <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    <input
-                      type="text"
-                      placeholder="Enter jamb or wall"
-                      value={looseExtJambWall}
-                      onChange={(e) => setLooseExtJambWall(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "0.5 1 45px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
-                    <input
-                      type="number"
-                      value={looseExtQty}
-                      onChange={(e) => setLooseExtQty(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
-
-                  <div style={{ flex: "1.2 1 100px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
-                    <select value={looseExtJambSize} onChange={(e) => setLooseExtJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {jambSizeExternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.9 1 85px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
-                    <select value={looseExtHung} onChange={(e) => setLooseExtHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {externalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.9 1 85px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
-                    <select value={looseExtType} onChange={(e) => setLooseExtType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {externalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Weatherguard</span>
-                    <select value={looseExtWeatherguard} onChange={(e) => setLooseExtWeatherguard(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {WEATHERGUARD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>DBL Rebated</span>
-                    <select value={looseExtDblRebated} onChange={(e) => setLooseExtDblRebated(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DBL_REBATED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{ flex: "0.8 1 75px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
-                    <select value={looseExtStop} onChange={(e) => setLooseExtStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddDoor({
-                        mode: "Loose",
-                        scope: "external",
-                        location: "External",
-                        label: looseExtDoorName || "Entry Door",
-                        door_type: looseExtDoorProduct || null,
-                        height: Number(looseExtHeight),
-                        width: Number(looseExtWidth),
-                        thickness: Number(looseExtThick),
-                        jamb_or_wall: looseExtJambWall || null,
-                        jamb_size: looseExtJambSize,
-                        hung: looseExtHung,
-                        type: looseExtType,
-                        weatherguard: looseExtWeatherguard,
-                        dbl_rebated: looseExtDblRebated,
-                        door_stop: looseExtStop,
-                        internal_type: "-",
-                        color: "-",
-                        default_qty: Number(looseExtQty) || 1
-                      });
-                      setLooseExtDoorName("");
-                    }}
-                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    + Add door
-                  </button>
-                </div>
-                <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
-                </div>
-                )}
+            {/* GROUP 2: LOOSE JAMB */}
+            <div style={{ border: "1px solid #cbd5e1", borderRadius: "6px", overflow: "visible" }}>
+              <div
+                onClick={() => setIsLooseOpen(!isLooseOpen)}
+                style={{
+                  padding: "7px 10px",
+                  background: "#f1f5f9",
+                  borderBottom: isLooseOpen ? "1px solid #e2e8f0" : "none",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  color: "#1e293b",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  userSelect: "none"
+                }}
+              >
+                <span>Loose Jamb</span>
+                <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                  {isLooseOpen ? "▲" : "▼"}
+                </span>
               </div>
 
-              {/* SUBSECTION: Loose Jamb - Internal Door */}
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
-                <div
-                  onClick={() => setIsLooseIntOpen(!isLooseIntOpen)}
-                  style={{
-                    padding: "7px 10px",
-                    background: "#fafafa",
-                    borderBottom: isLooseIntOpen ? "1px solid #e2e8f0" : "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    cursor: "pointer",
-                    userSelect: "none"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
-                    <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
-                      {looseIntHeight} × {looseIntWidth}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
-                    {isLooseIntOpen ? "▲" : "▼"}
-                  </span>
-                </div>
+              {isLooseOpen && (
+                <div style={{ padding: "10px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {/* SUBSECTION: Loose Jamb - External Door */}
+                  <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
+                    <div
+                      onClick={() => setIsLooseExtOpen(!isLooseExtOpen)}
+                      style={{
+                        padding: "7px 10px",
+                        background: "#fafafa",
+                        borderBottom: isLooseExtOpen ? "1px solid #e2e8f0" : "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        userSelect: "none"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>External Door</span>
+                        <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                          {looseExtHeight} × {looseExtWidth}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                        {isLooseExtOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
 
-                {isLooseIntOpen && (
-                <div style={{ padding: "8px" }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
-                    <input
-                      type="text"
-                      placeholder="e.g. Room Door"
-                      value={looseIntDoorName}
-                      onChange={(e) => setLooseIntDoorName(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
+                    {isLooseExtOpen && (
+                      <div style={{ padding: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Entry Door"
+                              value={looseExtDoorName}
+                              onChange={(e) => setLooseExtDoorName(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
 
-                  <div style={{ flex: "1.8 1 140px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
-                    <SearchDropdown
-                      value={looseIntDoorProduct}
-                      options={looseIntDoorOptions}
-                      onChange={setLooseIntDoorProduct}
-                      placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
-                    />
-                  </div>
+                          <div style={{ flex: "2 1 150px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
+                            <SearchDropdown
+                              value={looseExtDoorProduct}
+                              options={externalDoorOptions}
+                              onChange={setLooseExtDoorProduct}
+                              placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
-                    <select value={looseIntHeight} onChange={(e) => setLooseIntHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
+                            <select value={looseExtHeight} onChange={(e) => setLooseExtHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.8 1 65px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
-                    <select value={looseIntWidth} onChange={(e) => setLooseIntWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
+                            <select value={looseExtWidth} onChange={(e) => setLooseExtWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 55px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
-                    <select value={looseIntThick} onChange={(e) => setLooseIntThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.6 1 55px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
+                            <select value={looseExtThick} onChange={(e) => setLooseExtThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {EXTERNAL_DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "1.2 1 110px" }}>
-                    <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
-                    {isBunVic ? (
-                      <select
-                        value={String(looseIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
-                        onChange={(e) => setLooseIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      >
-                        <option value="">-</option>
-                        <option value="">-</option>
-                        {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder="Enter jamb or wall"
-                        value={looseIntJambWall}
-                        onChange={(e) => setLooseIntJambWall(e.target.value)}
-                        style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
-                      />
+                          <div style={{ flex: "1.4 1 120px" }}>
+                            <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
+                            <input
+                              type="text"
+                              placeholder="Enter jamb or wall"
+                              value={looseExtJambWall}
+                              onChange={(e) => setLooseExtJambWall(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "0.5 1 45px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
+                            <input
+                              type="number"
+                              value={looseExtQty}
+                              onChange={(e) => setLooseExtQty(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "1.2 1 100px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
+                            <select value={looseExtJambSize} onChange={(e) => setLooseExtJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {jambSizeExternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.9 1 85px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
+                            <select value={looseExtHung} onChange={(e) => { const v = e.target.value; setLooseExtHung(v); if (EXT_HUNG_TO_TYPE[v]) setLooseExtType(EXT_HUNG_TO_TYPE[v]); }} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {externalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.9 1 85px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
+                            <select value={looseExtType} onChange={(e) => { const v = e.target.value; setLooseExtType(v); if (EXT_TYPE_TO_HUNG[v]) setLooseExtHung(EXT_TYPE_TO_HUNG[v]); }} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {externalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Weatherguard</span>
+                            <select value={looseExtWeatherguard} onChange={(e) => setLooseExtWeatherguard(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {WEATHERGUARD_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>DBL Rebated</span>
+                            <select value={looseExtDblRebated} onChange={(e) => setLooseExtDblRebated(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DBL_REBATED_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 75px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
+                            <select value={looseExtStop} onChange={(e) => setLooseExtStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddDoor({
+                                mode: "Loose",
+                                scope: "external",
+                                location: "External",
+                                label: looseExtDoorName || "Entry Door",
+                                door_type: looseExtDoorProduct || null,
+                                height: Number(looseExtHeight),
+                                width: Number(looseExtWidth),
+                                thickness: Number(looseExtThick),
+                                jamb_or_wall: looseExtJambWall || null,
+                                jamb_size: looseExtJambSize,
+                                hung: looseExtHung,
+                                type: looseExtType,
+                                weatherguard: looseExtWeatherguard,
+                                dbl_rebated: looseExtDblRebated,
+                                door_stop: looseExtStop,
+                                internal_type: "-",
+                                color: "-",
+                                default_qty: Number(looseExtQty) || 1
+                              });
+                              setLooseExtDoorName("");
+                            }}
+                            style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            + Add door
+                          </button>
+                        </div>
+                        <div style={{ fontSize: "9.5px", color: doorTypeError ? "#dc2626" : "#94a3b8", marginTop: "3px" }}>{doorTypeError || "External door types loaded from ProcurementApp."}</div>
+                      </div>
                     )}
                   </div>
 
-                  <div style={{ flex: "0.5 1 45px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
-                    <input
-                      type="number"
-                      value={looseIntQty}
-                      onChange={(e) => setLooseIntQty(e.target.value)}
-                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
-                    />
-                  </div>
+                  {/* SUBSECTION: Loose Jamb - Internal Door */}
+                  <div style={{ border: "1px solid #e2e8f0", borderRadius: "5px", overflow: "visible" }}>
+                    <div
+                      onClick={() => setIsLooseIntOpen(!isLooseIntOpen)}
+                      style={{
+                        padding: "7px 10px",
+                        background: "#fafafa",
+                        borderBottom: isLooseIntOpen ? "1px solid #e2e8f0" : "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        userSelect: "none"
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: "#334155" }}>Internal Door</span>
+                        <span style={{ fontSize: "10px", background: "#e2e8f0", padding: "2px 6px", borderRadius: "4px", fontWeight: 700, color: "#475569" }}>
+                          {looseIntHeight} × {looseIntWidth}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "#64748b", fontWeight: 600 }}>
+                        {isLooseIntOpen ? "▲" : "▼"}
+                      </span>
+                    </div>
 
-                  <div style={{ flex: "1.2 1 100px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
-                    <select value={looseIntJambSize} onChange={(e) => setLooseIntJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {jambSizeInternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                    {isLooseIntOpen && (
+                      <div style={{ padding: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Loose Jamb Doors</span>
+                            <input
+                              type="text"
+                              placeholder="e.g. Room Door"
+                              value={looseIntDoorName}
+                              onChange={(e) => setLooseIntDoorName(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 80px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
-                    <select value={looseIntHung} onChange={(e) => setLooseIntHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "1.8 1 140px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door type</span>
+                            <SearchDropdown
+                              value={looseIntDoorProduct}
+                              options={looseIntDoorOptions}
+                              onChange={setLooseIntDoorProduct}
+                              placeholder={doorTypeLoading ? "Loading..." : "Select or search..."}
+                            />
+                          </div>
 
-                  <div style={{ flex: "0.8 1 80px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
-                    <select value={looseIntType} onChange={(e) => setLooseIntType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Height</span>
+                            <select value={looseIntHeight} onChange={(e) => setLooseIntHeight(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_HEIGHT_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.7 1 70px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
-                    <select value={looseIntStop} onChange={(e) => setLooseIntStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.8 1 65px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Width</span>
+                            <select value={looseIntWidth} onChange={(e) => setLooseIntWidth(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_WIDTH_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 60px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Internal</span>
-                    <select value={looseIntInternalType} onChange={(e) => setLooseIntInternalType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalHoleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "0.6 1 55px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Thicks</span>
+                            <select value={looseIntThick} onChange={(e) => setLooseIntThick(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {DOOR_THICK_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
 
-                  <div style={{ flex: "0.6 1 60px" }}>
-                    <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Color</span>
-                    <select value={looseIntColor} onChange={(e) => setLooseIntColor(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
-                      {internalFinishOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
-                  </div>
+                          <div style={{ flex: "1.2 1 110px" }}>
+                            <span style={{ fontSize: "9.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb or Wall</span>
+                            {isBunVic ? (
+                              <select
+                                value={String(looseIntJambWall || "").replace(/mm\s*Wall/gi, "").trim()}
+                                onChange={(e) => setLooseIntJambWall(e.target.value ? `${e.target.value}mm Wall` : "")}
+                                style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                              >
+                                <option value="">-</option>
+                                <option value="">-</option>
+                                {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                placeholder="Enter jamb or wall"
+                                value={looseIntJambWall}
+                                onChange={(e) => setLooseIntJambWall(e.target.value)}
+                                style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1", boxSizing: "border-box" }}
+                              />
+                            )}
+                          </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleAddDoor({
-                        mode: "Loose",
-                        scope: "internal",
-                        location: "Internal",
-                        label: looseIntDoorName || "Internal Door",
-                        door_type: looseIntDoorProduct || null,
-                        height: Number(looseIntHeight),
-                        width: Number(looseIntWidth),
-                        thickness: Number(looseIntThick),
-                        jamb_or_wall: looseIntJambWall || null,
-                        jamb_size: looseIntJambSize,
-                        hung: looseIntHung,
-                        type: looseIntType,
-                        weatherguard: "-",
-                        dbl_rebated: "-",
-                        door_stop: looseIntStop,
-                        internal_type: looseIntInternalType,
-                        color: looseIntColor,
-                        default_qty: Number(looseIntQty) || 1
-                      });
-                      setLooseIntDoorName("");
-                    }}
-                    style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
-                  >
-                    + Add door
-                  </button>
+                          <div style={{ flex: "0.5 1 45px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Qty</span>
+                            <input
+                              type="number"
+                              value={looseIntQty}
+                              onChange={(e) => setLooseIntQty(e.target.value)}
+                              style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div style={{ flex: "1.2 1 100px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Jamb Size</span>
+                            <select value={looseIntJambSize} onChange={(e) => setLooseIntJambSize(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {jambSizeInternalOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 80px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Hung</span>
+                            <select value={looseIntHung} onChange={(e) => setLooseIntHung(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalHungOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.8 1 80px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Type</span>
+                            <select value={looseIntType} onChange={(e) => setLooseIntType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalTypeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.7 1 70px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Door Stop</span>
+                            <select value={looseIntStop} onChange={(e) => setLooseIntStop(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {doorStopOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.6 1 60px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Internal</span>
+                            <select value={looseIntInternalType} onChange={(e) => setLooseIntInternalType(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalHoleOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <div style={{ flex: "0.6 1 60px" }}>
+                            <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>Color</span>
+                            <select value={looseIntColor} onChange={(e) => setLooseIntColor(e.target.value)} style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                              {internalFinishOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddDoor({
+                                mode: "Loose",
+                                scope: "internal",
+                                location: "Internal",
+                                label: looseIntDoorName || "Internal Door",
+                                door_type: looseIntDoorProduct || null,
+                                height: Number(looseIntHeight),
+                                width: Number(looseIntWidth),
+                                thickness: Number(looseIntThick),
+                                jamb_or_wall: looseIntJambWall || null,
+                                jamb_size: looseIntJambSize,
+                                hung: looseIntHung,
+                                type: looseIntType,
+                                weatherguard: "-",
+                                dbl_rebated: "-",
+                                door_stop: looseIntStop,
+                                internal_type: looseIntInternalType,
+                                color: looseIntColor,
+                                default_qty: Number(looseIntQty) || 1
+                              });
+                              setLooseIntDoorName("");
+                            }}
+                            style={{ padding: "6px 12px", background: "#1e293b", color: "#ffffff", border: "none", borderRadius: "5px", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            + Add door
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                </div>
-                )}
-              </div>
+              )}
             </div>
-            )}
-          </div>
 
-        </div>
+          </div>
         )}
       </div>
 
@@ -2494,7 +2519,7 @@ export default function LockupTask({
             onToggle={() => setIsCard2Collapsed((v) => !v)}
             autoFillDisabled={isAutoFilling}
             autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
-          
+
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving || !entries || entries.length === 0}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
@@ -2631,7 +2656,8 @@ export default function LockupTask({
                       }
                     }
 
-                    const typeDisplay = isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-"));
+                    const typeDisplayRaw = isCadDoorType(row.type) ? (isExt ? "Type A" : "-") : (row.type || (isExt ? "Type A" : "-"));
+                    const typeDisplay = isExt ? syncExtTypeToHung(hungDisplay, typeDisplayRaw) : typeDisplayRaw;
                     const weatherguardDisplay = isExt ? (row.weatherguard || row.Weatherguard || "No") : "-";
                     const dblRebatedDisplay = isExt ? (row.dbl_rebated || row.DBLRebated || "No") : "-";
                     const hfHoDisplay = isExt ? "-" : (row.hfHo || row.internal_type || defaultInternalHole);
@@ -2684,384 +2710,384 @@ export default function LockupTask({
 
                     return (
                       <React.Fragment key={row.id || `${rowFloor}-${idx}`}>
-                      {showFloorHeader && (
-                        <FloorLevelGroupRow level={rowFloor} colSpan={18} />
-                      )}
-                      <tr
-                        data-floor-level={rowFloor}
-                        data-lockup-row-id={String(row.id)}
-                        data-editing-row-id={isEditing ? String(row.id) : undefined}
-                        onPointerDownCapture={(e) => {
-                          if (e.button !== 0) return;
-                          // Commit the previous row first, then move the one-and-only
-                          // selection. Pointer capture also works when clicking controls.
-                          if (editingDoorData && editingDoorData.id !== row.id) {
-                            commitInlineEdit(editingDoorData);
-                          }
-                          setSelectedEntryId(row.id);
-                          if (onSelectEntry) onSelectEntry(row);
-                        }}
-                        onClick={(e) => {
-                          if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
-                            e.stopPropagation();
-                            return;
-                          }
-                          // Single click only selects/focuses the row. Inline editing is
-                          // intentionally reserved for double-click so accidental clicks
-                          // while reviewing the table do not open editors.
-                          setSelectedEntryId(row.id);
-                          if (onSelectEntry) onSelectEntry(row);
-                        }}
-                        onDoubleClick={(e) => {
-                          if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
-                            e.stopPropagation();
-                            return;
-                          }
+                        {showFloorHeader && (
+                          <FloorLevelGroupRow level={rowFloor} colSpan={18} />
+                        )}
+                        <tr
+                          data-floor-level={rowFloor}
+                          data-lockup-row-id={String(row.id)}
+                          data-editing-row-id={isEditing ? String(row.id) : undefined}
+                          onPointerDownCapture={(e) => {
+                            if (e.button !== 0) return;
+                            // Commit the previous row first, then move the one-and-only
+                            // selection. Pointer capture also works when clicking controls.
+                            if (editingDoorData && editingDoorData.id !== row.id) {
+                              commitInlineEdit(editingDoorData);
+                            }
+                            setSelectedEntryId(row.id);
+                            if (onSelectEntry) onSelectEntry(row);
+                          }}
+                          onClick={(e) => {
+                            if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
+                              e.stopPropagation();
+                              return;
+                            }
+                            // Single click only selects/focuses the row. Inline editing is
+                            // intentionally reserved for double-click so accidental clicks
+                            // while reviewing the table do not open editors.
+                            setSelectedEntryId(row.id);
+                            if (onSelectEntry) onSelectEntry(row);
+                          }}
+                          onDoubleClick={(e) => {
+                            if (e.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) {
+                              e.stopPropagation();
+                              return;
+                            }
 
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setSelectedEntryId(row.id);
-                          if (onSelectEntry) onSelectEntry(row);
-
-                          if (editingDoorData && editingDoorData.id !== row.id) {
-                            commitInlineEdit(editingDoorData);
-                          }
-                          if (!isEditing) beginInlineEdit(row);
-                        }}
-                        onKeyDown={(e) => {
-                          if (!isEditing) return;
-                          if (e.key === "Enter") {
                             e.preventDefault();
                             e.stopPropagation();
-                            commitInlineEdit();
-                          } else if (e.key === "Escape") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            cancelInlineEdit();
-                          }
-                        }}
-                        style={{
-                          background: rowBg,
-                          cursor: "pointer",
-                          outline: isSelected ? "2px solid #2563eb" : "none",
-                          outlineOffset: "-1px",
-                          boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
-                          transition: "background 0.15s ease"
-                        }}
-                      >
-                        <td style={{
-                          padding: "6px 8px",
-                          fontWeight: isSelected ? 800 : 700,
-                          textAlign: "center",
-                          color: isSelected ? "#1e40af" : "#64748b",
-                          width: "48px",
-                          minWidth: "48px",
-                          maxWidth: "48px",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}><TaskRowNumber index={idx} row={row} /></td>
+                            setSelectedEntryId(row.id);
+                            if (onSelectEntry) onSelectEntry(row);
 
-                        <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("category") ? (
-                            <select
-                              value={editCategory === "-" ? (editIsLoose ? "Loose Jamb" : "Prehung") : editCategory}
-                              onChange={(e) => {
-                                const selectedCategory = e.target.value;
-                                const selectedMode = selectedCategory === "Cavity"
-                                  ? "Cavity"
-                                  : (selectedCategory === "Loose Jamb" ? "Loose" : "Prehung");
-                                const loose = selectedMode === "Loose";
-                                updateEditingDoorField({
-                                  category: selectedCategory,
-                                  mode: selectedMode,
-                                  lockup_mode: selectedMode,
-                                  thickness: loose ? "38" : (editIsExt ? "40" : "35"),
-                                  jamb_size: loose
-                                    ? (editRow.jamb_size || "112×19mm 5.4m Loose Jamb")
-                                    : null
-                                });
-                              }}
-                              style={{ ...inlineControlStyle, width: "104px" }}
-                            >
-                              <option value="Prehung">Prehung</option>
-                              <option value="Loose Jamb">Loose Jamb</option>
-                              <option value="Cavity">Cavity</option>
-                              <option value="Sliding">Sliding</option>
-                              <option value="Bifold">Bifold</option>
-                            </select>
-                          ) : categoryDisplay}
-                        </td>
+                            if (editingDoorData && editingDoorData.id !== row.id) {
+                              commitInlineEdit(editingDoorData);
+                            }
+                            if (!isEditing) beginInlineEdit(row);
+                          }}
+                          onKeyDown={(e) => {
+                            if (!isEditing) return;
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              commitInlineEdit();
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              cancelInlineEdit();
+                            }
+                          }}
+                          style={{
+                            background: rowBg,
+                            cursor: "pointer",
+                            outline: isSelected ? "2px solid #2563eb" : "none",
+                            outlineOffset: "-1px",
+                            boxShadow: isSelected ? "inset 0 0 0 1px #3b82f6" : "none",
+                            transition: "background 0.15s ease"
+                          }}
+                        >
+                          <td style={{
+                            padding: "6px 8px",
+                            fontWeight: isSelected ? 800 : 700,
+                            textAlign: "center",
+                            color: isSelected ? "#1e40af" : "#64748b",
+                            width: "48px",
+                            minWidth: "48px",
+                            maxWidth: "48px",
+                            borderBottom: "1px solid #e2e8f0"
+                          }}><TaskRowNumber index={idx} row={row} /></td>
 
-                                                <td data-edit-field="location" data-cell-editing={isCellEditing("location") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("location") ? (
-                            <select
-                              value={editIsExt ? "External" : "Internal"}
-                              onChange={(e) => {
-                                const ext = e.target.value === "External";
-                                updateEditingDoorField({
-                                  location: ext ? "External" : "Internal",
-                                  scope: ext ? "external" : "internal",
-                                  hung: ext ? "Hung A" : "RH",
-                                  type: ext ? "Type A" : "-",
-                                  weatherguard: ext ? "No" : "-",
-                                  dbl_rebated: ext ? "No" : "-",
-                                  internal_type: ext ? "-" : defaultInternalHole,
-                                  color: ext ? "-" : "CHR",
-                                  door_stop: ext ? "DS2 with Riser" : "Cushion"
-                                });
-                              }}
-                              style={{ ...inlineControlStyle, width: "92px" }}
-                            >
-                              <option value="Internal">Internal</option>
-                              <option value="External">External</option>
-                            </select>
-                          ) : locationDisplay}
-                        </td>
-
-                                                <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
-                          padding: "5px 6px",
-                          width: "105px",
-                          minWidth: "105px",
-                          borderBottom: "1px solid #e2e8f0"
-                        }}>
-                          {isCellEditing("label") ? (
-                            <input
-                              autoFocus
-                              value={editRow.label || ""}
-                              onChange={(e) => updateEditingDoorField({ label: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "94px", fontWeight: 700 }}
-                            />
-                          ) : (
-                            <span style={{
-                              background: isSelected ? "#2563eb" : "#eff6ff",
-                              color: isSelected ? "#ffffff" : "#1d4ed8",
-                              padding: "2px 7px",
-                              borderRadius: "4px",
-                              border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
-                              display: "inline-block",
-                              fontWeight: 800
-                            }}>
-                              {labelDisplay}
-                            </span>
-                          )}
-                        </td>
-
-                        <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", fontWeight: 700 }}>
-                          {isEditing ? (
-                            <select
-                              value="lock_up"
-                              onClick={(e) => e.stopPropagation()}
-                              onDoubleClick={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                onMoveDoorTask?.(row, e.target.value);
-                              }}
-                              style={{ ...inlineControlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
-                              title="Move this door to another task. This routing is not saved to Procurement DB."
-                            >
-                              <option value="lock_up">Lockup</option>
-                              <option value="fixout">Fixout</option>
-                            </select>
-                          ) : (
-                            <span title="Double-click the row to change task">Lockup</span>
-                          )}
-                        </td>
-
-                        <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
-                          {isCellEditing("door_type") ? (
-                            <select
-                              value={sanitizeProcurementDoorType(editRow.door_type) || ""}
-                              onChange={(e) => updateEditingDoorField({ door_type: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "145px" }}
-                            >
-                              {mergeOptions(editDoorOptions, sanitizeProcurementDoorType(editRow.door_type)).map((opt) => (
-                                <option key={opt || "__blank-door__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : (doorDisplay || "-")}
-                        </td>
-
-                                                <td data-edit-field="height" data-cell-editing={isCellEditing("height") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("height") ? (
-                            <select
-                              value={String(editRow.height || 2040)}
-                              onChange={(e) => updateEditingDoorField({ height: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {mergeOptions(DOOR_HEIGHT_OPTIONS.filter((v) => v !== "Spec"), String(editRow.height || 2040)).map((opt) => (
-                                opt ? <option key={opt} value={opt}>{opt}</option> : null
-                              ))}
-                            </select>
-                          ) : (row.height || 2040)}
-                        </td>
-
-                        <td data-edit-field="width" data-cell-editing={isCellEditing("width") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("width") ? (
-                            <select
-                              value={String(editRow.width || 820)}
-                              onChange={(e) => updateEditingDoorField({ width: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {mergeOptions(DOOR_WIDTH_OPTIONS.filter((v) => v !== "Spec"), String(editRow.width || 820)).map((opt) => (
-                                opt ? <option key={opt} value={opt}>{opt}</option> : null
-                              ))}
-                            </select>
-                          ) : (row.width || 820)}
-                        </td>
-
-                                                <td data-edit-field="thickness" data-cell-editing={isCellEditing("thickness") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("thickness") ? (
-                            <select
-                              value={String(editRow.thickness || "").replace("mm", "")}
-                              onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {mergeOptions((editIsExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS).filter((v) => v !== "Spec"), String(editRow.thickness || "").replace("mm", "")).map((opt) => (
-                                opt ? <option key={opt} value={opt}>{opt}</option> : null
-                              ))}
-                            </select>
-                          ) : thicksDisplay}
-                        </td>
-
-                        <td data-edit-field="jamb_or_wall" data-cell-editing={isCellEditing("jamb_or_wall") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
-                          {isCellEditing("jamb_or_wall") ? (
-                            isBunVic && !editIsExt ? (
+                          <td data-edit-field="category" data-cell-editing={isCellEditing("category") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("category") ? (
                               <select
-                                value={String(editRow.jamb_or_wall || "").replace(/mm\s*Wall/gi, "").trim()}
-                                onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value ? `${e.target.value}mm Wall` : "" })}
-                                style={{ ...inlineControlStyle, width: "118px" }}
+                                value={editCategory === "-" ? (editIsLoose ? "Loose Jamb" : "Prehung") : editCategory}
+                                onChange={(e) => {
+                                  const selectedCategory = e.target.value;
+                                  const selectedMode = selectedCategory === "Cavity"
+                                    ? "Cavity"
+                                    : (selectedCategory === "Loose Jamb" ? "Loose" : "Prehung");
+                                  const loose = selectedMode === "Loose";
+                                  updateEditingDoorField({
+                                    category: selectedCategory,
+                                    mode: selectedMode,
+                                    lockup_mode: selectedMode,
+                                    thickness: loose ? "38" : (editIsExt ? "40" : "35"),
+                                    jamb_size: loose
+                                      ? (editRow.jamb_size || "112×19mm 5.4m Loose Jamb")
+                                      : null
+                                  });
+                                }}
+                                style={{ ...inlineControlStyle, width: "104px" }}
                               >
-                                <option value="">-</option>
-                                {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                                <option value="Prehung">Prehung</option>
+                                <option value="Loose Jamb">Loose Jamb</option>
+                                <option value="Cavity">Cavity</option>
+                                <option value="Sliding">Sliding</option>
+                                <option value="Bifold">Bifold</option>
+                              </select>
+                            ) : categoryDisplay}
+                          </td>
+
+                          <td data-edit-field="location" data-cell-editing={isCellEditing("location") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("location") ? (
+                              <select
+                                value={editIsExt ? "External" : "Internal"}
+                                onChange={(e) => {
+                                  const ext = e.target.value === "External";
+                                  updateEditingDoorField({
+                                    location: ext ? "External" : "Internal",
+                                    scope: ext ? "external" : "internal",
+                                    hung: ext ? "Hung A" : "RH",
+                                    type: ext ? "Type A" : "-",
+                                    weatherguard: ext ? "No" : "-",
+                                    dbl_rebated: ext ? "No" : "-",
+                                    internal_type: ext ? "-" : defaultInternalHole,
+                                    color: ext ? "-" : "CHR",
+                                    door_stop: ext ? "DS2 with Riser" : "Cushion"
+                                  });
+                                }}
+                                style={{ ...inlineControlStyle, width: "92px" }}
+                              >
+                                <option value="Internal">Internal</option>
+                                <option value="External">External</option>
+                              </select>
+                            ) : locationDisplay}
+                          </td>
+
+                          <td data-edit-field="label" data-cell-editing={isCellEditing("label") ? "true" : undefined} style={{
+                            padding: "5px 6px",
+                            width: "105px",
+                            minWidth: "105px",
+                            borderBottom: "1px solid #e2e8f0"
+                          }}>
+                            {isCellEditing("label") ? (
+                              <input
+                                autoFocus
+                                value={editRow.label || ""}
+                                onChange={(e) => updateEditingDoorField({ label: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "94px", fontWeight: 700 }}
+                              />
+                            ) : (
+                              <span style={{
+                                background: isSelected ? "#2563eb" : "#eff6ff",
+                                color: isSelected ? "#ffffff" : "#1d4ed8",
+                                padding: "2px 7px",
+                                borderRadius: "4px",
+                                border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
+                                display: "inline-block",
+                                fontWeight: 800
+                              }}>
+                                {labelDisplay}
+                              </span>
+                            )}
+                          </td>
+
+                          <td style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", fontWeight: 700 }}>
+                            {isEditing ? (
+                              <select
+                                value="lock_up"
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  onMoveDoorTask?.(row, e.target.value);
+                                }}
+                                style={{ ...inlineControlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
+                                title="Move this door to another task. This routing is not saved to Procurement DB."
+                              >
+                                <option value="lock_up">Lockup</option>
+                                <option value="fixout">Fixout</option>
                               </select>
                             ) : (
-                              <input
-                                value={editRow.jamb_or_wall || ""}
-                                onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
+                              <span title="Double-click the row to change task">Lockup</span>
+                            )}
+                          </td>
+
+                          <td data-edit-field="door_type" data-cell-editing={isCellEditing("door_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "150px" }}>
+                            {isCellEditing("door_type") ? (
+                              <select
+                                value={sanitizeProcurementDoorType(editRow.door_type) || ""}
+                                onChange={(e) => updateEditingDoorField({ door_type: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "145px" }}
+                              >
+                                {mergeOptions(editDoorOptions, sanitizeProcurementDoorType(editRow.door_type)).map((opt) => (
+                                  <option key={opt || "__blank-door__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : (doorDisplay || "-")}
+                          </td>
+
+                          <td data-edit-field="height" data-cell-editing={isCellEditing("height") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("height") ? (
+                              <select
+                                value={String(editRow.height || 2040)}
+                                onChange={(e) => updateEditingDoorField({ height: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions(DOOR_HEIGHT_OPTIONS.filter((v) => v !== "Spec"), String(editRow.height || 2040)).map((opt) => (
+                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
+                                ))}
+                              </select>
+                            ) : (row.height || 2040)}
+                          </td>
+
+                          <td data-edit-field="width" data-cell-editing={isCellEditing("width") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("width") ? (
+                              <select
+                                value={String(editRow.width || 820)}
+                                onChange={(e) => updateEditingDoorField({ width: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions(DOOR_WIDTH_OPTIONS.filter((v) => v !== "Spec"), String(editRow.width || 820)).map((opt) => (
+                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
+                                ))}
+                              </select>
+                            ) : (row.width || 820)}
+                          </td>
+
+                          <td data-edit-field="thickness" data-cell-editing={isCellEditing("thickness") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("thickness") ? (
+                              <select
+                                value={String(editRow.thickness || "").replace("mm", "")}
+                                onChange={(e) => updateEditingDoorField({ thickness: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions((editIsExt ? EXTERNAL_DOOR_THICK_OPTIONS : DOOR_THICK_OPTIONS).filter((v) => v !== "Spec"), String(editRow.thickness || "").replace("mm", "")).map((opt) => (
+                                  opt ? <option key={opt} value={opt}>{opt}</option> : null
+                                ))}
+                              </select>
+                            ) : thicksDisplay}
+                          </td>
+
+                          <td data-edit-field="jamb_or_wall" data-cell-editing={isCellEditing("jamb_or_wall") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                            {isCellEditing("jamb_or_wall") ? (
+                              isBunVic && !editIsExt ? (
+                                <select
+                                  value={String(editRow.jamb_or_wall || "").replace(/mm\s*Wall/gi, "").trim()}
+                                  onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value ? `${e.target.value}mm Wall` : "" })}
+                                  style={{ ...inlineControlStyle, width: "118px" }}
+                                >
+                                  <option value="">-</option>
+                                  {INTERNAL_JAMB_OR_WALL_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                              ) : (
+                                <input
+                                  value={editRow.jamb_or_wall || ""}
+                                  onChange={(e) => updateEditingDoorField({ jamb_or_wall: e.target.value })}
+                                  style={{ ...inlineControlStyle, width: "118px" }}
+                                />
+                              )
+                            ) : jambWallDisplay}
+                          </td>
+
+                          <td data-edit-field="jamb_size" data-cell-editing={isCellEditing("jamb_size") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
+                            {isCellEditing("jamb_size") ? (
+                              <select
+                                value={editRow.jamb_size || ""}
+                                onChange={(e) => updateEditingDoorField({ jamb_size: e.target.value })}
                                 style={{ ...inlineControlStyle, width: "118px" }}
+                              >
+                                {mergeOptions(editJambOptions, editRow.jamb_size).map((opt) => (
+                                  <option key={opt || "__blank-jamb__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : (row.jamb_size || row.jambSize || "-")}
+                          </td>
+
+                          <td data-edit-field="hung" data-cell-editing={isCellEditing("hung") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("hung") ? (
+                              <select
+                                value={editRow.hung || ""}
+                                onChange={(e) => { const v = e.target.value; updateEditingDoorField(editIsExt && EXT_HUNG_TO_TYPE[v] ? { hung: v, type: EXT_HUNG_TO_TYPE[v] } : { hung: v }); }}
+                                style={{ ...inlineControlStyle, width: "94px" }}
+                              >
+                                {mergeOptions(editHungOptions, editRow.hung).map((opt) => (
+                                  <option key={opt || "__blank-hung__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : hungDisplay}
+                          </td>
+
+                          <td data-edit-field="type" data-cell-editing={isCellEditing("type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("type") ? (
+                              <select
+                                value={editRow.type || ""}
+                                onChange={(e) => { const v = e.target.value; updateEditingDoorField(editIsExt && EXT_TYPE_TO_HUNG[v] ? { type: v, hung: EXT_TYPE_TO_HUNG[v] } : { type: v }); }}
+                                style={{ ...inlineControlStyle, width: "96px" }}
+                              >
+                                {mergeOptions(editTypeOptions, editRow.type).map((opt) => (
+                                  <option key={opt || "__blank-type__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : typeDisplay}
+                          </td>
+
+                          <td data-edit-field="internal_type" data-cell-editing={isCellEditing("internal_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("internal_type") && !editIsExt ? (
+                              <select
+                                value={editRow.internal_type || defaultInternalHole}
+                                onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "68px" }}
+                              >
+                                {mergeOptions(INTERNAL_HOLE_OPTIONS, editRow.internal_type).map((opt) => (
+                                  <option key={opt || "__blank-hole__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : hfHoDisplay}
+                          </td>
+
+                          <td data-edit-field="color" data-cell-editing={isCellEditing("color") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("color") && !editIsExt ? (
+                              <select
+                                value={editRow.color || "CHR"}
+                                onChange={(e) => updateEditingDoorField({ color: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "72px" }}
+                              >
+                                {mergeOptions(COLOR_OPTIONS, editRow.color).map((opt) => (
+                                  <option key={opt || "__blank-color__"} value={opt}>{opt || "-"}</option>
+                                ))}
+                              </select>
+                            ) : colorDisplay}
+                          </td>
+
+                          <td data-edit-field="door_stop" data-cell-editing={isCellEditing("door_stop") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("door_stop") ? (
+                              <select
+                                value={normalizeDoorStop(editRow.door_stop || editRow.stop)}
+                                onChange={(e) => updateEditingDoorField({ door_stop: e.target.value, stop: e.target.value })}
+                                style={{ ...inlineControlStyle, width: "105px" }}
+                              >
+                                {doorStopOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            ) : stopDisplay}
+                          </td>
+
+                          <td data-edit-field="qty" data-cell-editing={isCellEditing("qty") ? "true" : undefined} style={{ padding: "5px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
+                            {isCellEditing("qty") ? (
+                              <input
+                                inputMode="numeric"
+                                value={editRow.default_qty || editRow.qty || 1}
+                                onChange={(e) => {
+                                  const qty = Number(e.target.value) || 1;
+                                  updateEditingDoorField({ default_qty: qty, qty });
+                                }}
+                                style={{ ...inlineControlStyle, width: "54px", textAlign: "center", fontWeight: 700 }}
                               />
-                            )
-                          ) : jambWallDisplay}
-                        </td>
+                            ) : qtyDisplay}
+                          </td>
 
-                        <td data-edit-field="jamb_size" data-cell-editing={isCellEditing("jamb_size") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0", minWidth: "120px" }}>
-                          {isCellEditing("jamb_size") ? (
-                            <select
-                              value={editRow.jamb_size || ""}
-                              onChange={(e) => updateEditingDoorField({ jamb_size: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "118px" }}
-                            >
-                              {mergeOptions(editJambOptions, editRow.jamb_size).map((opt) => (
-                                <option key={opt || "__blank-jamb__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : (row.jamb_size || row.jambSize || "-")}
-                        </td>
-
-                        <td data-edit-field="hung" data-cell-editing={isCellEditing("hung") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("hung") ? (
-                            <select
-                              value={editRow.hung || ""}
-                              onChange={(e) => updateEditingDoorField({ hung: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "94px" }}
-                            >
-                              {mergeOptions(editHungOptions, editRow.hung).map((opt) => (
-                                <option key={opt || "__blank-hung__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : hungDisplay}
-                        </td>
-
-                        <td data-edit-field="type" data-cell-editing={isCellEditing("type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("type") ? (
-                            <select
-                              value={editRow.type || ""}
-                              onChange={(e) => updateEditingDoorField({ type: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "96px" }}
-                            >
-                              {mergeOptions(editTypeOptions, editRow.type).map((opt) => (
-                                <option key={opt || "__blank-type__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : typeDisplay}
-                        </td>
-
-                        <td data-edit-field="internal_type" data-cell-editing={isCellEditing("internal_type") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("internal_type") && !editIsExt ? (
-                            <select
-                              value={editRow.internal_type || defaultInternalHole}
-                              onChange={(e) => updateEditingDoorField({ internal_type: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "68px" }}
-                            >
-                              {mergeOptions(INTERNAL_HOLE_OPTIONS, editRow.internal_type).map((opt) => (
-                                <option key={opt || "__blank-hole__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : hfHoDisplay}
-                        </td>
-
-                        <td data-edit-field="color" data-cell-editing={isCellEditing("color") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("color") && !editIsExt ? (
-                            <select
-                              value={editRow.color || "CHR"}
-                              onChange={(e) => updateEditingDoorField({ color: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "72px" }}
-                            >
-                              {mergeOptions(COLOR_OPTIONS, editRow.color).map((opt) => (
-                                <option key={opt || "__blank-color__"} value={opt}>{opt || "-"}</option>
-                              ))}
-                            </select>
-                          ) : colorDisplay}
-                        </td>
-
-                        <td data-edit-field="door_stop" data-cell-editing={isCellEditing("door_stop") ? "true" : undefined} style={{ padding: "5px 6px", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("door_stop") ? (
-                            <select
-                              value={normalizeDoorStop(editRow.door_stop || editRow.stop)}
-                              onChange={(e) => updateEditingDoorField({ door_stop: e.target.value, stop: e.target.value })}
-                              style={{ ...inlineControlStyle, width: "105px" }}
-                            >
-                              {doorStopOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
-                          ) : stopDisplay}
-                        </td>
-
-                        <td data-edit-field="qty" data-cell-editing={isCellEditing("qty") ? "true" : undefined} style={{ padding: "5px 6px", textAlign: "center", borderBottom: "1px solid #e2e8f0" }}>
-                          {isCellEditing("qty") ? (
-                            <input
-                              inputMode="numeric"
-                              value={editRow.default_qty || editRow.qty || 1}
-                              onChange={(e) => {
-                                const qty = Number(e.target.value) || 1;
-                                updateEditingDoorField({ default_qty: qty, qty });
+                          <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isEditing) cancelInlineEdit();
+                                handleRemoveEntry(row.id);
                               }}
-                              style={{ ...inlineControlStyle, width: "54px", textAlign: "center", fontWeight: 700 }}
-                            />
-                          ) : qtyDisplay}
-                        </td>
-
-                        <td style={{ padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid #e2e8f0" }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isEditing) cancelInlineEdit();
-                              handleRemoveEntry(row.id);
-                            }}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "#ef4444",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              padding: "2px 4px",
-                              fontWeight: 700
-                            }}
-                            title="Delete door"
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#ef4444",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                padding: "2px 4px",
+                                fontWeight: 700
+                              }}
+                              title="Delete door"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
                       </React.Fragment>
                     );
                   })}
@@ -3101,7 +3127,7 @@ export default function LockupTask({
                     ✓ Saved to ProcurementApp LockUp!
                   </span>
                 )}
-                
+
               </div>
             </div>
           </>

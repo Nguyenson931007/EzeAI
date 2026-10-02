@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
@@ -78,6 +78,26 @@ const ROOM_LABELS = [
   "PDR 1", "PDR 2", "ENS 1", "ENS 2", "ENS 3", "Linen 1", "Linen 2", "Robe 1", "Robe 2", "Robe 3", "Robe 4",
   "Living", "Dining", "Kitchen", "Office", "Meeting", "Kid one", "MPR", "WIP", "WIL", "CPD",
 ];
+
+// Row height is identical in view mode and edit mode, so double-click to edit
+// never pushes the rows below it (and never shifts the scroll position).
+// Height 34px = 25px control + breathing room; a td height acts as a minimum,
+// so up to 2 wrapped text lines in view mode still fit inside it.
+const FIXOUT_ROW_CSS = `
+.fixout-summary-main tr.fixout-data-row > td {
+  height: 34px;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+.fixout-summary-main tr.fixout-data-row button {
+  height: 25px;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+`;
 
 const FALLBACK_PREHUNG_INTERNAL_DOORS = PREHUNG_DOOR_NAMES;
 
@@ -908,14 +928,124 @@ const safeParseJson = (value, fallback) => {
   }
 };
 
-function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDoorsProperty }) {
+// ══════════════════════════════════════════════════════
+// SCROLL PANEL — vertical scroll with ▲/▼ buttons.
+// Smart behaviour:
+//  - remembers scrollTop per panel id (restored when the panel is re-opened)
+//  - if nothing was remembered, jumps to the selected row (.task-row-selected)
+//  - when the selected row changes, keeps it in view (only scrolls if it is off-screen)
+// ══════════════════════════════════════════════════════
+
+function ScrollPanel({ id, memory, selectedKey, maxHeight = "min(62vh, 520px)", children }) {
+  const scrollRef = useRef(null);
+  const contentRef = useRef(null);
+  const [canUp, setCanUp] = useState(false);
+  const [canDown, setCanDown] = useState(false);
+
+  const updateArrows = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanUp(el.scrollTop > 4);
+    setCanDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+  }, []);
+
+  const revealSelected = useCallback((center) => {
+    const el = scrollRef.current;
+    const row = el?.querySelector(".task-row-selected");
+    if (!el || !row) return false;
+    const elRect = el.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const margin = 8;
+    if (center) {
+      el.scrollTop += (rowRect.top - elRect.top) - (el.clientHeight - rowRect.height) / 2;
+    } else if (rowRect.top < elRect.top + margin) {
+      el.scrollTop += rowRect.top - elRect.top - margin;
+    } else if (rowRect.bottom > elRect.bottom - margin) {
+      el.scrollTop += rowRect.bottom - elRect.bottom + margin;
+    }
+    return true;
+  }, []);
+
+  // Restore the remembered position on open; otherwise centre the selected row.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const saved = memory?.current?.[id];
+    if (typeof saved === "number") el.scrollTop = saved;
+    else revealSelected(true);
+    updateArrows();
+    return () => {
+      if (memory?.current) memory.current[id] = el.scrollTop;
+    };
+  }, [id, memory, revealSelected, updateArrows]);
+
+  // Keep the newly selected row visible.
+  useEffect(() => {
+    if (selectedKey == null) return;
+    revealSelected(false);
+    updateArrows();
+  }, [selectedKey, revealSelected, updateArrows]);
+
+  // Rows added/removed or panel resized → refresh the arrows.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(updateArrows);
+    if (scrollRef.current) ro.observe(scrollRef.current);
+    if (contentRef.current) ro.observe(contentRef.current);
+    return () => ro.disconnect();
+  }, [updateArrows]);
+
+  const scrollByPage = (dir) => {
+    const el = scrollRef.current;
+    if (el) el.scrollBy({ top: dir * Math.max(120, el.clientHeight * 0.8), behavior: "smooth" });
+  };
+
+  const arrowStyle = {
+    position: "absolute",
+    right: "10px",
+    width: "26px",
+    height: "26px",
+    borderRadius: "50%",
+    border: "1px solid #cbd5e1",
+    background: "rgba(15,39,68,0.88)",
+    color: "#fff",
+    fontSize: "11px",
+    lineHeight: 1,
+    cursor: "pointer",
+    zIndex: 5,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 2px 6px rgba(15,23,42,0.25)",
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          if (memory?.current) memory.current[id] = e.currentTarget.scrollTop;
+          updateArrows();
+        }}
+        style={{ maxHeight, overflow: "auto", overscrollBehavior: "contain" }}
+      >
+        <div ref={contentRef}>{children}</div>
+      </div>
+      {canUp && <button type="button" title="Scroll up" onClick={() => scrollByPage(-1)} style={{ ...arrowStyle, top: "8px" }}>▲</button>}
+      {canDown && <button type="button" title="Scroll down" onClick={() => scrollByPage(1)} style={{ ...arrowStyle, bottom: "8px" }}>▼</button>}
+    </div>
+  );
+}
+
+function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDoorsProperty, activePanel = "entered", onSelectPanel, scrollMemory }) {
   const read = (key, fallback = "") => formData?.[key] ?? fallback;
   const write = (key, value) => { if (onChange) onChange("fixout", key, value); };
 
   const [robeDraft, setRobeDraft] = useState({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
   const [revealDraft, setRevealDraft] = useState({ type: "window", height: "", width: "", blockWork: "No" });
-  const [isRobeOpen, setIsRobeOpen] = useState(false);
-  const [isTrimOpen, setIsTrimOpen] = useState(false);
+  // Accordion: only one panel is the "main" panel at a time (default: Entered doors).
+  const isRobeOpen = activePanel === "robe";
+  const isTrimOpen = activePanel === "trim";
   const [editingRobeLabelIndex, setEditingRobeLabelIndex] = useState(null);
   const [editingRevealLabelIndex, setEditingRevealLabelIndex] = useState(null);
   const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
@@ -1001,7 +1131,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDo
   return (
     <>
       <div style={cardStyle}>
-        <div onClick={() => setIsRobeOpen((v) => !v)} style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none", cursor: "pointer", userSelect: "none" }}>
+        <div onClick={() => onSelectPanel?.(isRobeOpen ? "entered" : "robe")} style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none", cursor: "pointer", userSelect: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", flex: 1 }}>
             <span>2. Smart Robe Door</span>
             <span style={{ fontSize: "11px", color: "#64748b" }}>{isRobeOpen ? "▲" : "▼"}</span>
@@ -1009,141 +1139,145 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDo
           <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>
         </div>
         {isRobeOpen && (
-          <div className="fixout-procurement-card-body">
-            <div style={{ padding: "10px", display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "flex-end" }}>
-              <label style={fieldStyle}><span style={labelStyle}>Label</span><input list="fixout-room-labels-parity" style={inputStyle} value={robeDraft.label} onChange={(e) => setRobeDraft({ ...robeDraft, label: e.target.value })}/></label>
-              <label style={fieldStyle}><span style={labelStyle}>Unit Height</span><select style={inputStyle} value={robeDraft.unitHeight} onChange={(e) => setRobeDraft({ ...robeDraft, unitHeight: e.target.value })}>{FIXOUT_SMART_ROBE_HEIGHTS.map((v) => <option key={v}>{v}</option>)}</select></label>
-              <label style={fieldStyle}><span style={labelStyle}>Unit Size</span><input style={inputStyle} inputMode="numeric" value={robeDraft.unitSize} onChange={(e) => setRobeDraft({ ...robeDraft, unitSize: e.target.value })}/></label>
-              <label style={fieldStyle}><span style={labelStyle}>Wall</span><select style={inputStyle} value={robeDraft.wall} onChange={(e) => setRobeDraft({ ...robeDraft, wall: e.target.value })}>{FIXOUT_SMART_ROBE_WALLS.map((v) => <option key={v}>{v}</option>)}</select></label>
-              <label style={{ ...fieldStyle, flex: "2 1 150px" }}><span style={labelStyle}>Type</span><input list="fixout-door-types-parity" style={inputStyle} value={robeDraft.type} onChange={(e) => setRobeDraft({ ...robeDraft, type: e.target.value })}/></label>
-              <label style={fieldStyle}><span style={labelStyle}>Thicks</span><input style={inputStyle} inputMode="numeric" value={robeDraft.thicks} onChange={(e) => setRobeDraft({ ...robeDraft, thicks: e.target.value })}/></label>
-              <button type="button" onClick={addRobe} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add robe door</button>
-              <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v}/>)}</datalist>
-              <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v}/>)}</datalist>
-            </div>
-
-            <TaskInlineEnteredSection title="Entered robe door">
-              <TaskSummaryTable className="fixout-summary-robe" compact>
-                <thead><tr><th style={{ width: "30px" }}>#</th><th>Label</th><th>Unit Height</th><th>Unit Size</th><th>Wall</th><th>Type</th><th>Thicks</th><th style={{ width: "38px" }}></th></tr></thead>
-                <tbody>
-                  {robeRows.length === 0 ? (
-                    <TaskEmptyRow colSpan={8}>No robe doors entered.</TaskEmptyRow>
-                  ) : robeRows.map((row, index) => (
-                    <tr key={row.id || index}>
-                      <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
-                      <td onDoubleClick={() => setEditingRobeLabelIndex(index)} title="Double-click to edit label/name">
-                        {editingRobeLabelIndex === index ? (
-                          <input
-                            autoFocus
-                            defaultValue={row.label || ""}
-                            onBlur={(event) => updateRobeLabel(index, event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") event.currentTarget.blur();
-                              if (event.key === "Escape") setEditingRobeLabelIndex(null);
-                            }}
-                            style={{ width: "100%", minWidth: "90px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px" }}
-                          />
-                        ) : (row.label || "—")}
-                      </td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
-                      <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeRobe(index)} style={S.deleteBtn} title="Delete robe door">✕</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TaskSummaryTable>
-            </TaskInlineEnteredSection>
-          </div>
-        )}
-      </div>
-
-      <div style={cardStyle}>
-        <div onClick={() => setIsTrimOpen((v) => !v)} style={{ ...titleStyle, borderBottom: isTrimOpen ? "1px solid #e2e8f0" : "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}>
-          <span>3. Additional trim measurements</span>
-          <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
-        </div>
-        {isTrimOpen && (
-          <div className="fixout-trim-groups-eze">
-            <section className="fixout-trim-group-eze">
-              <div className="fixout-trim-group-title-eze">Reveals</div>
-              <div className="fixout-trim-group-grid-eze is-reveals">
-                <label style={fieldStyle}><span style={labelStyle}>Type</span><select style={inputStyle} value={revealDraft.type} onChange={(e) => setRevealDraft({ ...revealDraft, type: e.target.value })}>{FIXOUT_REVEAL_TYPES.map((v) => <option key={v} value={v}>{v === "window" ? "Window" : "Door"}</option>)}</select></label>
-                <label style={fieldStyle}><span style={labelStyle}>Height</span><input style={inputStyle} inputMode="numeric" value={revealDraft.height} onChange={(e) => setRevealDraft({ ...revealDraft, height: e.target.value })}/></label>
-                <label style={fieldStyle}><span style={labelStyle}>Width</span><input style={inputStyle} inputMode="numeric" value={revealDraft.width} onChange={(e) => setRevealDraft({ ...revealDraft, width: e.target.value })}/></label>
-                <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
-                <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
+          <ScrollPanel id="robe" memory={scrollMemory}>
+            <div className="fixout-procurement-card-body">
+              <div style={{ padding: "10px", display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "flex-end" }}>
+                <label style={fieldStyle}><span style={labelStyle}>Label</span><input list="fixout-room-labels-parity" style={inputStyle} value={robeDraft.label} onChange={(e) => setRobeDraft({ ...robeDraft, label: e.target.value })} /></label>
+                <label style={fieldStyle}><span style={labelStyle}>Unit Height</span><select style={inputStyle} value={robeDraft.unitHeight} onChange={(e) => setRobeDraft({ ...robeDraft, unitHeight: e.target.value })}>{FIXOUT_SMART_ROBE_HEIGHTS.map((v) => <option key={v}>{v}</option>)}</select></label>
+                <label style={fieldStyle}><span style={labelStyle}>Unit Size</span><input style={inputStyle} inputMode="numeric" value={robeDraft.unitSize} onChange={(e) => setRobeDraft({ ...robeDraft, unitSize: e.target.value })} /></label>
+                <label style={fieldStyle}><span style={labelStyle}>Wall</span><select style={inputStyle} value={robeDraft.wall} onChange={(e) => setRobeDraft({ ...robeDraft, wall: e.target.value })}>{FIXOUT_SMART_ROBE_WALLS.map((v) => <option key={v}>{v}</option>)}</select></label>
+                <label style={{ ...fieldStyle, flex: "2 1 150px" }}><span style={labelStyle}>Type</span><input list="fixout-door-types-parity" style={inputStyle} value={robeDraft.type} onChange={(e) => setRobeDraft({ ...robeDraft, type: e.target.value })} /></label>
+                <label style={fieldStyle}><span style={labelStyle}>Thicks</span><input style={inputStyle} inputMode="numeric" value={robeDraft.thicks} onChange={(e) => setRobeDraft({ ...robeDraft, thicks: e.target.value })} /></label>
+                <button type="button" onClick={addRobe} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add robe door</button>
+                <datalist id="fixout-room-labels-parity">{ROOM_LABELS.map((v) => <option key={v} value={v} />)}</datalist>
+                <datalist id="fixout-door-types-parity">{doorNames.map((v) => <option key={v} value={v} />)}</datalist>
               </div>
-              <TaskInlineEnteredSection title="Entered reveals">
-                <TaskSummaryTable className="fixout-summary-openings" compact>
-                  <thead><tr><th style={{ width: "64px", minWidth: "64px" }}>#</th><th>Type</th><th>Window ID</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
+
+              <TaskInlineEnteredSection title="Entered robe door">
+                <TaskSummaryTable className="fixout-summary-robe" compact>
+                  <thead><tr><th style={{ width: "30px" }}>#</th><th>Label</th><th>Unit Height</th><th>Unit Size</th><th>Wall</th><th>Type</th><th>Thicks</th><th style={{ width: "38px" }}></th></tr></thead>
                   <tbody>
-                    {revealRows.length === 0 ? (
-                      <TaskEmptyRow colSpan={7}>No window/door openings entered.</TaskEmptyRow>
-                    ) : revealRows.map((row, index) => (
+                    {robeRows.length === 0 ? (
+                      <TaskEmptyRow colSpan={8}>No robe doors entered.</TaskEmptyRow>
+                    ) : robeRows.map((row, index) => (
                       <tr key={row.id || index}>
                         <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
-                        <td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td>
-                        <td
-                          style={{ fontWeight: 800, color: "#1d4ed8" }}
-                          onDoubleClick={() => setEditingRevealLabelIndex(index)}
-                          title="Double-click to edit label/name"
-                        >
-                          {editingRevealLabelIndex === index ? (
+                        <td onDoubleClick={() => setEditingRobeLabelIndex(index)} title="Double-click to edit label/name">
+                          {editingRobeLabelIndex === index ? (
                             <input
                               autoFocus
                               defaultValue={row.label || ""}
-                              onBlur={(event) => updateRevealLabel(index, event.target.value)}
+                              onBlur={(event) => updateRobeLabel(index, event.target.value)}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") event.currentTarget.blur();
-                                if (event.key === "Escape") setEditingRevealLabelIndex(null);
+                                if (event.key === "Escape") setEditingRobeLabelIndex(null);
                               }}
-                              style={{ width: "100%", minWidth: "95px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px", fontWeight: 800 }}
+                              style={{ width: "100%", minWidth: "90px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px" }}
                             />
                           ) : (row.label || "—")}
-                        </td>
-                        <td>{row.height || "—"}</td>
-                        <td>{row.width || "—"}</td>
-                        <td>{row.blockWork || "—"}</td>
-                        <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeReveal(index)} style={S.deleteBtn} title="Delete opening">✕</button></td>
+                        </td><td>{row.unitHeight || "—"}</td><td>{row.unitSize || "—"}</td><td>{row.wall || "—"}</td><td>{row.type || "—"}</td><td>{row.thicks || "—"}</td>
+                        <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeRobe(index)} style={S.deleteBtn} title="Delete robe door">✕</button></td>
                       </tr>
                     ))}
                   </tbody>
                 </TaskSummaryTable>
               </TaskInlineEnteredSection>
-            </section>
+            </div>
+          </ScrollPanel>
+        )}
+      </div>
 
-            <section className="fixout-trim-group-eze">
-              <div className="fixout-trim-group-title-eze">Architrave</div>
-              <div className="fixout-trim-group-grid-eze">
-                <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)}/></label>
-                {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
-              </div>
-            </section>
+      <div style={cardStyle}>
+        <div onClick={() => onSelectPanel?.(isTrimOpen ? "entered" : "trim")} style={{ ...titleStyle, borderBottom: isTrimOpen ? "1px solid #e2e8f0" : "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}>
+          <span>3. Additional trim measurements</span>
+          <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
+        </div>
+        {isTrimOpen && (
+          <ScrollPanel id="trim" memory={scrollMemory}>
+            <div className="fixout-trim-groups-eze">
+              <section className="fixout-trim-group-eze">
+                <div className="fixout-trim-group-title-eze">Reveals</div>
+                <div className="fixout-trim-group-grid-eze is-reveals">
+                  <label style={fieldStyle}><span style={labelStyle}>Type</span><select style={inputStyle} value={revealDraft.type} onChange={(e) => setRevealDraft({ ...revealDraft, type: e.target.value })}>{FIXOUT_REVEAL_TYPES.map((v) => <option key={v} value={v}>{v === "window" ? "Window" : "Door"}</option>)}</select></label>
+                  <label style={fieldStyle}><span style={labelStyle}>Height</span><input style={inputStyle} inputMode="numeric" value={revealDraft.height} onChange={(e) => setRevealDraft({ ...revealDraft, height: e.target.value })} /></label>
+                  <label style={fieldStyle}><span style={labelStyle}>Width</span><input style={inputStyle} inputMode="numeric" value={revealDraft.width} onChange={(e) => setRevealDraft({ ...revealDraft, width: e.target.value })} /></label>
+                  <label style={fieldStyle}><span style={labelStyle}>Block Work</span><select style={inputStyle} value={revealDraft.blockWork} onChange={(e) => setRevealDraft({ ...revealDraft, blockWork: e.target.value })}>{FIXOUT_BLOCK_WORK.map((v) => <option key={v}>{v}</option>)}</select></label>
+                  <button type="button" onClick={addReveal} style={{ height: "29px", padding: "0 10px", background: "#0f2744", color: "#fff", border: 0, borderRadius: "4px", fontSize: "10.5px", fontWeight: 700 }}>+ Add opening</button>
+                </div>
+                <TaskInlineEnteredSection title="Entered reveals">
+                  <TaskSummaryTable className="fixout-summary-openings" compact>
+                    <thead><tr><th style={{ width: "64px", minWidth: "64px" }}>#</th><th>Type</th><th>Window ID</th><th>Height</th><th>Width</th><th>Block Work</th><th style={{ width: "38px" }}></th></tr></thead>
+                    <tbody>
+                      {revealRows.length === 0 ? (
+                        <TaskEmptyRow colSpan={7}>No window/door openings entered.</TaskEmptyRow>
+                      ) : revealRows.map((row, index) => (
+                        <tr key={row.id || index}>
+                          <td style={{ textAlign: "center" }}><TaskRowNumber index={index} row={row} /></td>
+                          <td style={{ textTransform: "capitalize" }}>{row.type || "—"}</td>
+                          <td
+                            style={{ fontWeight: 800, color: "#1d4ed8" }}
+                            onDoubleClick={() => setEditingRevealLabelIndex(index)}
+                            title="Double-click to edit label/name"
+                          >
+                            {editingRevealLabelIndex === index ? (
+                              <input
+                                autoFocus
+                                defaultValue={row.label || ""}
+                                onBlur={(event) => updateRevealLabel(index, event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") event.currentTarget.blur();
+                                  if (event.key === "Escape") setEditingRevealLabelIndex(null);
+                                }}
+                                style={{ width: "100%", minWidth: "95px", height: "24px", boxSizing: "border-box", border: "1px solid #93c5fd", borderRadius: "3px", padding: "2px 4px", fontSize: "10px", fontWeight: 800 }}
+                              />
+                            ) : (row.label || "—")}
+                          </td>
+                          <td>{row.height || "—"}</td>
+                          <td>{row.width || "—"}</td>
+                          <td>{row.blockWork || "—"}</td>
+                          <td style={{ textAlign: "center" }}><button type="button" onClick={() => removeReveal(index)} style={S.deleteBtn} title="Delete opening">✕</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </TaskSummaryTable>
+                </TaskInlineEnteredSection>
+              </section>
 
-            <section className="fixout-trim-group-eze">
-              <div className="fixout-trim-group-title-eze">Skirting</div>
-              <div className="fixout-trim-group-grid-eze">
-                <label style={fieldStyle}><span style={labelStyle}>Skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_skirting_lm", "0")} onChange={(e) => write("fixout_skirting_lm", e.target.value)}/></label>
-                {trimSelect("Skirting Type", "fixout_skirting_description", "MDF DAR PRIMED++67X18MM 5.4M")}
-              </div>
-            </section>
+              <section className="fixout-trim-group-eze">
+                <div className="fixout-trim-group-title-eze">Architrave</div>
+                <div className="fixout-trim-group-grid-eze">
+                  <label style={fieldStyle}><span style={labelStyle}>Extras architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_arch_extra_lengths", "0")} onChange={(e) => write("fixout_arch_extra_lengths", e.target.value)} /></label>
+                  {trimSelect("Architrave Type", "fixout_arch_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+                </div>
+              </section>
 
-            <section className="fixout-trim-group-eze">
-              <div className="fixout-trim-group-title-eze">Robe &amp; Linen</div>
-              <div className="fixout-trim-group-grid-eze">
-                <label style={fieldStyle}><span style={labelStyle}>Robe Count</span><input style={inputStyle} inputMode="numeric" value={read("fixout_robe_count", "0")} onChange={(e) => write("fixout_robe_count", e.target.value)}/></label>
-                <label style={fieldStyle}><span style={labelStyle}>Robe/Linen jamb size</span><select style={inputStyle} value={read("fixout_robe_jamb_size", "112x19")} onChange={(e) => write("fixout_robe_jamb_size", e.target.value)}>{FIXOUT_ROBE_JAMB_SIZES.map((v) => <option key={v}>{v}</option>)}</select></label>
-              </div>
-            </section>
+              <section className="fixout-trim-group-eze">
+                <div className="fixout-trim-group-title-eze">Skirting</div>
+                <div className="fixout-trim-group-grid-eze">
+                  <label style={fieldStyle}><span style={labelStyle}>Skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_skirting_lm", "0")} onChange={(e) => write("fixout_skirting_lm", e.target.value)} /></label>
+                  {trimSelect("Skirting Type", "fixout_skirting_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+                </div>
+              </section>
 
-            <section className="fixout-trim-group-eze">
-              <div className="fixout-trim-group-title-eze">Wet Areas</div>
-              <div className="fixout-trim-group-grid-eze">
-                <label style={fieldStyle}><span style={labelStyle}>Wet-area architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_arch_lengths", "0")} onChange={(e) => write("fixout_wet_arch_lengths", e.target.value)}/></label>
-                {trimSelect("Wet-area Architrave Type", "fixout_arch-wet_description", "MDF DAR PRIMED++42X18MM 5.4M")}
-                <label style={fieldStyle}><span style={labelStyle}>Wet-area skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_skirting_lm", "0")} onChange={(e) => write("fixout_wet_skirting_lm", e.target.value)}/></label>
-                {trimSelect("Wet-area Skirting Type", "fixout_skirting-wet_description", "MDF DAR PRIMED++67X18MM 5.4M")}
-              </div>
-            </section>
-          </div>
+              <section className="fixout-trim-group-eze">
+                <div className="fixout-trim-group-title-eze">Robe &amp; Linen</div>
+                <div className="fixout-trim-group-grid-eze">
+                  <label style={fieldStyle}><span style={labelStyle}>Robe Count</span><input style={inputStyle} inputMode="numeric" value={read("fixout_robe_count", "0")} onChange={(e) => write("fixout_robe_count", e.target.value)} /></label>
+                  <label style={fieldStyle}><span style={labelStyle}>Robe/Linen jamb size</span><select style={inputStyle} value={read("fixout_robe_jamb_size", "112x19")} onChange={(e) => write("fixout_robe_jamb_size", e.target.value)}>{FIXOUT_ROBE_JAMB_SIZES.map((v) => <option key={v}>{v}</option>)}</select></label>
+                </div>
+              </section>
+
+              <section className="fixout-trim-group-eze">
+                <div className="fixout-trim-group-title-eze">Wet Areas</div>
+                <div className="fixout-trim-group-grid-eze">
+                  <label style={fieldStyle}><span style={labelStyle}>Wet-area architrave</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_arch_lengths", "0")} onChange={(e) => write("fixout_wet_arch_lengths", e.target.value)} /></label>
+                  {trimSelect("Wet-area Architrave Type", "fixout_arch-wet_description", "MDF DAR PRIMED++42X18MM 5.4M")}
+                  <label style={fieldStyle}><span style={labelStyle}>Wet-area skirting</span><input style={inputStyle} inputMode="decimal" value={read("fixout_wet_skirting_lm", "0")} onChange={(e) => write("fixout_wet_skirting_lm", e.target.value)} /></label>
+                  {trimSelect("Wet-area Skirting Type", "fixout_skirting-wet_description", "MDF DAR PRIMED++67X18MM 5.4M")}
+                </div>
+              </section>
+            </div>
+          </ScrollPanel>
         )}
       </div>
     </>
@@ -1173,7 +1307,11 @@ export default function FixoutTask({
   const optionSet = useMemo(() => getFixoutParity(activeCustomerShortName), [activeCustomerShortName]);
 
   const floorLevel = useCurrentTaskFloorLevel(formData);
-  const [isDoorInformationOpen, setIsDoorInformationOpen] = useState(false);
+  // Which panel is expanded: "door" | "robe" | "trim" | "entered". Entered doors is the default.
+  const [activePanel, setActivePanel] = useState("entered");
+  const scrollMemory = useRef({}); // remembered scrollTop per panel
+  const isDoorInformationOpen = activePanel === "door";
+  const isEnteredOpen = activePanel === "entered";
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingData, setIsAddingData] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1240,7 +1378,7 @@ export default function FixoutTask({
         door_stop: cavityStyle ? "" : resolveDropdownValue(row.door_stop || row.stop, optionSet.stop, { fallback: "" }),
         door_furniture: resolveDropdownValue(row.door_furniture || row.door_furniture_candidate, furnitureOptions, { fallback: "" }),
       };
-      const keys = ["category","height","width","thicks","wall_width","door_type","door_frame","handing","lift_off_pivot","hole","finish","door_stop","door_furniture"];
+      const keys = ["category", "height", "width", "thicks", "wall_width", "door_type", "door_frame", "handing", "lift_off_pivot", "hole", "finish", "door_stop", "door_furniture"];
       if (keys.some((key) => String(patch[key] ?? "") !== String(row[key] ?? ""))) changed = true;
       return patch;
     });
@@ -1397,8 +1535,8 @@ export default function FixoutTask({
       if (!editingTr) return;
 
       const path = e.composedPath ? e.composedPath() : [];
-      const isInsideEditingTr = path.some((el) => 
-        el === editingTr || 
+      const isInsideEditingTr = path.some((el) =>
+        el === editingTr ||
         (el.getAttribute && (
           el.getAttribute("data-editing-row-id") === String(editingRowIdRef.current) ||
           el.getAttribute("data-search-dropdown") === "true"
@@ -1656,7 +1794,7 @@ export default function FixoutTask({
 
       <div style={S.card}>
         <div
-          onClick={() => setIsDoorInformationOpen((v) => !v)}
+          onClick={() => setActivePanel(isDoorInformationOpen ? "entered" : "door")}
           style={{
             ...S.cardTitle,
             padding: "10px 14px",
@@ -1671,322 +1809,344 @@ export default function FixoutTask({
         </div>
 
         {isDoorInformationOpen && (
-          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
+          <ScrollPanel id="door" memory={scrollMemory}>
+            <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "14px" }}>
 
-            <CategorySection
-              mode="cavity"
-              title="Cavity"
-              addLabel="+ Add door"
-              entries={entries}
-              onSetEntries={onSetEntries}
-              floorLevel={floorLevel}
-              doorOptions={looseJambDoors}
-              parity={optionSet}
-              isVic={isBunVic}
-            />
-            <CategorySection
-              mode="prehung"
-              title="Internal prehung doors"
-              addLabel="+ Add door"
-              entries={entries}
-              onSetEntries={onSetEntries}
-              floorLevel={floorLevel}
-              doorOptions={prehungDoors}
-              parity={optionSet}
-              isVic={isBunVic}
-            />
-            <CategorySection
-              mode="loose-jamb"
-              title="Internal loose-jamb doors"
-              addLabel="+ Add door"
-              entries={entries}
-              onSetEntries={onSetEntries}
-              floorLevel={floorLevel}
-              doorOptions={looseJambDoors}
-              parity={optionSet}
-              isVic={isBunVic}
-            />
+              <CategorySection
+                mode="cavity"
+                title="Cavity"
+                addLabel="+ Add door"
+                entries={entries}
+                onSetEntries={onSetEntries}
+                floorLevel={floorLevel}
+                doorOptions={looseJambDoors}
+                parity={optionSet}
+                isVic={isBunVic}
+              />
+              <CategorySection
+                mode="prehung"
+                title="Internal prehung doors"
+                addLabel="+ Add door"
+                entries={entries}
+                onSetEntries={onSetEntries}
+                floorLevel={floorLevel}
+                doorOptions={prehungDoors}
+                parity={optionSet}
+                isVic={isBunVic}
+              />
+              <CategorySection
+                mode="loose-jamb"
+                title="Internal loose-jamb doors"
+                addLabel="+ Add door"
+                entries={entries}
+                onSetEntries={onSetEntries}
+                floorLevel={floorLevel}
+                doorOptions={looseJambDoors}
+                parity={optionSet}
+                isVic={isBunVic}
+              />
 
 
-          </div>
+            </div>
+          </ScrollPanel>
         )}
       </div>
 
-      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} updateDoorsProperty={updateDoorsProperty} />
+      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} updateDoorsProperty={updateDoorsProperty} activePanel={activePanel} onSelectPanel={setActivePanel} scrollMemory={scrollMemory} />
 
 
-      <TaskInlineEnteredSection
-        title="4. Entered doors"
-        footer={(
-          <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
-            {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
-          </TaskSummaryFooter>
-        )}
-      >
-        <TaskSummaryTable className="fixout-summary-main" minWidth="2050px">
-          <thead>
-            <tr>
-              <th style={{ width: "38px", textAlign: "center" }}>#</th>
-              <th style={{ width: "92px" }}>Label</th>
-              <th style={{ width: "92px" }}>Task</th>
-              <th style={{ width: "105px" }}>Category</th>
-              <th style={{ width: "72px", textAlign: "center" }}>Height</th>
-              <th style={{ width: "72px", textAlign: "center" }}>Width</th>
-              <th style={{ width: "66px", textAlign: "center" }}>Thicks</th>
-              <th style={{ width: "92px" }}>Jamb / wall</th>
-              <th style={{ width: "108px" }}>Jamb Size</th>
-              <th style={{ width: "92px" }}>Hung</th>
-              <th style={{ width: "150px" }}>Door Type</th>
-              <th style={{ width: "70px" }}>{isBunVic ? "HO/HL" : "HF/HO"}</th>
-              <th style={{ width: "82px" }}>Color</th>
-              <th style={{ width: "118px" }}>Stop</th>
-              <th style={{ width: "150px" }}>Door Furniture</th>
-              <th style={{ width: "55px", textAlign: "center" }}>Qty</th>
-              <th style={{ width: "42px" }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {totalCount === 0 ? (
-              <TaskEmptyRow colSpan={17}>No Fixout doors entered. Fill the inputs above and add doors.</TaskEmptyRow>
-            ) : groupedDoorsByLevel.map(({ level, items }) => (
-              <React.Fragment key={level}>
-                <FloorLevelGroupRow level={level} colSpan={17} count={items.length} unitLabel="door" unitLabelPlural="doors" />
-                {items.map((item) => {
-                  const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
-                  const idx = globalIdx >= 0 ? globalIdx : 0;
-                  const isSelected = selectedEntryId === item.id;
-                  const isCavity = isCavityStyleCategory(item.category);
-                  const isLooseJamb = item.category === "loose-jamb" || item.category === "loose";
-                  const isPrehung = !isCavity && !isLooseJamb;
+      {!isEnteredOpen ? (
+        <div
+          onClick={() => setActivePanel("entered")}
+          style={{ ...S.cardTitle, border: "1px solid #cbd5e1", borderRadius: "8px" }}
+          title="Click to expand Entered doors"
+        >
+          <span>4. Entered doors <span style={{ fontWeight: 600, color: "#64748b", fontSize: "11px" }}>({totalCount})</span></span>
+          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>▼</span>
+        </div>
+      ) : (
+        <ScrollPanel id="entered" memory={scrollMemory} selectedKey={selectedEntryId}>
+          <TaskInlineEnteredSection
+            title="4. Entered doors"
+            footer={(
+              <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
+                {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
+              </TaskSummaryFooter>
+            )}
+          >
+            <style>{FIXOUT_ROW_CSS}</style>
+            <TaskSummaryTable className="fixout-summary-main" minWidth="2130px">
+              <thead>
+                <tr>
+                  <th style={{ width: "38px", textAlign: "center" }}>#</th>
+                  <th style={{ width: "92px" }}>Label</th>
+                  <th style={{ width: "92px" }}>Task</th>
+                  <th style={{ width: "105px" }}>Category</th>
+                  <th style={{ width: "72px", textAlign: "center" }}>Height</th>
+                  <th style={{ width: "72px", textAlign: "center" }}>Width</th>
+                  <th style={{ width: "66px", textAlign: "center" }}>Thicks</th>
+                  <th style={{ width: "92px" }}>Jamb / wall</th>
+                  <th style={{ width: "132px" }}>Jamb Size</th>
+                  <th style={{ width: "92px" }}>Hung</th>
+                  <th style={{ width: "150px" }}>Door Type</th>
+                  <th style={{ width: "88px" }}>{isBunVic ? "HO/HL" : "HF/HO"}</th>
+                  <th style={{ width: "112px" }}>Color</th>
+                  <th style={{ width: "118px" }}>Stop</th>
+                  <th style={{ width: "150px" }}>Door Furniture</th>
+                  <th style={{ width: "55px", textAlign: "center" }}>Qty</th>
+                  <th style={{ width: "42px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {totalCount === 0 ? (
+                  <TaskEmptyRow colSpan={17}>No Fixout doors entered. Fill the inputs above and add doors.</TaskEmptyRow>
+                ) : groupedDoorsByLevel.map(({ level, items }) => (
+                  <React.Fragment key={level}>
+                    <FloorLevelGroupRow level={level} colSpan={17} count={items.length} unitLabel="door" unitLabelPlural="doors" />
+                    {items.map((item) => {
+                      const globalIdx = (entries || []).findIndex((entry) => entry.id === item.id);
+                      const idx = globalIdx >= 0 ? globalIdx : 0;
+                      const isSelected = selectedEntryId === item.id;
+                      const isCavity = isCavityStyleCategory(item.category);
+                      const isLooseJamb = item.category === "loose-jamb" || item.category === "loose";
+                      const isPrehung = !isCavity && !isLooseJamb;
 
-                  const frameDisplay = (() => {
-                    if (isCavity) {
-                      const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
-                      // Cavity Jamb Size display follows the EzyJamb switch exactly:
-                      // No => —, Yes => Eze Jamb. Keep the stored Timber Jamb value
-                      // untouched so existing Procurement calculation/data parity is not changed.
-                      return isEzy ? "Eze Jamb" : "—";
-                    }
-                    return item.door_frame && item.door_frame !== "None" ? item.door_frame : "—";
-                  })();
-                  const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
-                  const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
-                  const holeStr = isPrehung && item.hole && item.hole !== "None" ? (isBunVic && item.hole === "HF" ? "HL" : item.hole) : "—";
-                  const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
-                  const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
-                  const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
-                  const jambWallStr = item.wall_width ? `${String(item.wall_width).replace(/mm/gi, "").trim()}mm Wall` : "—";
-                  const hungStr = isCavity ? "—" : (item.handing || item.lift_off_pivot || "—");
-
-                  const isRowEditing = editingRowId === item.id;
-                  const editCategory = isRowEditing ? (editRowData.category || item.category || "cavity") : item.category;
-                  const editIsCavity = isCavityStyleCategory(editCategory);
-                  const editIsLoose = editCategory === "loose-jamb" || editCategory === "loose";
-                  const editHeightOptions = editIsCavity ? optionSet.cavityHeight : optionSet.height;
-                  const editWidthOptions = editIsCavity ? optionSet.cavityWidth : optionSet.width;
-                  // Door Type is independent from Category.
-                  // Cavity/Sliding/Bifold use the same Door Type source as Cavity.
-                  const editUsesCavityDoorTypes = ["cavity", "sliding", "bifold"].includes(editCategory);
-                  const editDoorOptions = editUsesCavityDoorTypes
-                    ? looseJambDoors
-                    : (editIsLoose ? looseJambDoors : prehungDoors);
-                  const editFurnitureOptions = editIsCavity
-                    ? (FURNITURE_OPTIONS_BY_MODE.cavity || [])
-                    : (FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || []);
-                  const controlStyle = {
-                    width: "100%",
-                    minWidth: 0,
-                    height: "25px",
-                    border: "1px solid #93c5fd",
-                    borderRadius: "3px",
-                    background: "#fff",
-                    color: "#0f172a",
-                    fontSize: "10px",
-                    padding: "1px 3px",
-                    boxSizing: "border-box",
-                  };
-                  const setEditField = (field, value) => setEditRowData((prev) => ({ ...prev, [field]: value }));
-
-                  return (
-                    <tr
-                      key={item.id || idx}
-                      className={isSelected ? "task-row-selected" : undefined}
-                      data-editing-row-id={isRowEditing ? item.id : undefined}
-                      onPointerDownCapture={(event) => {
-                        if (event.button !== 0) return;
-                        // Always finish the previous row before moving selection.
-                        // Pointer capture fires even when the target is a select/input,
-                        // so a nested control cannot leave the old row highlighted.
-                        const activeId = editingRowIdRef.current;
-                        if (activeId && activeId !== item.id) {
-                          handleSaveInlineEdit(activeId);
+                      const frameDisplay = (() => {
+                        if (isCavity) {
+                          const isEzy = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb" || item.door_frame === "Yes";
+                          // Cavity Jamb Size display follows the EzyJamb switch exactly:
+                          // No => —, Yes => Eze Jamb. Keep the stored Timber Jamb value
+                          // untouched so existing Procurement calculation/data parity is not changed.
+                          return isEzy ? "Eze Jamb" : "—";
                         }
-                        setSelectedEntryId(item.id);
-                        onSelectEntry?.(item);
-                      }}
-                      onClick={(event) => {
-                        if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
-                        setSelectedEntryId(item.id);
-                        onSelectEntry?.(item);
-                      }}
-                      onDoubleClick={(event) => {
-                        if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (editingRowId && editingRowId !== item.id) handleSaveInlineEdit(editingRowId);
-                        setSelectedEntryId(item.id);
-                        onSelectEntry?.(item);
-                        handleStartEdit(item);
-                      }}
-                      onKeyDown={(event) => {
-                        if (!isRowEditing) return;
-                        if (event.key === "Enter") { event.preventDefault(); handleSaveInlineEdit(item.id); }
-                        else if (event.key === "Escape") { event.preventDefault(); setEditingRowId(null); }
-                      }}
-                      style={{ cursor: "pointer" }}
-                      title="Click to select · Double-click to edit the whole row"
-                    >
-                      <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}><TaskRowNumber index={idx} row={item} /></td>
-                      <td>
-                        {isRowEditing ? (
-                          <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} />
-                        ) : (
-                          <span style={{
-                            background: isSelected ? "#2563eb" : "#eff6ff",
-                            color: isSelected ? "#ffffff" : "#1d4ed8",
-                            padding: "2px 7px",
-                            borderRadius: "4px",
-                            border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
-                            display: "inline-block",
-                            fontWeight: 800
-                          }}>
-                            {item.door_label || "—"}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ fontWeight: 700 }}>
-                        {isRowEditing ? (
-                          <select
-                            value="fixout"
-                            onClick={(event) => event.stopPropagation()}
-                            onDoubleClick={(event) => event.stopPropagation()}
-                            onChange={(event) => {
-                              event.stopPropagation();
-                              onMoveDoorTask?.(item, event.target.value);
-                            }}
-                            style={{ ...controlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
-                            title="Move this door to another task. This routing is not saved to Procurement DB."
-                          >
-                            <option value="fixout">Fixout</option>
-                            <option value="lock_up">Lockup</option>
-                          </select>
-                        ) : (
-                          <span title="Double-click the row to change task">Fixout</span>
-                        )}
-                      </td>
-                      <td style={{ fontWeight: 600 }}>
-                        {isRowEditing ? (
-                          <select
-                            value={editCategory}
-                            onChange={(event) => {
-                              const nextCategory = event.target.value;
-                              setEditRowData((prev) => ({
-                                ...prev,
-                                category: nextCategory,
-                              }));
-                            }}
-                            style={controlStyle}
-                          >
-                            <option value="cavity">Cavity</option>
-                            <option value="sliding">Sliding</option>
-                            <option value="bifold">Bifold</option>
-                            <option value="prehung">Prehung</option>
-                            <option value="loose-jamb">Loose Jamb</option>
-                          </select>
-                        ) : modeLabel(item.category)}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        {isRowEditing ? <select value={String(editRowData.height || item.height || 2040)} onChange={(event) => setEditField("height", event.target.value)} style={controlStyle}>{editHeightOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.height || 2040)}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        {isRowEditing ? <select value={String(editRowData.width || item.width || 820)} onChange={(event) => setEditField("width", event.target.value)} style={controlStyle}>{editWidthOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.width || 820)}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        {isRowEditing ? <select value={String(editRowData.thicks || item.thicks || 35)} onChange={(event) => setEditField("thicks", event.target.value)} style={controlStyle}>{optionSet.thicks.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.thicks || 35)}
-                      </td>
-                      <td style={{ textAlign: "center" }}>
-                        {isRowEditing ? (
-                          <select value={String(editRowData.wall_width || item.wall_width || "")} onChange={(event) => setEditField("wall_width", event.target.value)} style={controlStyle}>
-                            <option value="">—</option>
-                            {optionSet.wallWidth.map((value) => <option key={value} value={value}>{value}</option>)}
-                          </select>
-                        ) : jambWallStr}
-                      </td>
-                      <td>
-                        {isRowEditing ? (
-                          editIsCavity ? (
-                            <select value={editRowData.ezyJamb || "No"} onChange={(event) => setEditField("ezyJamb", event.target.value)} style={controlStyle}>
-                              <option value="No">—</option>
-                              <option value="Yes">Eze Jamb</option>
-                            </select>
-                          ) : (
-                            <select value={editRowData.door_frame || "Timber Jamb"} onChange={(event) => setEditField("door_frame", event.target.value)} style={controlStyle}>
-                              {optionSet.frame.map((value) => <option key={value} value={value}>{value}</option>)}
-                            </select>
-                          )
-                        ) : frameDisplay}
-                      </td>
-                      <td>
-                        {isRowEditing ? (
-                          editIsCavity ? <span>—</span> : (
-                            <select
-                              value={editRowData.handing || editRowData.lift_off_pivot || "None"}
-                              onChange={(event) => {
-                                if (editIsLoose) setEditField("lift_off_pivot", event.target.value);
-                                else setEditField("handing", event.target.value);
-                              }}
-                              style={controlStyle}
-                            >
-                              {Array.from(new Set([...(optionSet.handing || []), ...(optionSet.liftOff || [])])).map((value) => <option key={value} value={value}>{value}</option>)}
-                            </select>
-                          )
-                        ) : hungStr}
-                      </td>
-                      <td>
-                        {isRowEditing ? (
-                          <select value={sanitizeProcurementDoorType(editRowData.door_type) || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
-                            <option value="">—</option>
-                            {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-                          </select>
-                        ) : (sanitizeProcurementDoorType(item.door_type) || "—")}
-                      </td>
-                      <td>{isRowEditing ? (editIsCavity ? <span>—</span> : <select value={editRowData.hole || "None"} onChange={(event) => setEditField("hole", event.target.value)} style={controlStyle}>{optionSet.hole.map((value) => <option key={value} value={value}>{value}</option>)}</select>) : holeStr}</td>
-                      <td>{isRowEditing ? (editIsCavity ? <span>—</span> : <select value={editRowData.finish || "None"} onChange={(event) => setEditField("finish", event.target.value)} style={controlStyle}>{optionSet.finish.map((value) => <option key={value} value={value}>{value}</option>)}</select>) : finishStr}</td>
-                      <td>
-                        {isRowEditing ? (
-                          editIsCavity ? <span>—</span> : <select value={editRowData.door_stop || "None"} onChange={(event) => setEditField("door_stop", event.target.value)} style={controlStyle}>{optionSet.stop.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-                        ) : doorStopStr}
-                      </td>
-                      <td>{isRowEditing ? <select value={editRowData.door_furniture || "None"} onChange={(event) => setEditField("door_furniture", event.target.value)} style={controlStyle}>{editFurnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : furnitureStr}</td>
-                      <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
-                        {isRowEditing ? <input inputMode="numeric" value={editRowData.qty ?? 1} onChange={(event) => setEditField("qty", event.target.value)} style={{ ...controlStyle, textAlign: "center" }} /> : (item.qty || 1)}
-                      </td>
-                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                        {isRowEditing ? (
-                          <>
-                            <button type="button" onClick={(event) => { event.stopPropagation(); handleSaveInlineEdit(item.id); }} style={{ ...S.deleteBtn, color: "#16a34a" }} title="Save row">✓</button>
-                            <button type="button" onClick={(event) => { event.stopPropagation(); setEditingRowId(null); }} style={{ ...S.deleteBtn, color: "#64748b" }} title="Cancel edit">✕</button>
-                          </>
-                        ) : <button type="button" onClick={(event) => { event.stopPropagation(); handleRemoveEntry(item.id); }} style={S.deleteBtn} title="Remove door from entered data">✕</button>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </TaskSummaryTable>
-      </TaskInlineEnteredSection>
+                        return item.door_frame && item.door_frame !== "None" ? item.door_frame : "—";
+                      })();
+                      const liftOffStr = !isCavity && item.lift_off_pivot && item.lift_off_pivot !== "None" ? item.lift_off_pivot : "—";
+                      const handingStr = isPrehung && item.handing && item.handing !== "None" ? item.handing : "—";
+                      const holeStr = isPrehung && item.hole && item.hole !== "None" ? (isBunVic && item.hole === "HF" ? "HL" : item.hole) : "—";
+                      const finishStr = isPrehung && item.finish && item.finish !== "None" ? item.finish : "—";
+                      const furnitureStr = normalizeFurnitureDisplay(item.door_furniture);
+                      const doorStopStr = isCavity ? "—" : normalizeStopDisplay(item.door_stop);
+                      const jambWallStr = item.wall_width ? `${String(item.wall_width).replace(/mm/gi, "").trim()}mm Wall` : "—";
+                      const hungStr = isCavity ? "—" : (item.handing || item.lift_off_pivot || "—");
+
+                      const isRowEditing = editingRowId === item.id;
+                      const editCategory = isRowEditing ? (editRowData.category || item.category || "cavity") : item.category;
+                      const editIsCavity = isCavityStyleCategory(editCategory);
+                      const editIsLoose = editCategory === "loose-jamb" || editCategory === "loose";
+                      const editHeightOptions = editIsCavity ? optionSet.cavityHeight : optionSet.height;
+                      const editWidthOptions = editIsCavity ? optionSet.cavityWidth : optionSet.width;
+                      // Door Type is independent from Category.
+                      // Cavity/Sliding/Bifold use the same Door Type source as Cavity.
+                      const editUsesCavityDoorTypes = ["cavity", "sliding", "bifold"].includes(editCategory);
+                      const editDoorOptions = editUsesCavityDoorTypes
+                        ? looseJambDoors
+                        : (editIsLoose ? looseJambDoors : prehungDoors);
+                      const editFurnitureOptions = editIsCavity
+                        ? (FURNITURE_OPTIONS_BY_MODE.cavity || [])
+                        : (FURNITURE_OPTIONS_BY_MODE[editCategory] || FURNITURE_OPTIONS_BY_MODE.prehung || []);
+                      const controlStyle = {
+                        width: "100%",
+                        minWidth: 0,
+                        height: "25px",
+                        border: "1px solid #93c5fd",
+                        borderRadius: "3px",
+                        background: "#fff",
+                        color: "#0f172a",
+                        fontSize: "10px",
+                        padding: "1px 3px",
+                        boxSizing: "border-box",
+                      };
+                      const setEditField = (field, value) => setEditRowData((prev) => ({ ...prev, [field]: value }));
+                      // Greyed-out look for fields that do not apply to the current category:
+                      // the value is still shown so the user can see what is set.
+                      const lockedStyle = { ...controlStyle, background: "#f1f5f9", color: "#64748b", borderColor: "#e2e8f0", cursor: "not-allowed" };
+                      // Make sure the stored value is always one of the <option>s, otherwise
+                      // <select> silently displays the first option instead of the real value.
+                      const optsWith = (opts, current) => (current && !(opts || []).includes(current) ? [current, ...opts] : opts);
+
+                      return (
+                        <tr
+                          key={item.id || idx}
+                          className={isSelected ? "fixout-data-row task-row-selected" : "fixout-data-row"}
+                          data-editing-row-id={isRowEditing ? item.id : undefined}
+                          onPointerDownCapture={(event) => {
+                            if (event.button !== 0) return;
+                            // Always finish the previous row before moving selection.
+                            // Pointer capture fires even when the target is a select/input,
+                            // so a nested control cannot leave the old row highlighted.
+                            const activeId = editingRowIdRef.current;
+                            if (activeId && activeId !== item.id) {
+                              handleSaveInlineEdit(activeId);
+                            }
+                            setSelectedEntryId(item.id);
+                            onSelectEntry?.(item);
+                          }}
+                          onClick={(event) => {
+                            if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                            setSelectedEntryId(item.id);
+                            onSelectEntry?.(item);
+                          }}
+                          onDoubleClick={(event) => {
+                            if (event.target.closest("button, input, select, textarea, a, [data-search-dropdown]")) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            if (editingRowId && editingRowId !== item.id) handleSaveInlineEdit(editingRowId);
+                            setSelectedEntryId(item.id);
+                            onSelectEntry?.(item);
+                            handleStartEdit(item);
+                          }}
+                          onKeyDown={(event) => {
+                            if (!isRowEditing) return;
+                            if (event.key === "Enter") { event.preventDefault(); handleSaveInlineEdit(item.id); }
+                            else if (event.key === "Escape") { event.preventDefault(); setEditingRowId(null); }
+                          }}
+                          style={{ cursor: "pointer" }}
+                          title="Click to select · Double-click to edit the whole row"
+                        >
+                          <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}><TaskRowNumber index={idx} row={item} /></td>
+                          <td>
+                            {isRowEditing ? (
+                              <input value={editRowData.door_label || ""} onChange={(event) => setEditField("door_label", event.target.value)} style={controlStyle} />
+                            ) : (
+                              <span style={{
+                                background: isSelected ? "#2563eb" : "#eff6ff",
+                                color: isSelected ? "#ffffff" : "#1d4ed8",
+                                padding: "2px 7px",
+                                borderRadius: "4px",
+                                border: isSelected ? "1px solid #1d4ed8" : "1px solid #bfdbfe",
+                                display: "inline-block",
+                                fontWeight: 800
+                              }}>
+                                {item.door_label || "—"}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ fontWeight: 700 }}>
+                            {isRowEditing ? (
+                              <select
+                                value="fixout"
+                                onClick={(event) => event.stopPropagation()}
+                                onDoubleClick={(event) => event.stopPropagation()}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  onMoveDoorTask?.(item, event.target.value);
+                                }}
+                                style={{ ...controlStyle, width: "86px", borderColor: "#93c5fd", fontWeight: 700 }}
+                                title="Move this door to another task. This routing is not saved to Procurement DB."
+                              >
+                                <option value="fixout">Fixout</option>
+                                <option value="lock_up">Lockup</option>
+                              </select>
+                            ) : (
+                              <span title="Double-click the row to change task">Fixout</span>
+                            )}
+                          </td>
+                          <td style={{ fontWeight: 600 }}>
+                            {isRowEditing ? (
+                              <select
+                                value={editCategory}
+                                onChange={(event) => {
+                                  const nextCategory = event.target.value;
+                                  setEditRowData((prev) => ({
+                                    ...prev,
+                                    category: nextCategory,
+                                  }));
+                                }}
+                                style={controlStyle}
+                              >
+                                <option value="cavity">Cavity</option>
+                                <option value="sliding">Sliding</option>
+                                <option value="bifold">Bifold</option>
+                                <option value="prehung">Prehung</option>
+                                <option value="loose-jamb">Loose Jamb</option>
+                              </select>
+                            ) : modeLabel(item.category)}
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {isRowEditing ? <select value={String(editRowData.height || item.height || 2040)} onChange={(event) => setEditField("height", event.target.value)} style={controlStyle}>{editHeightOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.height || 2040)}
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {isRowEditing ? <select value={String(editRowData.width || item.width || 820)} onChange={(event) => setEditField("width", event.target.value)} style={controlStyle}>{editWidthOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.width || 820)}
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {isRowEditing ? <select value={String(editRowData.thicks || item.thicks || 35)} onChange={(event) => setEditField("thicks", event.target.value)} style={controlStyle}>{optionSet.thicks.map((value) => <option key={value} value={value}>{value}</option>)}</select> : (item.thicks || 35)}
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {isRowEditing ? (
+                              <select value={String(editRowData.wall_width || item.wall_width || "")} onChange={(event) => setEditField("wall_width", event.target.value)} style={controlStyle}>
+                                <option value="">—</option>
+                                {optionSet.wallWidth.map((value) => <option key={value} value={value}>{value}</option>)}
+                              </select>
+                            ) : jambWallStr}
+                          </td>
+                          <td>
+                            {isRowEditing ? (
+                              editIsCavity ? (
+                                <select value={editRowData.ezyJamb || "No"} onChange={(event) => setEditField("ezyJamb", event.target.value)} style={controlStyle}>
+                                  <option value="No">—</option>
+                                  <option value="Yes">Eze Jamb</option>
+                                </select>
+                              ) : (
+                                <select value={editRowData.door_frame || "Timber Jamb"} title={editRowData.door_frame || "Timber Jamb"} onChange={(event) => setEditField("door_frame", event.target.value)} style={controlStyle}>
+                                  {optsWith(optionSet.frame, editRowData.door_frame).map((value) => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                              )
+                            ) : frameDisplay}
+                          </td>
+                          <td>
+                            {isRowEditing ? (
+                              editIsCavity ? <span>—</span> : (
+                                <select
+                                  value={editRowData.handing || editRowData.lift_off_pivot || "None"}
+                                  onChange={(event) => {
+                                    if (editIsLoose) setEditField("lift_off_pivot", event.target.value);
+                                    else setEditField("handing", event.target.value);
+                                  }}
+                                  style={controlStyle}
+                                >
+                                  {Array.from(new Set([...(optionSet.handing || []), ...(optionSet.liftOff || [])])).map((value) => <option key={value} value={value}>{value}</option>)}
+                                </select>
+                              )
+                            ) : hungStr}
+                          </td>
+                          <td>
+                            {isRowEditing ? (
+                              <select value={sanitizeProcurementDoorType(editRowData.door_type) || ""} onChange={(event) => setEditField("door_type", event.target.value)} style={controlStyle}>
+                                <option value="">—</option>
+                                {editDoorOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                              </select>
+                            ) : (sanitizeProcurementDoorType(item.door_type) || "—")}
+                          </td>
+                          <td>{isRowEditing ? <select value={editRowData.hole || "None"} title={editRowData.hole || "None"} disabled={editIsCavity} onChange={(event) => setEditField("hole", event.target.value)} style={editIsCavity ? lockedStyle : controlStyle}>{optsWith(optionSet.hole, editRowData.hole).map((value) => <option key={value} value={value}>{value}</option>)}</select> : holeStr}</td>
+                          <td>{isRowEditing ? <select value={editRowData.finish || "None"} title={editRowData.finish || "None"} disabled={editIsCavity} onChange={(event) => setEditField("finish", event.target.value)} style={editIsCavity ? lockedStyle : controlStyle}>{optsWith(optionSet.finish, editRowData.finish).map((value) => <option key={value} value={value}>{value}</option>)}</select> : finishStr}</td>
+                          <td>
+                            {isRowEditing ? (
+                              editIsCavity ? <span>—</span> : <select value={editRowData.door_stop || "None"} onChange={(event) => setEditField("door_stop", event.target.value)} style={controlStyle}>{optionSet.stop.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+                            ) : doorStopStr}
+                          </td>
+                          <td>{isRowEditing ? <select value={editRowData.door_furniture || "None"} onChange={(event) => setEditField("door_furniture", event.target.value)} style={controlStyle}>{editFurnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select> : furnitureStr}</td>
+                          <td style={{ textAlign: "center", fontWeight: 700, color: "#2563eb" }}>
+                            {isRowEditing ? <input inputMode="numeric" value={editRowData.qty ?? 1} onChange={(event) => setEditField("qty", event.target.value)} style={{ ...controlStyle, textAlign: "center" }} /> : (item.qty || 1)}
+                          </td>
+                          <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                            {isRowEditing ? (
+                              <>
+                                <button type="button" onClick={(event) => { event.stopPropagation(); handleSaveInlineEdit(item.id); }} style={{ ...S.deleteBtn, color: "#16a34a" }} title="Save row">✓</button>
+                                <button type="button" onClick={(event) => { event.stopPropagation(); setEditingRowId(null); }} style={{ ...S.deleteBtn, color: "#64748b" }} title="Cancel edit">✕</button>
+                              </>
+                            ) : <button type="button" onClick={(event) => { event.stopPropagation(); handleRemoveEntry(item.id); }} style={S.deleteBtn} title="Remove door from entered data">✕</button>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </TaskSummaryTable>
+          </TaskInlineEnteredSection>
+        </ScrollPanel>
+      )}
 
     </div>
   );
