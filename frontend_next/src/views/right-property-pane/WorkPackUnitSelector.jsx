@@ -109,7 +109,7 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
     height: "24px",
     borderRadius: "6px",
     border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1",
-    background: isDark ? "rgba(255, 255, 255, 0.08)" : "#fff",
+    background: isDark ? "#26395f" : "#fff",
     color: isDark ? "#f8fafc" : "#334155",
     fontSize: "15px",
     lineHeight: 1,
@@ -122,14 +122,17 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap" }} title="Shared Unit with Procurement">
       <span style={{ color: isDark ? "#dbeafe" : "#64748b", fontSize: "9px", fontWeight: 800, flexShrink: 0 }}>UNIT</span>
-      <select
-        value={activeWorkPackUnit || "Unit 1"}
-        disabled={busy}
-        onChange={(event) => setActiveWorkPackUnit(event.target.value)}
-        style={{ height: "24px", width: "84px", borderRadius: "6px", border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1", background: isDark ? "#31456e" : "#fff", color: isDark ? "#ffffff" : "#0f172a", padding: "0 5px", fontSize: "11px", fontWeight: 700, outline: "none", flexShrink: 0 }}
-      >
-        {units.map((unit) => <option key={unit} value={unit} style={{ background: "#ffffff", color: "#0f172a" }}>{unit}</option>)}
-      </select>
+      <div style={{ position: "relative", width: "84px", height: "24px", flexShrink: 0 }}>
+        <select
+          value={activeWorkPackUnit || "Unit 1"}
+          disabled={busy}
+          onChange={(event) => setActiveWorkPackUnit(event.target.value)}
+          style={{ height: "24px", width: "84px", borderRadius: "6px", border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1", background: isDark ? "#26395f" : "#fff", color: isDark ? "#ffffff" : "#0f172a", padding: isDark ? "0 20px 0 7px" : "0 5px", fontSize: "11px", fontWeight: 700, outline: "none", flexShrink: 0, appearance: isDark ? "none" : "auto", WebkitAppearance: isDark ? "none" : "auto", colorScheme: isDark ? "dark" : "light" }}
+        >
+          {units.map((unit) => <option key={unit} value={unit} style={{ background: isDark ? "#26395f" : "#ffffff", color: isDark ? "#ffffff" : "#0f172a" }}>{unit}</option>)}
+        </select>
+        {isDark && <span style={{ position: "absolute", right: "7px", top: "50%", transform: "translateY(-52%)", color: "#dbeafe", fontSize: "9px", pointerEvents: "none" }}>▼</span>}
+      </div>
       <button
         type="button"
         disabled={busy}
@@ -142,7 +145,7 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
         disabled={busy || !canDelete}
         onClick={handleDelete}
         title={activeWorkPackUnit === "Unit 1" ? "Unit 1 is the default Unit" : `Delete ${activeWorkPackUnit}`}
-        style={{ ...buttonStyle, color: canDelete ? (isDark ? "#fecaca" : "#dc2626") : (isDark ? "#94a3b8" : "#94a3b8"), borderColor: canDelete ? (isDark ? "rgba(254, 202, 202, 0.5)" : "#fecaca") : (isDark ? "rgba(191, 219, 254, 0.24)" : "#e2e8f0"), background: canDelete ? (isDark ? "rgba(220, 38, 38, 0.18)" : "#fff7f7") : (isDark ? "rgba(255, 255, 255, 0.04)" : "#f8fafc"), cursor: busy ? "wait" : (canDelete ? "pointer" : "not-allowed"), flexShrink: 0 }}
+        style={{ ...buttonStyle, color: canDelete ? (isDark ? "#fecaca" : "#dc2626") : "#94a3b8", borderColor: canDelete ? (isDark ? "rgba(254, 202, 202, 0.5)" : "#fecaca") : (isDark ? "rgba(191, 219, 254, 0.24)" : "#e2e8f0"), background: canDelete ? (isDark ? "rgba(220, 38, 38, 0.18)" : "#fff7f7") : (isDark ? "#26395f" : "#f8fafc"), cursor: busy ? "wait" : (canDelete ? "pointer" : "not-allowed"), flexShrink: 0 }}
       >×</button>
     </div>
   );

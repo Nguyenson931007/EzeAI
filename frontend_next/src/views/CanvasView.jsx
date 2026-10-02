@@ -11,6 +11,8 @@
  */
 import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import AIDoor from "../components/AIDoor";
+import OpeningPlanLabel from "../components/OpeningPlanLabel";
+import OpeningActionControls from "../components/OpeningActionControls";
 import DoorContextMenu from "../components/DoorContextMenu";
 import DoorEditDialog from "../components/DoorEditDialog";
 import WindowEditDialog from "../components/WindowEditDialog";
@@ -1880,6 +1882,11 @@ const DoorLayer = React.memo(({
           const angle = Math.atan2(dy, dx);
 
           const isManualWindow = isWindowEntity;
+          const manualOpeningTypeText = [d.class, d.class_name, d.type, d.doorType, d.doorTypeId, d.penetration_type, d.door_name, d.doorName]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          const isManualSliding = manualOpeningTypeText.includes("sliding") || manualOpeningTypeText.includes("slider") || manualOpeningTypeText.includes("cavity");
           const isManualGarage = type === "garage" || type === "roller" || (d.class_name && d.class_name.includes("garage")) || (d.class && d.class.includes("garage")) || d.doorTypeId === "ext_garage";
           const isManualBifold = type === "bifold" || d.doorType === "bifold" || (d.class && d.class.includes("bifold")) || (d.class_name && d.class_name.includes("bifold")) || (d.penetration_type && d.penetration_type.includes("bifold")) || (d.doorTypeId && d.doorTypeId.includes("bifold")) || (d.door_name && d.door_name.toLowerCase().includes("bifold")) || (d.doorName && d.doorName.toLowerCase().includes("bifold"));
 
@@ -2002,14 +2009,81 @@ const DoorLayer = React.memo(({
           };
 
           const renderSlidingDoor = () => {
-            const offsetX = -Math.sin(angle) * 3;
-            const offsetY = Math.cos(angle) * 3;
+            if (!p1 || !p2 || len <= 0) return null;
+
+            const ux = dx / len;
+            const uy = dy / len;
+            const cx = (p1.x + p2.x) / 2;
+            const cy = (p1.y + p2.y) / 2;
+            const angleDeg = angle * 180 / Math.PI;
+
+            // Match the AI sliding/cavity renderer: the visible opening thickness
+            // should follow the actual parent/nearest wall thickness instead of a
+            // fixed 4px stroke. This keeps manual and AI openings visually equal.
+            let wallThickness = 15;
+            let parentWall = null;
+
+            if (d.parentWallId && walls?.length) {
+              const baseParentId = getBaseWallId ? getBaseWallId(d.parentWallId) : d.parentWallId;
+              parentWall = walls.find((w) => {
+                const wallBaseId = getBaseWallId ? getBaseWallId(w.id) : w.id;
+                return w.id === d.parentWallId || wallBaseId === baseParentId;
+              }) || null;
+            }
+
+            if (!parentWall && walls?.length) {
+              let bestDist = Infinity;
+              for (const w of walls) {
+                if (!w.centerline || w.centerline.length !== 2) continue;
+                const wp1 = { x: w.centerline[0][0], y: w.centerline[0][1] };
+                const wp2 = { x: w.centerline[1][0], y: w.centerline[1][1] };
+                const wdx = wp2.x - wp1.x;
+                const wdy = wp2.y - wp1.y;
+                const wLen = Math.hypot(wdx, wdy);
+                if (wLen < 1e-3) continue;
+
+                const parallel = Math.abs((wdx / wLen) * ux + (wdy / wLen) * uy);
+                if (parallel < 0.8) continue;
+
+                const dist = Math.abs(wdx * (cy - wp1.y) - wdy * (cx - wp1.x)) / wLen;
+                if (dist < bestDist && dist < 60) {
+                  bestDist = dist;
+                  parentWall = w;
+                }
+              }
+            }
+
+            if (parentWall?.thickness_px) {
+              wallThickness = parentWall.thickness_px;
+            }
+
             return (
               <g>
-                {/* Invisible hitbox line for easier clicking */}
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="rgba(0, 0, 0, 0.01)" strokeWidth={24} style={{ cursor: 'pointer' }} pointerEvents="stroke" />
-                <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : (isSelected ? 6 : 4)} />
-                <line x1={p1.x + offsetX} y1={p1.y + offsetY} x2={p2.x + offsetX} y2={p2.y + offsetY} stroke={isSelected ? "#FF5722" : openingColor} strokeWidth={isDraggingThis ? 0.8 : 1} opacity={0.5} />
+                {/* Visible manual Sliding/Cavity opening — same wall-thickness model as AI */}
+                <rect
+                  x={-len / 2}
+                  y={-wallThickness / 2}
+                  width={len}
+                  height={wallThickness}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(0, 102, 204, 0.80)"}
+                  stroke={isSelected ? "#FF5722" : openingColor}
+                  strokeWidth={1.5}
+                  rx={2}
+                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                />
+
+                {/* Transparent padded hitbox for easy selection */}
+                <rect
+                  x={-len / 2}
+                  y={-Math.max(wallThickness, 24) / 2}
+                  width={len}
+                  height={Math.max(wallThickness, 24)}
+                  transform={`translate(${cx}, ${cy}) rotate(${angleDeg})`}
+                  fill="rgba(0, 0, 0, 0.001)"
+                  stroke="none"
+                  style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                />
               </g>
             );
           };
@@ -2420,35 +2494,22 @@ const DoorLayer = React.memo(({
                 // A label/name may legitimately be numeric (for example "90").
                 // Do not hide it just because it looks like a dimension.
                 const hasCustomName = Boolean(planDoorName) && planDoorName !== String(manualDimensionText || "").trim();
+                const labelMidX = (p1.x + p2.x) / 2;
+                const labelMidY = (p1.y + p2.y) / 2;
+                let labelAngleDeg = angle * 180 / Math.PI;
+                if (labelAngleDeg > 90) labelAngleDeg -= 180;
+                if (labelAngleDeg < -90) labelAngleDeg += 180;
+
                 const renderLabelElements = () => (
-                  <>
-                    {hasCustomName && (
-                      <text
-                        x={(p1.x + p2.x) / 2}
-                        y={(p1.y + p2.y) / 2 - 28}
-                        fontSize="16"
-                        textAnchor="middle"
-                        fill={isSelected ? color : "#64748b"}
-                        fontFamily="Inter, sans-serif"
-                        fontWeight="bold"
-                        style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                      >
-                        {planDoorName}
-                      </text>
-                    )}
-                    <text
-                      x={(p1.x + p2.x) / 2}
-                      y={(p1.y + p2.y) / 2 - 13}
-                      fontSize="18"
-                      textAnchor="middle"
-                      fill={isSelected ? color : "#1e293b"}
-                      fontFamily="Inter, sans-serif"
-                      fontWeight="bold"
-                      style={{ pointerEvents: 'none', userSelect: 'none', textShadow: isSelected ? 'none' : '0 0 3px white, 0 0 3px white' }}
-                    >
-                      {manualDimensionText}
-                    </text>
-                  </>
+                  <OpeningPlanLabel
+                    x={labelMidX}
+                    y={labelMidY}
+                    angleDeg={labelAngleDeg}
+                    name={hasCustomName ? planDoorName : ""}
+                    dimension={manualDimensionText}
+                    isAI={false}
+                    isSelected={isSelected}
+                  />
                 );
 
                 if (type === "double") {
@@ -2459,7 +2520,7 @@ const DoorLayer = React.memo(({
                     </>
                   );
                 }
-                if (type === "sliding") {
+                if (isManualSliding) {
                   return (
                     <>
                       {renderSlidingDoor()}
@@ -2499,143 +2560,36 @@ const DoorLayer = React.memo(({
                 );
               })()}
 
-              {/* Floating interactive flip control panel (manual doors only) */}
               {isSelected && type !== "window" && (() => {
-                const isDouble = type === "double";
-                const isBifold = isManualBifold;
-                const isSingle = (type === "single" || !type) && !isBifold;
-                const objWidth = (isSingle || isBifold) ? 190 : (isDouble ? 135 : 92);
+                let controlAngleDeg = angle * 180 / Math.PI;
+                if (controlAngleDeg > 90) controlAngleDeg -= 180;
+                if (controlAngleDeg < -90) controlAngleDeg += 180;
+
+                const handleFlipHinge = () => {
+                  if (!updateDoor) return;
+                  const nextHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+                  updateDoor({ ...d, hingeSide: nextHinge, hinge_side: nextHinge });
+                };
+
+                const handleFlipSwing = () => {
+                  if (!updateDoor) return;
+                  const nextSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+                  updateDoor({ ...d, swing: nextSwing, swing_direction: nextSwing, swingDirection: nextSwing });
+                };
 
                 return (
-                  <foreignObject
-                    x={(p1.x + p2.x) / 2 - objWidth / 2}
-                    y={(p1.y + p2.y) / 2 - 42}
-                    width={objWidth}
-                    height={40}
-                    style={{ overflow: 'visible' }}
-                  >
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        gap: '4px',
-                        background: 'rgba(15, 23, 42, 0.9)',
-                        backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(255, 87, 34, 0.5)',
-                        borderRadius: '20px',
-                        padding: '5px 10px',
-                        boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        pointerEvents: 'auto'
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      {/* Hinge flip (for single and bifold doors) */}
-                      {(isSingle || isBifold) && (
-                        <button
-                          title="Flip Hinge Direction"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (updateDoor) {
-                              const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-                              updateDoor({
-                                ...d,
-                                hingeSide: newHinge,
-                                hinge_side: newHinge
-                              });
-                            }
-                          }}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#fff',
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px',
-                            fontWeight: 'bold',
-                            borderRadius: '12px',
-                            transition: 'background 0.2s'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                        >
-                          ⇄ Hinge
-                        </button>
-                      )}
-                      {type === "single" && (
-                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
-                      )}
-                      {/* Swing flip (for single and double doors) */}
-                      {type !== "sliding" && (
-                        <button
-                          title="Flip Swing Direction"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (updateDoor) {
-                              const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-                              updateDoor({
-                                ...d,
-                                swing: newSwing,
-                                swing_direction: newSwing
-                              });
-                            }
-                          }}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#fff',
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '2px',
-                            fontWeight: 'bold',
-                            borderRadius: '12px',
-                            transition: 'background 0.2s'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                          onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                        >
-                          ⇅ Swing
-                        </button>
-                      )}
-                      {/* Edit button (for all doors) */}
-                      {(type === "single" || type === "double") && (
-                        <span style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.2)' }} />
-                      )}
-                      <button
-                        title="Edit Door Details"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onEditDoor) onEditDoor(d);
-                        }}
-                        style={{
-                          background: 'rgba(255,255,255,0.08)',
-                          border: 'none',
-                          color: '#fff',
-                          fontSize: '12px',
-                          cursor: 'pointer',
-                          padding: '4px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          fontWeight: 'bold',
-                          borderRadius: '12px',
-                          transition: 'background 0.2s'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                        onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                      >
-                        ✏️ Edit
-                      </button>
-                    </div>
-                  </foreignObject>
+                  <OpeningActionControls
+                    x={(p1.x + p2.x) / 2}
+                    y={(p1.y + p2.y) / 2}
+                    angleDeg={controlAngleDeg}
+                    offset={58}
+                    onFlipHinge={handleFlipHinge}
+                    onFlipSwing={handleFlipSwing}
+                    onEdit={onEditDoor ? () => onEditDoor(d) : null}
+                  />
                 );
               })()}
+
             </g>
           );
         } catch (err) {
@@ -3463,13 +3417,20 @@ export default function CanvasView({
   const [fcViewMode, setFcViewMode] = useState("floor"); // "floor" | "ceiling"
 
   const activePage = pages?.[currentPage];
-  const activePageId = activePage?.id || activePage?.name || currentPage;
   const isFloorCeilingWorkspace = Boolean(
     activePage?.isFloorCeilingWorkspace ||
     activePage?.source === "floor_ceiling_page" ||
     activePage?.source === "floor_ceiling_workspace" ||
     activePage?.code === "FC"
   );
+  const activePageChangeKey = (() => {
+    const workspaceKind = isFloorCeilingWorkspace ? "floor-ceiling" : "regular";
+    if (activePage?.id != null) return `id:${String(activePage.id)}:${workspaceKind}`;
+    if (activePage?.name != null) return `name:${String(activePage.name)}:${workspaceKind}`;
+    // String(NaN) is stable, whereas NaN !== NaN would make the effect below
+    // believe that the page changed after every render.
+    return `index:${String(currentPage ?? "none")}:${workspaceKind}`;
+  })();
 
   // Clear detected zones and scan state on clear event
   useEffect(() => {
@@ -3482,18 +3443,18 @@ export default function CanvasView({
   }, []);
 
   // When active page changes: restore cached zones for Floor & Ceiling workspace, or reset if normal page
-  const prevPageIdRef = useRef(activePageId);
+  const prevPageChangeKeyRef = useRef(activePageChangeKey);
   useEffect(() => {
-    if (prevPageIdRef.current !== activePageId) {
-      prevPageIdRef.current = activePageId;
-      if (isFloorCeilingWorkspace && activePage?.detectedZones && activePage.detectedZones.length > 0) {
-        setFcDetectedZones(activePage.detectedZones);
-      } else if (!isFloorCeilingWorkspace) {
-        setFcDetectedZones([]);
-      }
-      setFcSelectedZoneId(null);
+    if (prevPageChangeKeyRef.current === activePageChangeKey) return;
+
+    prevPageChangeKeyRef.current = activePageChangeKey;
+    if (isFloorCeilingWorkspace && Array.isArray(activePage?.detectedZones) && activePage.detectedZones.length > 0) {
+      setFcDetectedZones((current) => current === activePage.detectedZones ? current : activePage.detectedZones);
+    } else if (!isFloorCeilingWorkspace) {
+      setFcDetectedZones((current) => current.length === 0 ? current : []);
     }
-  }, [activePageId, isFloorCeilingWorkspace, activePage]);
+    setFcSelectedZoneId((current) => current == null ? current : null);
+  }, [activePageChangeKey, isFloorCeilingWorkspace, activePage?.detectedZones]);
 
   // Floor & Ceiling Isolated Undo / Redo / Delete history stacks
   const fcHistoryRef = useRef([]);

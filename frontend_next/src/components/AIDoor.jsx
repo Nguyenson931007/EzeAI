@@ -3,6 +3,8 @@ import { getDoorCenterline, getBaseWallId, mirrorPolygonAcrossLine, mirrorPolygo
 import { getDoorBoundingBox } from '@/engines/DoorArcLabelEngine';
 import { findParentWall } from '@/models/DoorTypeRegistry';
 import { setDoorGeometry } from '@/utils/doorGeometryCache';
+import OpeningPlanLabel from "./OpeningPlanLabel";
+import OpeningActionControls from "./OpeningActionControls";
 
 export default function AIDoor({
   door: d,
@@ -84,7 +86,11 @@ export default function AIDoor({
     }
   }
 
-  const isSliding = d.class === "sliding_door" || d.class === "double_sliding_door" || d.type === "sliding" || (d.doorTypeId && d.doorTypeId.includes("sliding"));
+  const openingTypeText = [d.class, d.class_name, d.type, d.doorType, d.doorTypeId, d.penetration_type, d.door_name, d.doorName]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const isSliding = openingTypeText.includes("sliding") || openingTypeText.includes("slider") || openingTypeText.includes("cavity");
   const isWindow = (d.class === 'window' || d.type === 'window' || (d.doorTypeId && d.doorTypeId.startsWith('win_'))) && !isSliding;
   const openingColor = isWindow ? "#15803D" : "#0066CC";
   const openingHoverColor = isWindow ? "#166534" : "#1684E8";
@@ -115,6 +121,19 @@ export default function AIDoor({
     : (aiDoorLength ? `${aiDoorLength}` : null);
   const widthLabel = dimensionLabel;
   const widthSource = d.width_source || "geometry";
+
+  // Keep opening labels aligned with the parent wall / opening axis.
+  // Normalise to [-90, 90] so the text follows the wall but never renders upside-down.
+  const labelCenterline = getDoorCenterline(d, walls);
+  let labelAngleDeg = 0;
+  if (labelCenterline?.p1 && labelCenterline?.p2) {
+    labelAngleDeg = Math.atan2(
+      labelCenterline.p2.y - labelCenterline.p1.y,
+      labelCenterline.p2.x - labelCenterline.p1.x
+    ) * 180 / Math.PI;
+    if (labelAngleDeg > 90) labelAngleDeg -= 180;
+    if (labelAngleDeg < -90) labelAngleDeg += 180;
+  }
 
   // Sliding Door Box Calculations
   let slidingWidth = 0;
@@ -162,7 +181,9 @@ export default function AIDoor({
     }
 
     if (nearestWall && nearestWall.centerline && nearestWall.centerline.length === 2) {
-      slidingHeight = nearestWall.thickness_px || 15;
+      // Sliding / cavity doors sit inside the wall rather than covering its full face.
+      // Leave ~10% of the wall visible on each side (80% opening thickness).
+      slidingHeight = Math.max(6, (nearestWall.thickness_px || 15) * 0.8);
       const wp1 = { x: nearestWall.centerline[0][0], y: nearestWall.centerline[0][1] };
       const wp2 = { x: nearestWall.centerline[1][0], y: nearestWall.centerline[1][1] };
       const wdx = wp2.x - wp1.x;
@@ -1300,18 +1321,83 @@ export default function AIDoor({
 
       {/* For Sliding Doors: Render 1 rectangular box with length following model and width following nearest wall */}
       {isSliding && (
-        <rect
-          x={-slidingWidth / 2}
-          y={-slidingHeight / 2}
-          width={slidingWidth}
-          height={slidingHeight}
-          transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
-          fill="rgba(255, 87, 34, 0.25)"
-          stroke="#FF5722"
-          strokeWidth={1.5}
-          rx={2}
-          style={{ pointerEvents: 'none' }}
-        />
+        <>
+          <rect
+            x={-slidingWidth / 2}
+            y={-slidingHeight / 2}
+            width={slidingWidth}
+            height={slidingHeight}
+            transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
+            fill={isSelected ? "rgba(255, 87, 34, 0.25)" : "rgba(0, 102, 204, 0.80)"}
+            stroke={isSelected ? "#FF5722" : openingColor}
+            strokeWidth={1.5}
+            rx={2}
+            style={{ pointerEvents: 'none' }}
+          />
+          {/* The visible aligned sliding-door body must also be the click target.
+              The AI mask polygon can be offset/narrower after wall alignment, which
+              previously made the door selectable only around its label. */}
+          <rect
+            x={-slidingWidth / 2}
+            y={-slidingHeight / 2}
+            width={slidingWidth}
+            height={slidingHeight}
+            transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
+            fill="rgba(0,0,0,0.001)"
+            stroke="rgba(0,0,0,0.001)"
+            strokeWidth={10}
+            rx={3}
+            pointerEvents="all"
+            style={{ cursor: 'pointer' }}
+            onMouseDown={(e) => {
+              lastSelectedOnMouseDown.current = isSelected;
+              if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+              const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+              if (isMulti) {
+                e.stopPropagation();
+                if (selectDoor) selectDoor(d.id, true, isWindow ? "window" : "door");
+                return;
+              }
+              if (!isSelected) {
+                e.stopPropagation();
+                if (selectDoor) {
+                  selectDoor(d.id, false, isWindow ? "window" : "door");
+                } else {
+                  setSelectedId(d.id);
+                  setSelectedType(isWindow ? "window" : "door");
+                }
+                return;
+              }
+              if (startDrag) {
+                e.stopPropagation();
+                startDrag(d.id, null, 'door-move');
+              }
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) return;
+              if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+              const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+              if (isMulti) return;
+              if (selectDoor) {
+                selectDoor(d.id, false, isWindow ? "window" : "door");
+              } else {
+                setSelectedId(d.id);
+                setSelectedType(isWindow ? "window" : "door");
+              }
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+              if (onEdit) onEdit();
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (onDoorContextMenu) onDoorContextMenu(e, d);
+            }}
+          />
+        </>
       )}
 
       {/* For Windows: Render standard CAD window geometry with end caps and double glass lines */}
@@ -1369,6 +1455,70 @@ export default function AIDoor({
             strokeWidth={1.8}
           />
         </g>
+      )}
+
+      {/* Click target matching the visible aligned Window body. */}
+      {isWindow && (
+        <rect
+          x={-slidingWidth / 2}
+          y={-slidingHeight / 2}
+          width={slidingWidth}
+          height={slidingHeight}
+          transform={`translate(${slidingCx}, ${slidingCy}) rotate(${slidingAngle * 180 / Math.PI})`}
+          fill="rgba(0,0,0,0.001)"
+          stroke="rgba(0,0,0,0.001)"
+          strokeWidth={10}
+          rx={3}
+          pointerEvents="all"
+          style={{ cursor: 'pointer' }}
+          onMouseDown={(e) => {
+            lastSelectedOnMouseDown.current = isSelected;
+            if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+            const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+            if (isMulti) {
+              e.stopPropagation();
+              if (selectDoor) selectDoor(d.id, true, "window");
+              return;
+            }
+            if (!isSelected) {
+              e.stopPropagation();
+              if (selectDoor) {
+                selectDoor(d.id, false, "window");
+              } else {
+                setSelectedId(d.id);
+                setSelectedType("window");
+              }
+              return;
+            }
+            if (startDrag) {
+              e.stopPropagation();
+              startDrag(d.id, null, 'door-move');
+            }
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (checkAndResetIgnoreClick && checkAndResetIgnoreClick()) return;
+            if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+            const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+            if (isMulti) return;
+            if (selectDoor) {
+              selectDoor(d.id, false, "window");
+            } else {
+              setSelectedId(d.id);
+              setSelectedType("window");
+            }
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            if (drawing || isDrawingDoor || isMeasuring || isDistancing) return;
+            if (onEdit) onEdit();
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onDoorContextMenu) onDoorContextMenu(e, d);
+          }}
+        />
       )}
 
       {/* For Garage Doors */}
@@ -1598,300 +1748,79 @@ export default function AIDoor({
         </>
       )}
 
-      {/* OCR Width Dimension Label & Door ID Label (Shown when showLabels is true) */}
-      {showLabels && (
-        <>
-          {widthLabel && (
-            <g 
-              style={{ pointerEvents: isSelected ? 'auto' : 'none', cursor: isSelected ? 'text' : 'pointer' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isSelected) {
-                  setSelectedId(d.id);
-                  setSelectedType("door");
-                } else {
-                  const nw = prompt("Enter door width (mm):", d.width_mm || "");
-                  if (nw !== null && !isNaN(parseInt(nw, 10)) && updateDoor) {
-                    updateDoor({...d, width_mm: parseInt(nw, 10), width_source: "manual"});
-                  }
-                }
-              }}
-            >
-              {(() => {
-                const labelText = String(dimensionLabel || widthLabel);
-                const badgeW = Math.max(88, labelText.length * 9.5 + 16);
-                return (
-                  <>
-                    <rect
-                      x={cxAvg - badgeW / 2}
-                      y={cyAvg - 13}
-                      width={badgeW}
-                      height={26}
-                      rx={6}
-                      fill="rgba(15, 23, 42, 0.94)"
-                      stroke={widthSource === "ocr" ? "#10b981" : (widthSource === "manual" ? "#f59e0b" : "#64748b")}
-                      strokeWidth={1.5}
-                      style={{ pointerEvents: 'none', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
-                    />
-                    <text
-                      x={cxAvg}
-                      y={cyAvg + 1}
-                      fontSize="18"
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      fill={widthSource === "ocr" ? "#34d399" : (widthSource === "manual" ? "#fbbf24" : "#f1f5f9")}
-                      fontWeight="700"
-                      fontFamily="Inter, monospace"
-                      style={{ pointerEvents: 'none', userSelect: 'none' }}
-                    >
-                      {labelText}
-                    </text>
-                  </>
-                );
-              })()}
-            </g>
-          )}
-
-          {/* Door Class Name / Door ID Label */}
-          <g 
-            transform={`translate(${cxAvg}, ${cyAvg - 30})`} 
-            style={{ pointerEvents: 'none' }}
-          >
-            {isSelected && (
-              <rect
-                x={-44}
-                y={-14}
-                width={88}
-                height={28}
-                rx={6}
-                fill="#FF5722"
-                opacity={0.95}
-                filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
-              />
-            )}
-            <text
-              x={0}
-              y={1}
-              fill={isSelected ? "#ffffff" : "#0f172a"}
-              fontSize={18}
-              fontWeight="700"
-              textAnchor="middle"
-              alignmentBaseline="middle"
-              style={{ textShadow: isSelected ? 'none' : '0 0 4px white, 0 0 4px white', userSelect: 'none' }}
-            >
-              {String(d.doorName || d.door_name || d.doorLabel || d.door_label || d.name || ((d.label && !/^(single|double|sliding|window|door|single_door|double_door|sliding_door)$/i.test(String(d.label).trim())) ? d.label : '') || (d.class ? d.class.replace('_door', '') : 'Door'))}
-            </text>
-          </g>
-        </>
-      )}
-
-      {/* Flip Buttons when selected (hidden during drag) */}
-      {isSelected && !dragging && updateDoor && (() => {
-        let p1 = null, p2 = null;
-        if (topEdges && topEdges[frameEdgeIndex]) {
-          p1 = topEdges[frameEdgeIndex].p1;
-          p2 = topEdges[frameEdgeIndex].p2;
-        } else if (d.points && d.points.length >= 2) {
-          p1 = Array.isArray(d.points[0]) ? {x: d.points[0][0], y: d.points[0][1]} : d.points[0];
-          p2 = Array.isArray(d.points[1]) ? {x: d.points[1][0], y: d.points[1][1]} : d.points[1];
-        }
-
-        const isVerticalDoor = p1 && p2 ? Math.abs(p2.y - p1.y) > Math.abs(p2.x - p1.x) : false;
-
-        const handleHorizontalFlip = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (isVerticalDoor) {
-            // For vertical door, Horizontal Flip (Left ↔ Right) is across the wall line (Swing flip)
-            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-            let newPoly = maskPoly;
-            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-              newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-            } else {
-              newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const nx = cxAvg - (pt.x - cxAvg);
-                return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
-              });
-            }
-            updateDoor({
-              ...d,
-              swing: newSwing,
-              swing_direction: newSwing,
-              swingDirection: newSwing,
-              polygon: newPoly,
-              mask_polygon: newPoly
-            });
-          } else {
-            // For horizontal door, Horizontal Flip (Left ↔ Right) is along the wall (Hinge flip)
-            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-            let newPoly = maskPoly;
-            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-              newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-            } else {
-              newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const nx = cxAvg - (pt.x - cxAvg);
-                return Array.isArray(p) ? [nx, pt.y] : {x: nx, y: pt.y};
-              });
-            }
-            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
-            updateDoor({
-              ...d,
-              points: newPoints,
-              hingeSide: newHinge,
-              hinge_side: newHinge,
-              polygon: newPoly,
-              mask_polygon: newPoly
-            });
-          }
-        };
-
-        const handleVerticalFlip = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (isVerticalDoor) {
-            // For vertical door, Vertical Flip (Up ↕ Down) is along the wall (Hinge flip)
-            const newHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
-            let newPoly = maskPoly;
-            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-              newPoly = mirrorPolygonAcrossPerpendicular(maskPoly, p1, p2);
-            } else {
-              newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const ny = cyAvg - (pt.y - cyAvg);
-                return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
-              });
-            }
-            const newPoints = (d.points && d.points.length >= 2) ? [d.points[1], d.points[0]] : d.points;
-            updateDoor({
-              ...d,
-              points: newPoints,
-              hingeSide: newHinge,
-              hinge_side: newHinge,
-              polygon: newPoly,
-              mask_polygon: newPoly
-            });
-          } else {
-            // For horizontal door, Vertical Flip (Up ↕ Down) is across the wall line (Swing flip)
-            const newSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
-            let newPoly = maskPoly;
-            if (p1 && p2 && maskPoly && maskPoly.length > 0) {
-              newPoly = mirrorPolygonAcrossLine(maskPoly, p1, p2);
-            } else {
-              newPoly = maskPoly.map(p => {
-                const pt = Array.isArray(p) ? {x: p[0], y: p[1]} : p;
-                const ny = cyAvg - (pt.y - cyAvg);
-                return Array.isArray(p) ? [pt.x, ny] : {x: pt.x, y: ny};
-              });
-            }
-            updateDoor({
-              ...d,
-              swing: newSwing,
-              swing_direction: newSwing,
-              swingDirection: newSwing,
-              polygon: newPoly,
-              mask_polygon: newPoly
-            });
-          }
-        };
-
-        // Tính hệ số phóng to button linh hoạt theo tỷ lệ scale thực tế (realScale) và chiều dài cửa
-        let scaleFactor = 1.5;
-        if (realScale && typeof realScale === 'number' && realScale > 0) {
-          scaleFactor = Math.max(1.3, Math.min(2.6, realScale > 20 ? realScale / 35 : realScale / 4.5));
-        } else if (p1 && p2) {
-          const doorLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-          scaleFactor = Math.max(1.3, Math.min(2.4, doorLen / 45));
-        }
-
-        const btnW = Math.round(36 * scaleFactor);
-        const btnH = Math.round(32 * scaleFactor);
-        const halfW = btnW / 2;
-        const halfH = btnH / 2;
-        const btnRx = Math.round(7 * scaleFactor);
-        const iconSize = Math.round(18 * scaleFactor);
-        const strokeW = Math.max(1.5, 1.8 * scaleFactor);
-
-        const offsetXVert = Math.round(36 * scaleFactor);
-        const offsetYVert = Math.round(20 * scaleFactor);
-        const offsetXHoriz = Math.round(22 * scaleFactor);
-        const offsetYHoriz = Math.round(34 * scaleFactor);
+      {/* Shared opening label — same component as manual doors. */}
+      {showLabels && (() => {
+        const planDoorName = String(
+          d.door_name || d.doorName || d.doorLabel || d.door_label || d.name ||
+          ((d.label && !/^(single|double|sliding|window|door|single_door|double_door|sliding_door)$/i.test(String(d.label).trim())) ? d.label : "") ||
+          (d.id ? String(d.id).replace(/^door_ai[_-]?/i, "D-") : "")
+        ).trim();
+        const dimensionText = String(dimensionLabel || widthLabel || "").trim();
 
         return (
-          <g 
-            style={{ pointerEvents: 'auto' }}
-            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-            onPointerDown={(e) => { e.stopPropagation(); }}
-          >
-            {/* Horizontal Flip Button (Left ↔ Right on Screen) */}
-            <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg - offsetYVert})` : `translate(${cxAvg - offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
-              style={{ cursor: 'pointer' }}
-              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-              onPointerDown={(e) => { e.stopPropagation(); }}
-              onClick={handleHorizontalFlip}
-            >
-              <rect 
-                x={-halfW} 
-                y={-halfH} 
-                width={btnW} 
-                height={btnH} 
-                rx={btnRx} 
-                fill="#0f172a" 
-                stroke="#38bdf8" 
-                strokeWidth={strokeW} 
-                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
-              />
-              <text 
-                x="0" 
-                y={Math.round(2 * scaleFactor)} 
-                fontSize={iconSize} 
-                fontWeight="bold" 
-                fill="#38bdf8" 
-                textAnchor="middle" 
-                dominantBaseline="middle"
-                style={{ userSelect: 'none' }}
-              >
-                ↔
-              </text>
-            </g>
-            
-            {/* Vertical Flip Button (Up ↕ Down on Screen) */}
-            <g 
-              transform={isVerticalDoor ? `translate(${cxAvg + offsetXVert}, ${cyAvg + offsetYVert})` : `translate(${cxAvg + offsetXHoriz}, ${cyAvg + offsetYHoriz})`} 
-              style={{ cursor: 'pointer' }}
-              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-              onPointerDown={(e) => { e.stopPropagation(); }}
-              onClick={handleVerticalFlip}
-            >
-              <rect 
-                x={-halfW} 
-                y={-halfH} 
-                width={btnW} 
-                height={btnH} 
-                rx={btnRx} 
-                fill="#0f172a" 
-                stroke="#38bdf8" 
-                strokeWidth={strokeW} 
-                filter="drop-shadow(0 3px 6px rgba(0,0,0,0.45))" 
-              />
-              <text 
-                x="0" 
-                y={Math.round(2 * scaleFactor)} 
-                fontSize={iconSize} 
-                fontWeight="bold" 
-                fill="#38bdf8" 
-                textAnchor="middle" 
-                dominantBaseline="middle"
-                style={{ userSelect: 'none' }}
-              >
-                ↕
-              </text>
-            </g>
-          </g>
+          <OpeningPlanLabel
+            x={cxAvg}
+            y={cyAvg}
+            angleDeg={labelAngleDeg}
+            name={planDoorName}
+            dimension={dimensionText}
+            isAI={true}
+            isSelected={isSelected}
+          />
         );
       })()}
+
+      {isSelected && !dragging && !isWindow && updateDoor && (() => {
+        const flipP1 = labelCenterline?.p1 || (d.points?.[0]
+          ? (Array.isArray(d.points[0]) ? { x: d.points[0][0], y: d.points[0][1] } : d.points[0])
+          : null);
+        const flipP2 = labelCenterline?.p2 || (d.points?.[1]
+          ? (Array.isArray(d.points[1]) ? { x: d.points[1][0], y: d.points[1][1] } : d.points[1])
+          : null);
+
+        const handleFlipHinge = () => {
+          const nextHinge = (d.hingeSide || d.hinge_side || "left") === "left" ? "right" : "left";
+          const nextPolygon = flipP1 && flipP2 && maskPoly.length
+            ? mirrorPolygonAcrossPerpendicular(maskPoly, flipP1, flipP2)
+            : maskPoly;
+          updateDoor({
+            ...d,
+            points: d.points?.length >= 2 ? [d.points[1], d.points[0]] : d.points,
+            hingeSide: nextHinge,
+            hinge_side: nextHinge,
+            polygon: nextPolygon,
+            mask_polygon: nextPolygon,
+          });
+        };
+
+        const handleFlipSwing = () => {
+          const nextSwing = (d.swing || d.swing_direction || "inward") === "inward" ? "outward" : "inward";
+          const nextPolygon = flipP1 && flipP2 && maskPoly.length
+            ? mirrorPolygonAcrossLine(maskPoly, flipP1, flipP2)
+            : maskPoly;
+          updateDoor({
+            ...d,
+            swing: nextSwing,
+            swing_direction: nextSwing,
+            swingDirection: nextSwing,
+            polygon: nextPolygon,
+            mask_polygon: nextPolygon,
+          });
+        };
+
+        return (
+          <OpeningActionControls
+            x={cxAvg}
+            y={cyAvg}
+            angleDeg={labelAngleDeg}
+            offset={58}
+            onFlipHinge={handleFlipHinge}
+            onFlipSwing={handleFlipSwing}
+            onEdit={onEdit}
+          />
+        );
+      })()}
+
     </g>
   );
 }

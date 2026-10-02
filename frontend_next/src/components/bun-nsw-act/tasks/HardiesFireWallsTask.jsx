@@ -5,7 +5,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import { TaskRowNumber } from "./TaskUi";
 
 export default function HardiesFireWallsTask({

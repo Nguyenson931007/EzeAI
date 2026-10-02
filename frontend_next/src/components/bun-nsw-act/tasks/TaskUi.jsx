@@ -1,5 +1,5 @@
 import React from "react";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import "./taskUi.css";
 
 export function TaskCard({ children, className = "", style }) {

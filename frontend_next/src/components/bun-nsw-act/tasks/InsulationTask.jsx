@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";

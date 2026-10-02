@@ -33,6 +33,62 @@ export default function EnteredTaskActions({
   const isSaveError = saveStatus === "error";
   const isDbSource = dataSource === "db";
 
+  const commitVisibleInlineEdits = () => {
+    if (typeof document === "undefined") return 0;
+
+    const editingRows = Array.from(document.querySelectorAll(
+      "tbody tr[data-editing-row-id], tbody tr[data-editing-area-row-id]"
+    ));
+    let committedCount = 0;
+
+    editingRows.forEach((row) => {
+      const saveButton = Array.from(row.querySelectorAll("button")).find((button) => {
+        const title = String(button.getAttribute("title") || "").trim().toLowerCase();
+        const ariaLabel = String(button.getAttribute("aria-label") || "").trim().toLowerCase();
+        const text = String(button.textContent || "").trim();
+        return title === "save" || title === "save row" ||
+          ariaLabel === "save" || ariaLabel === "save row" ||
+          text === "✓" || text === "✔";
+      });
+
+      if (saveButton && !saveButton.disabled) {
+        saveButton.click();
+        committedCount += 1;
+      }
+    });
+
+    return committedCount;
+  };
+
+  const saveLatestTaskState = async () => {
+    if (saveDisabledRef.current || isReadOnlyRef.current || typeof onSaveRef.current !== "function") return;
+
+    // A number of task tables keep the value currently being edited in a
+    // row-level draft and commit that draft when focus leaves the editor.
+    // Calling Save in the same click used to run the API handler with the
+    // previous render's rows, so the UI showed "Saved" but a reload restored
+    // the old database values. Commit the active row, then give React a render
+    // turn and invoke the latest save callback (not the stale click callback).
+    if (typeof document !== "undefined") {
+      // Commit the row draft explicitly. The global Save action is rendered in
+      // a portal outside the task table, so relying on blur/outside-click alone
+      // is not reliable for every task editor.
+      commitVisibleInlineEdits();
+      const activeElement = document.activeElement;
+      if (activeElement && typeof activeElement.blur === "function") activeElement.blur();
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ezefloor:commit-pending-task-edits"));
+      // React may need more than one render boundary when the row state lives
+      // in the task and the persisted entries live in its parent.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    }
+
+    return onSaveRef.current?.();
+  };
+
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     const resolveHost = () => setPortalHost(document.getElementById("task-global-actions-slot"));
@@ -66,7 +122,7 @@ export default function EnteredTaskActions({
       }
 
       try {
-        await onSaveRef.current();
+        await saveLatestTaskState();
         resultDetail.ok = true;
       } catch (error) {
         resultDetail.error = error?.message || String(error);
@@ -262,7 +318,7 @@ export default function EnteredTaskActions({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            if (!isReadOnly) onSave();
+            if (!isReadOnly) void saveLatestTaskState();
           }}
           disabled={saveDisabled || isSaving || isReadOnly}
           title={isReadOnly ? "Data already saved — press Edit to modify" : "Save"}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
 import { ApiService } from "@/models/api.service";

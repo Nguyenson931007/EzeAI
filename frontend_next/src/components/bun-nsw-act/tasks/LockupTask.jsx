@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
