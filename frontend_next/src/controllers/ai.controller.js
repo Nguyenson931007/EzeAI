@@ -1016,7 +1016,7 @@ export const useAIController = (
             polygon: w.polygon ? w.polygon.map(pt => [pt[0] + pdfOffset.x, pt[1] + pdfOffset.y]) : null,
             wall_type,
             class_name,
-            is_lbw: false,
+            is_lbw: true,
             thickness,
             thickness_px,
             height: defaultHeight,
@@ -1044,12 +1044,12 @@ export const useAIController = (
         const applyOpenAI = typeof window === "undefined"
           ? true
           : window.confirm(
-              `Audited ${localPriorCount} YOLO wall(s) across ${regionCount} local region(s).\n` +
-              `Approved ${approvedCount}/${proposedCount} change(s): ${addedCount} add/replace candidate(s), ${deletedCount} YOLO removal(s).\n` +
-              `Final result: ${detectedWalls.length} wall(s).` + failSafeLine + `\n\n` +
-              `Replace the current ${currentCount} wall(s) on this page?` +
-              summaryLine
-            );
+            `Audited ${localPriorCount} YOLO wall(s) across ${regionCount} local region(s).\n` +
+            `Approved ${approvedCount}/${proposedCount} change(s): ${addedCount} add/replace candidate(s), ${deletedCount} YOLO removal(s).\n` +
+            `Final result: ${detectedWalls.length} wall(s).` + failSafeLine + `\n\n` +
+            `Replace the current ${currentCount} wall(s) on this page?` +
+            summaryLine
+          );
 
         if (applyOpenAI) {
           const uniqueDetectedWalls = dedupeDetectedWallCenterlines(detectedWalls);
@@ -1113,7 +1113,7 @@ export const useAIController = (
                 polygon: shiftedPoly,
                 wall_type: wall_type,
                 class_name: class_name,
-                is_lbw: false,
+                is_lbw: true,
                 thickness: thickness,
                 thickness_px: thickness_px,
                 height: defaultHeight, // Per-wall height property

@@ -1799,7 +1799,7 @@ export function useInteractionController(svgRef, layerVisibility = { floor: true
           } else if (value === "exterior_wall" || value === "ext") {
             class_name = "exterior_wall";
             wall_type = "ext";
-            newWall.is_lbw = false;
+            newWall.is_lbw = true;
             newWall.is_ext = true;
             newWall.is_exterior = true;
           } else if (value === "interior_wall" || value === "int") {
