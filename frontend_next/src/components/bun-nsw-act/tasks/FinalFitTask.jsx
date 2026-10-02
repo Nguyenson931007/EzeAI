@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS, FINAL_FIT_ENABLED_OPTIONS } from "@/constants/procurementFormParity";
 import { canonicalProductValue, useCatalog } from "@/utils/catalogHelpers";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 
 export default function FinalFitTask({
   formData = {},

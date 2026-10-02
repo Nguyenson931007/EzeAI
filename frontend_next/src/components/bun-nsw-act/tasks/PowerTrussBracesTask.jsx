@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
-import EnteredTaskActions from "./EnteredTaskActions";
+import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
 import { useAppModel } from "@/models/app.context";
