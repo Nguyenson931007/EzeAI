@@ -1240,11 +1240,9 @@ export default function RibbonView({
             marginLeft: "8px",
             display: "inline-flex",
             alignItems: "center",
-            padding: "2px 5px",
-            borderRadius: "7px",
-            background: "rgba(59, 130, 246, 0.16)",
-            border: "1px solid rgba(147, 197, 253, 0.32)",
-            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+            padding: 0,
+            background: "transparent",
+            border: "none",
             flexShrink: 0
           }}
         >
