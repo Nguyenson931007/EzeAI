@@ -4,7 +4,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from api.unit_scope import get_active_unit
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
@@ -98,7 +98,7 @@ async def get_fow_plumbing_jobs(
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
 
         normalized_office = (office or "").strip().upper() or None
@@ -162,7 +162,7 @@ async def save_fow_plumbing_jobs(request: Request, payload: SaveFowPlumbingPaylo
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         conn.autocommit(False)
         cursor = conn.cursor(as_dict=True)
 

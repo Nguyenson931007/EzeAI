@@ -16,7 +16,7 @@ from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
@@ -64,7 +64,7 @@ async def get_insulation_jobs(request: Request, office: Optional[str] = Query(No
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection(); cursor = conn.cursor(as_dict=True)
+        conn = get_procurement_connection(); cursor = conn.cursor(as_dict=True)
         execute_procedure(cursor, "dbo.usp_EzeFloor_Insulation_List", {"Unit": active_unit, "Office": (office or "EZE0098").strip().upper() or None})
         rows = cursor.fetchall(); formatted_rows = []
         for r in rows:
@@ -86,7 +86,7 @@ async def get_insulation_jobs(request: Request, office: Optional[str] = Query(No
 async def save_insulation_jobs(request: Request, payload: SaveInsulationJobsPayloadSchema):
     active_unit = get_active_unit(request); conn = None
     try:
-        conn=get_mssql_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=payload.user_update or "EZE0098"; saved=[]
+        conn=get_procurement_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=payload.user_update or "EZE0098"; saved=[]
         for job in payload.jobs:
             job_hw_id=resolve_job_hw_id(cursor, job.id_job_hw, api_file=__file__)
             execute_procedure(cursor,"dbo.usp_EzeFloor_Insulation_Archive",{"JobHwId":job_hw_id,"Unit":active_unit,"UserUpdate":user_update})

@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
@@ -82,7 +82,7 @@ class SaveFixoutPayloadSchema(BaseModel):
 async def get_fixout_jobs(request: Request, id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw"), office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
     active_unit=get_active_unit(request); conn=None
     try:
-        conn=get_mssql_connection(); cursor=conn.cursor(as_dict=True)
+        conn=get_procurement_connection(); cursor=conn.cursor(as_dict=True)
         execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_List",{"Unit":active_unit,"JobHwId":(id_job_hw or "").strip() or None,"Office":(office or "").strip().upper() or None})
         rows=cursor.fetchall(); result=[]
         for row in rows:
@@ -101,7 +101,7 @@ async def get_fixout_jobs(request: Request, id_job_hw: Optional[str] = Query(Non
 async def save_fixout_jobs(request: Request, payload: SaveFixoutPayloadSchema):
     active_unit=get_active_unit(request); conn=None
     try:
-        conn=get_mssql_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=(payload.user_update or "").strip(); saved=[]
+        conn=get_procurement_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=(payload.user_update or "").strip(); saved=[]
         for job in payload.jobs:
             job_hw_id=resolve_job_hw_id(cursor,job.id_job_hw,api_file=__file__)
             execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Archive",{"JobHwId":job_hw_id,"Unit":active_unit,"UserUpdate":user_update})
@@ -207,7 +207,7 @@ async def save_fixout_single(payload: dict, request: Request):
 async def delete_fixout_row(fixout_id: str, request: Request):
     user_update=request.headers.get("x-username","system"); conn=None
     try:
-        conn=get_mssql_connection(); cursor=conn.cursor(); execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Delete",{"FixoutId":fixout_id.strip(),"UserUpdate":user_update}); conn.commit(); return {"success":True,"message":f"Đã xóa Fixout row ID={fixout_id}."}
+        conn=get_procurement_connection(); cursor=conn.cursor(); execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Delete",{"FixoutId":fixout_id.strip(),"UserUpdate":user_update}); conn.commit(); return {"success":True,"message":f"Đã xóa Fixout row ID={fixout_id}."}
     except Exception as e:
         if conn:
             try: conn.rollback()

@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from api.unit_scope import get_active_unit
 from app.stored_procedures import execute_procedure
 from app.customer_modules.bun_nsw_act.calculators import calculate_eaves
@@ -140,7 +140,7 @@ async def get_eaves_jobs(request: Request, office: Optional[str] = Query(None, d
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
 
         normalized_office = (office or "").strip().upper() or None
@@ -214,7 +214,7 @@ async def save_eaves_jobs(request: Request, payload: SaveJobsPayloadSchema):
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         conn.autocommit(False)  # Bật chế độ Transaction thủ công
         cursor = conn.cursor()
 

@@ -15,7 +15,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from api.unit_scope import get_active_unit
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
@@ -60,7 +60,7 @@ async def get_area_summary_jobs(request: Request, office: Optional[str] = None):
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
         normalized_office = (office or "EZE0098").strip().upper() or "EZE0098"
         execute_procedure(cursor, "dbo.usp_EzeFloor_AreaSummary_List", {"Unit": active_unit, "Office": normalized_office})
@@ -140,7 +140,7 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
                 ),
             )
 
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor()
 
         user_update = (payload.user_update or "").strip()

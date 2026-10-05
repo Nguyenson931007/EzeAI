@@ -16,7 +16,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
@@ -97,7 +97,7 @@ async def get_framework_jobs(request: Request, office: Optional[str] = Query(Non
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
         normalized_office = (office or "EZE0098").strip().upper() or None
         execute_procedure(cursor, "dbo.usp_EzeFloor_FrameWork_List", {"Unit": active_unit, "Office": normalized_office})
@@ -138,7 +138,7 @@ async def save_framework_jobs(payload: SaveJobsPayloadSchema, request: Request =
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection(); conn.autocommit(False); cursor = conn.cursor()
+        conn = get_procurement_connection(); conn.autocommit(False); cursor = conn.cursor()
         saved_summary = []
         for job in payload.jobs:
             job_hw_id = resolve_job_hw_id(cursor, job.id_job_hw, api_file=__file__)

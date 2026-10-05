@@ -16,7 +16,7 @@ from collections import defaultdict
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from api.unit_scope import get_active_unit
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
@@ -66,7 +66,7 @@ async def get_timber_posts_jobs(request: Request, office: Optional[str] = Query(
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
         normalized_office = (office or "").strip().upper() or None
         execute_procedure(cursor, "dbo.usp_EzeFloor_TimberPosts_List", {"Unit": active_unit, "Office": normalized_office})
@@ -160,7 +160,7 @@ async def save_timber_posts_jobs(request: Request, payload: SaveTimberPostsPaylo
     active_unit = get_active_unit(request)
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor()
 
         user_update = payload.user_update or "admin"

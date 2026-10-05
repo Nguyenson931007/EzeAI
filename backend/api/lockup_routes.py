@@ -14,7 +14,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
-from app.mssql_db import get_mssql_connection
+from app.mssql_db import get_procurement_connection
 from app.stored_procedures import execute_procedure
 from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
@@ -135,7 +135,7 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
 
     conn = None
     try:
-        conn = get_mssql_connection()
+        conn = get_procurement_connection()
         cursor = conn.cursor(as_dict=True)
 
         prehung_int = _query_catalog_options(cursor, "List_Prehung", customer_id)
@@ -206,7 +206,7 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
 async def get_lockout_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"), job_number: Optional[str] = Query(None, description="Filter by specific JobNumber or hw_id")):
     active_unit=get_active_unit(request); conn=None
     try:
-        conn=get_mssql_connection(); cursor=conn.cursor(as_dict=True)
+        conn=get_procurement_connection(); cursor=conn.cursor(as_dict=True)
         execute_procedure(cursor,"dbo.usp_EzeFloor_LockUp_List",{"Unit":active_unit,"Office":(office or "EZE0098").strip().upper() or None,"JobNumber":(job_number or "").strip() or None})
         rows=cursor.fetchall(); data=[]
         for r in rows:
@@ -233,7 +233,7 @@ def _to_bit(value: Any) -> int:
 async def save_lockout_jobs(request: Request, payload: SaveLockoutJobsPayloadSchema):
     active_unit=get_active_unit(request); conn=None
     try:
-        conn=get_mssql_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=payload.user_update or "EZE0098"; saved=[]
+        conn=get_procurement_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=payload.user_update or "EZE0098"; saved=[]
         for job in payload.jobs:
             job_hw_id=resolve_job_hw_id(cursor,job.id_job_hw,api_file=__file__)
             execute_procedure(cursor,"dbo.usp_EzeFloor_LockUp_Archive",{"JobHwId":job_hw_id,"Unit":active_unit,"UserUpdate":user_update})
