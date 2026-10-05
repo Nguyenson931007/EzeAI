@@ -34,27 +34,30 @@ function loadRootEnv() {
 
 loadRootEnv();
 
+const csv = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+const allowedDevOrigins = csv(process.env.NEXT_ALLOWED_DEV_ORIGINS);
+const backendUrl = String(process.env.BACKEND_URL || "").trim().replace(/\/$/, "");
+if (!backendUrl) {
+  throw new Error("BACKEND_URL must be configured in the repository root .env");
+}
+const proxyTimeout = Number(process.env.NEXT_PROXY_TIMEOUT_MS || 0);
+const proxyMaxBodySize = process.env.NEXT_PROXY_MAX_BODY_SIZE || "";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || "",
+    NEXT_PUBLIC_DIRECT_BACKEND_URL: process.env.NEXT_PUBLIC_DIRECT_BACKEND_URL || "",
+    NEXT_PUBLIC_PROCUREMENT_WEB_URL: process.env.NEXT_PUBLIC_PROCUREMENT_WEB_URL || "",
+    NEXT_PUBLIC_PROCUREMENT_DEFAULT_EMPLOYEE_ID: process.env.NEXT_PUBLIC_PROCUREMENT_DEFAULT_EMPLOYEE_ID || "",
+    NEXT_PUBLIC_SSO_DEFAULT_EMPLOYEE_ID: process.env.NEXT_PUBLIC_SSO_DEFAULT_EMPLOYEE_ID || "",
+    NEXT_PUBLIC_DEFAULT_OFFICE_CODE: process.env.NEXT_PUBLIC_DEFAULT_OFFICE_CODE || "",
+    NEXT_PUBLIC_TASKLIST_ALLOWED_ORIGINS: process.env.NEXT_PUBLIC_TASKLIST_ALLOWED_ORIGINS || "",
   },
   // CAD/BIM client-side application — all rendering is client-side
-  allowedDevOrigins: [
-    'localhost:3011',
-    '127.0.0.1:3011',
-    '14.241.197.188',
-    '*.ngrok-free.dev',
-    '*.ngrok-free.app',
-    '*.ngrok.io',
-    '*.ngrok.app',
-    'cherub-gleaming-cotton.ngrok-free.dev',
-    'elope-gory-filth.ngrok-free.dev'
-  ],
+  allowedDevOrigins,
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
-    const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8090";
-
     return [
       // Main API routes
       { source: "/api/:path*", destination: `${backendUrl}/api/:path*` },
@@ -117,10 +120,10 @@ const nextConfig = {
   // take more than five minutes, so keep the rewrite alive long enough for the
   // backend to return instead of converting a successful late response into a 500.
   experimental: {
-    proxyTimeout: 900_000,
-    proxyClientMaxBodySize: '150mb',
+    proxyTimeout,
+    proxyClientMaxBodySize: proxyMaxBodySize,
     serverActions: {
-      bodySizeLimit: '150mb',
+      bodySizeLimit: proxyMaxBodySize,
     },
   },
 

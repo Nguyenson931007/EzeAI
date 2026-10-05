@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 
 logger = logging.getLogger("ezefloor.fixout")
@@ -73,155 +75,23 @@ class SaveFixoutPayloadSchema(BaseModel):
 
 
 # ══════════════════════════════════════════════════════
-# HELPER: Resolve id_job_hw từ MSSQL
-# ══════════════════════════════════════════════════════
-
-def _resolve_fixout_job(cursor: Any, input_job_id: str) -> str:
-    """Xác nhận id_job_hw tồn tại trong task_group_hw và trả về ID chính xác, hoặc fallback input_job_id nếu là testing/custom."""
-    raw_id = str(input_job_id).strip()
-    if not raw_id:
-        raise HTTPException(status_code=422, detail="id_job_hw không được để trống.")
-
-    base_select = """
-        SELECT TOP 2
-            CAST(tghw.id AS nvarchar(100)) AS id
-        FROM [emsflow].[dbo].[task_group_hw] AS tghw
-        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj
-            ON tghw.id_job_ems = lj.IDJob
-           AND ISNULL(lj.IsDelete, 0) = 0
-        WHERE ISNULL(tghw.is_delete, 0) = 0
-          AND {condition}
-        ORDER BY tghw.created_at DESC, tghw.id
-    """
-    lookups = (
-        ("CAST(tghw.id AS nvarchar(100)) = %s", (raw_id,)),
-        ("CAST(tghw.id_job_ems AS nvarchar(100)) = %s", (raw_id,)),
-        ("LOWER(LTRIM(RTRIM(lj.JobNumber))) = LOWER(LTRIM(RTRIM(%s)))", (raw_id,)),
-    )
-    for condition, params in lookups:
-        try:
-            cursor.execute(base_select.format(condition=condition), params)
-            rows = cursor.fetchall()
-            if rows:
-                row = rows[0]
-                job_hw_id = str(_row_value(row, "id", 0) or "").strip()
-                if job_hw_id:
-                    return job_hw_id
-        except Exception as e:
-            logger.warning(f"Fixout lookup attempt failed: {e}")
-
-    # Fallback cho testing / standalone plan mà chưa có HW ID
-    return raw_id
-
-
-# ══════════════════════════════════════════════════════
 # 1. TRUY VẤN CÁC FIXOUT HIỆN TẠI (GET /api/fixout/jobs)
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_fixout_jobs(
-    request: Request,
-    id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw"),
-    office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
-):
-    """
-    Truy vấn danh sách Fixout jobs từ MSSQL [ProcurementApp].[dbo].[Fixout].
-    Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(f.IsOldData, 0) = 0.
-    """
-    active_unit = get_active_unit(request)
-    conn = None
+async def get_fixout_jobs(request: Request, id_job_hw: Optional[str] = Query(None, description="Filter by id_job_hw"), office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098")):
+    active_unit=get_active_unit(request); conn=None
     try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor(as_dict=True)
-
-        normalized_office = (office or "").strip().upper() or None
-        normalized_hw_id = (id_job_hw or "").strip() or None
-
-        sql = f"""
-            SELECT
-                f.ID AS fixout_id,
-                f.IdJob_HW,
-                f.category,
-                f.door_label,
-                f.door_type,
-                f.height,
-                f.width,
-                f.thicks,
-                f.wall_width,
-                f.door_frame,
-                f.lift_off_pivot,
-                f.handing,
-                f.hole,
-                f.finish,
-                f.door_furniture,
-                f.door_stop,
-                f.qty,
-                f.FloorLevel AS floor_level,
-                f.UserUpdate AS user_update,
-                f.DatetimeUpdate AS datetime_update,
-                f.IsOldData AS is_old_data,
-
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-
-                lj.JobNumber AS job_number
-
-            FROM [ProcurementApp].[dbo].[Fixout] f
-
-            LEFT JOIN [emsflow].[dbo].[task_group_hw] tghw
-                ON tghw.id = f.IdJob_HW
-               AND ISNULL(tghw.is_delete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                ISNULL(f.IsOldData, 0) = 0
-                {unit_filter("f", active_unit)}
-                AND (%s IS NULL OR CAST(f.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
-                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(f.UserUpdate))) = %s)
-
-            ORDER BY f.DatetimeUpdate DESC, f.ID;
-        """
-
-        cursor.execute(sql, (
-            normalized_hw_id, normalized_hw_id, normalized_hw_id, normalized_hw_id,
-            normalized_office, normalized_office, normalized_office
-        ))
-        rows = cursor.fetchall()
-
-        result = []
+        conn=get_mssql_connection(); cursor=conn.cursor(as_dict=True)
+        execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_List",{"Unit":active_unit,"JobHwId":(id_job_hw or "").strip() or None,"Office":(office or "").strip().upper() or None})
+        rows=cursor.fetchall(); result=[]
         for row in rows:
-            item = {}
-            for key, val in row.items():
-                if val is None:
-                    item[key] = None
-                elif isinstance(val, (int, float, str, bool)):
-                    item[key] = val
-                else:
-                    item[key] = str(val)
-            item["floor_level"] = str(row.get("floor_level") or "GF").strip()
-            item["floorLevel"] = item["floor_level"]
-            result.append(item)
-
-        return {
-            "success": True,
-            "total": len(result),
-            "data": result
-        }
-
+            item={k:(v if v is None or isinstance(v,(int,float,str,bool)) else str(v)) for k,v in row.items()}; item["floor_level"]=str(row.get("floor_level") or "GF").strip(); item["floorLevel"]=item["floor_level"]; result.append(item)
+        return {"success":True,"total":len(result),"data":result}
     except Exception as e:
-        logger.error(f"Lỗi truy vấn Fixout jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn MSSQL Fixout: {str(e)}")
+        logger.error(f"Lỗi truy vấn Fixout jobs: {e}"); raise HTTPException(status_code=500,detail=f"Lỗi truy vấn MSSQL Fixout: {str(e)}")
     finally:
-        if conn:
-            conn.close()
-
+        if conn: conn.close()
 
 # ══════════════════════════════════════════════════════
 # 2. LƯU FIXOUT TRANSACTION & VERSIONING (POST /api/fixout/save-jobs)
@@ -229,190 +99,27 @@ async def get_fixout_jobs(
 
 @router.post("/save-jobs")
 async def save_fixout_jobs(request: Request, payload: SaveFixoutPayloadSchema):
-    """
-    Lưu dữ liệu Fixout theo đúng chuẩn Versioning & Transaction:
-    1. Validate toàn bộ Payload (id_job_hw, user_update).
-    2. Ánh xạ chính xác id_job_hw sang tghw.id.
-    3. Trong 1 Transaction:
-       a) Chuyển record cũ của Job về IsOldData = 1.
-       b) INSERT toàn bộ record mới với NEWID() và IsOldData = 0.
-    4. Nếu lỗi -> ROLLBACK toàn bộ.
-    """
-    user_update = payload.user_update.strip()
-    if not user_update:
-        raise HTTPException(status_code=422, detail="user_update là bắt buộc")
-
-    # ── VALIDATION: Kiểm tra trùng lặp Job trong payload ──
-    input_job_ids: set[str] = set()
-    for job in payload.jobs:
-        input_job_id = job.id_job_hw.strip()
-        if not input_job_id:
-            raise HTTPException(status_code=422, detail="id_job_hw là bắt buộc cho tất cả các Job")
-        normalized_id = input_job_id.lower()
-        if normalized_id in input_job_ids:
-            raise HTTPException(status_code=422, detail=f"Job '{input_job_id}' appears more than once in the payload.")
-        input_job_ids.add(normalized_id)
-
-    active_unit = get_active_unit(request)
-    conn = None
+    active_unit=get_active_unit(request); conn=None
     try:
-        conn = get_mssql_connection()
-        conn.autocommit(False)  # Bật chế độ Transaction thủ công
-        cursor = conn.cursor()
-
-        saved_summary = []
-
+        conn=get_mssql_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=(payload.user_update or "").strip(); saved=[]
         for job in payload.jobs:
-            input_job_id = job.id_job_hw.strip()
-            job_hw_id = _resolve_fixout_job(cursor, input_job_id)
-
-            # Range-lock this job so concurrent requests cannot both create current rows
-            cursor.execute("""
-                SELECT ID
-                FROM [ProcurementApp].[dbo].[Fixout] WITH (UPDLOCK, HOLDLOCK)
-                WHERE IdJob_HW = %s;
-            """, (job_hw_id,))
-            cursor.fetchall()
-
-            # Step 1: Đánh dấu tất cả record hiện tại thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = f"""
-                UPDATE [ProcurementApp].[dbo].[Fixout]
-                SET
-                    IsOldData = 1,
-                    UserUpdate = %s,
-                    DatetimeUpdate = GETDATE()
-                WHERE IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-                  AND ISNULL(IsOldData, 0) = 0;
-            """
-            cursor.execute(sql_update_history, (user_update, job_hw_id))
-
-            # Step 2: INSERT tất cả Fixout items mới
-            sql_insert = f"""
-                INSERT INTO [ProcurementApp].[dbo].[Fixout]
-                (
-                unit,
-                    ID,
-                    IdJob_HW,
-                    category,
-                    door_label,
-                    door_type,
-                    height,
-                    width,
-                    thicks,
-                    wall_width,
-                    door_frame,
-                    lift_off_pivot,
-                    handing,
-                    hole,
-                    finish,
-                    door_furniture,
-                    door_stop,
-                    qty,
-                    UserUpdate,
-                    DatetimeUpdate,
-                    IsOldData,
-                    FloorLevel
-                )
-                VALUES
-                (
-                {unit_value_sql(active_unit)},
-                    NEWID(),
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    GETDATE(),
-                    0,
-                    %s
-                );
-            """
-
-            inserted_count = 0
+            job_hw_id=resolve_job_hw_id(cursor,job.id_job_hw,api_file=__file__)
+            execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Archive",{"JobHwId":job_hw_id,"Unit":active_unit,"UserUpdate":user_update})
+            count=0
             for item in job.fixout_items:
-                height_val = _parse_decimal(item.height)
-                width_val = _parse_decimal(item.width)
-                thicks_val = _parse_decimal(item.thicks)
-                wall_width_val = _parse_decimal(item.wall_width)
-                qty_val = _parse_decimal(item.qty)
-                fl_val = str(item.floor_level or item.floorLevel or "GF").strip() or "GF"
-
-                cursor.execute(
-                    sql_insert,
-                    (
-                        job_hw_id,
-                        (item.category or "").strip() or None,
-                        (item.door_label or "").strip() or None,
-                        (item.door_type or "").strip() or None,
-                        height_val,
-                        width_val,
-                        thicks_val,
-                        wall_width_val,
-                        (item.door_frame or "").strip() or None,
-                        (item.lift_off_pivot or "").strip() or None,
-                        (item.handing or "").strip() or None,
-                        (item.hole or "").strip() or None,
-                        (item.finish or "").strip() or None,
-                        (item.door_furniture or "").strip() or None,
-                        (item.door_stop or "").strip() or None,
-                        qty_val,
-                        user_update,
-                        fl_val,
-                    ),
-                )
-                inserted_count += 1
-
-            saved_summary.append({
-                "id_job_hw": job_hw_id,
-                "fixout_inserted": inserted_count,
-            })
-
-        # Commit Transaction khi tất cả thành công!
-        conn.commit()
-        logger.info(f"Save Fixout Jobs thành công bởi user '{user_update}': {saved_summary}")
-
-        return {
-            "success": True,
-            "message": f"Đã lưu thành công {len(payload.jobs)} Fixout Job(s) vào MSSQL [ProcurementApp].[dbo].[Fixout].",
-            "user_update": user_update,
-            "jobs_saved": saved_summary,
-        }
-
-    except HTTPException:
-        if conn:
-            try:
-                conn.rollback()
-            except Exception as rb_err:
-                logger.error(f"Lỗi khi Rollback MSSQL: {rb_err}")
-        raise
+                execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Insert",{"JobHwId":job_hw_id,"Unit":active_unit,"Category":(item.category or "").strip() or None,"DoorLabel":(item.door_label or "").strip() or None,"DoorType":(item.door_type or "").strip() or None,"Height":_parse_decimal(item.height),"Width":_parse_decimal(item.width),"Thicks":_parse_decimal(item.thicks),"WallWidth":_parse_decimal(item.wall_width),"DoorFrame":(item.door_frame or "").strip() or None,"LiftOffPivot":(item.lift_off_pivot or "").strip() or None,"Handing":(item.handing or "").strip() or None,"Hole":(item.hole or "").strip() or None,"Finish":(item.finish or "").strip() or None,"DoorFurniture":(item.door_furniture or "").strip() or None,"DoorStop":(item.door_stop or "").strip() or None,"Qty":_parse_decimal(item.qty),"FloorLevel":str(item.floor_level or item.floorLevel or "GF").strip() or "GF","UserUpdate":user_update}); count+=1
+            saved.append({"id_job_hw":job_hw_id,"inserted":count})
+        conn.commit(); return {"success":True,"message":f"Đã lưu thành công {len(payload.jobs)} Fixout Job(s) vào MSSQL [ProcurementApp].[dbo].[Fixout].","user_update":user_update,"jobs_saved":saved}
+    except ValueError as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         if conn:
-            try:
-                conn.rollback()
-                logger.warning("Đã Rollback Transaction Fixout SaveJobs do có lỗi xảy ra.")
-            except Exception as rb_err:
-                logger.error(f"Lỗi khi Rollback MSSQL: {rb_err}")
-
-        logger.error(f"Lỗi khi lưu Fixout SaveJobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi lưu MSSQL Fixout: {str(e)}")
-
+            try: conn.rollback()
+            except Exception: pass
+        logger.error(f"Lỗi lưu Fixout: {e}"); raise HTTPException(status_code=500,detail=f"Lỗi lưu Fixout MSSQL: {str(e)}")
     finally:
-        if conn:
-            conn.close()
-
+        if conn: conn.close()
 
 # ══════════════════════════════════════════════════════
 # 3. BACKWARD COMPATIBILITY SAVE ENDPOINT (PUT & POST /api/fixout/save)
@@ -498,39 +205,16 @@ async def save_fixout_single(payload: dict, request: Request):
 
 @router.delete("/{fixout_id}")
 async def delete_fixout_row(fixout_id: str, request: Request):
-    """
-    Xóa mềm 1 dòng Fixout (đánh dấu IsOldData = 1).
-    """
-    user_update = request.headers.get("x-username", "system")
-
-    conn = None
+    user_update=request.headers.get("x-username","system"); conn=None
     try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            UPDATE [ProcurementApp].[dbo].[Fixout]
-            SET IsOldData = 1,
-                UserUpdate = %s,
-                DatetimeUpdate = GETDATE()
-            WHERE CAST(ID AS nvarchar(100)) = %s
-              AND ISNULL(IsOldData, 0) = 0;
-        """, (user_update, fixout_id.strip()))
-
-        conn.commit()
-
-        return {
-            "success": True,
-            "message": f"Đã xóa Fixout row ID={fixout_id}.",
-        }
-
+        conn=get_mssql_connection(); cursor=conn.cursor(); execute_procedure(cursor,"dbo.usp_EzeFloor_Fixout_Delete",{"FixoutId":fixout_id.strip(),"UserUpdate":user_update}); conn.commit(); return {"success":True,"message":f"Đã xóa Fixout row ID={fixout_id}."}
     except Exception as e:
-        logger.error(f"Lỗi xóa Fixout row: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi xóa Fixout: {str(e)}")
-    finally:
         if conn:
-            conn.close()
-
+            try: conn.rollback()
+            except Exception: pass
+        logger.error(f"Lỗi xóa Fixout row: {e}"); raise HTTPException(status_code=500,detail=f"Lỗi xóa Fixout: {str(e)}")
+    finally:
+        if conn: conn.close()
 
 # ══════════════════════════════════════════════════════
 # 5. HEALTH CHECK (GET /api/fixout/health)

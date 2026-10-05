@@ -1,14 +1,8 @@
-const getBaseUrl = () => {
-  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL?.trim()) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL.trim();
-  }
-  // Bằng cách trả về chuỗi rỗng "", trình duyệt sẽ gọi URL tương đối (relative path).
-  // Yêu cầu sẽ đi qua cổng 3011 của Next.js và được proxy nội bộ về cổng 8090 của Backend.
-  // Điều này tránh được lỗi CORS và giúp bạn không cần phải mở cổng 8090 trên Router.
-  return "";
-};
+import { APP_CONFIG, buildDirectBackendUrl } from "../config/appConfig";
 
-export const BASE_URL = getBaseUrl();
+// Public API origin is configured once in the repository-level .env.
+// Empty means same-origin requests through the Next.js rewrite proxy.
+export const BASE_URL = APP_CONFIG.apiBaseUrl;
 
 export const getHeaders = (contentType = "application/json") => {
   const userStr = localStorage.getItem("user");
@@ -370,7 +364,7 @@ export const ApiService = {
     return res.json();
   },
 
-  async getProcurementSsoToken(maNv = "EZE0090") {
+  async getProcurementSsoToken(maNv = APP_CONFIG.ssoDefaultEmployeeId) {
     const res = await fetch(`${BASE_URL}/api/auth/procurement-sso-token`, {
       method: "POST",
       headers: getHeaders(),
@@ -392,7 +386,8 @@ export const ApiService = {
       return handleResponse(res);
     } catch (fetchErr) {
       if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        const directUrl = `http://${window.location.hostname}:8090/jobs`;
+        const directUrl = buildDirectBackendUrl("/jobs");
+        if (!directUrl) throw fetchErr;
         console.warn(`[saveJob] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
         const directRes = await fetch(directUrl, {
           method: "POST",
@@ -415,7 +410,8 @@ export const ApiService = {
       return handleResponse(res);
     } catch (fetchErr) {
       if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        const directUrl = `http://${window.location.hostname}:8090/jobs/data/${jobId}`;
+        const directUrl = buildDirectBackendUrl(`/jobs/data/${jobId}`);
+        if (!directUrl) throw fetchErr;
         console.warn(`[getJobData] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
         const directRes = await fetch(directUrl, {
           headers: getHeaders(),
@@ -935,7 +931,7 @@ export const ApiService = {
   },
 
   // ── Eaves & Soffit Jobs (MSSQL ProcurementApp.dbo.EavesSoffit) ──
-  async fetchEavesJobs(office = "EZE0098") {
+  async fetchEavesJobs(office = APP_CONFIG.defaultOfficeCode) {
     const url = office ? `${BASE_URL}/api/eaves/jobs?office=${encodeURIComponent(office)}` : `${BASE_URL}/api/eaves/jobs`;
     const res = await fetch(url, {
       headers: getHeaders(),

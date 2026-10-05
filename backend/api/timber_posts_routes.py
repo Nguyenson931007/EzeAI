@@ -17,7 +17,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
-from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
+from api.unit_scope import get_active_unit
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 
 logger = logging.getLogger("ezefloor.timber_posts")
 
@@ -66,44 +68,8 @@ async def get_timber_posts_jobs(request: Request, office: Optional[str] = Query(
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
-
-        sql = f"""
-            SELECT
-                tp.ID AS post_id,
-                tghw.id AS IdJob_HW,
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-                tghw.id_assign_ems,
-
-                tp.PostType AS post_type,
-                tp.PostHeight AS post_height,
-                tp.PostSize AS post_size,
-                tp.Post AS post,
-                tp.Qty AS qty,
-                tp.GalPostSupports AS gal_post_supports,
-                tp.FloorLevel AS floor_level,
-                tp.UserUpdate AS user_update,
-                tp.DatetimeUpdate AS datetime_update,
-                tp.IsOldData AS is_old_data,
-
-                lj.JobNumber AS job_number
-
-            FROM [emsflow].[dbo].[task_group_hw] tghw
-
-            LEFT JOIN [ProcurementApp].[dbo].[Beams] tp
-                ON tghw.id = tp.IdJob_HW
-               AND ISNULL(tp.IsOldData, 0) = 0
-               {unit_filter("tp", active_unit)}
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            WHERE ISNULL(tghw.is_delete, 0) = 0
-            ORDER BY tghw.created_at DESC, tp.DatetimeUpdate DESC
-        """
-
-        cursor.execute(sql)
+        normalized_office = (office or "").strip().upper() or None
+        execute_procedure(cursor, "dbo.usp_EzeFloor_TimberPosts_List", {"Unit": active_unit, "Office": normalized_office})
         rows = cursor.fetchall()
 
         # Nhóm theo Job
@@ -199,102 +165,17 @@ async def save_timber_posts_jobs(request: Request, payload: SaveTimberPostsPaylo
 
         user_update = payload.user_update or "admin"
 
-        sql_archive_old = f"""
-            UPDATE [ProcurementApp].[dbo].[Beams]
-            SET IsOldData = 1,
-                UserUpdate = %s,
-                DatetimeUpdate = GETDATE()
-            WHERE IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-              AND ISNULL(IsOldData, 0) = 0;
-        """
-
-        sql_insert_new = f"""
-            INSERT INTO [ProcurementApp].[dbo].[Beams]
-            (
-                unit,
-                ID,
-                PostType,
-                PostHeight,
-                PostSize,
-                Post,
-                Qty,
-                GalPostSupports,
-                IdJob_HW,
-                UserUpdate,
-                DatetimeUpdate,
-                IsOldData,
-                FloorLevel
-            )
-            VALUES
-            (
-                {unit_value_sql(active_unit)},
-                NEWID(),
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                GETDATE(),
-                0,
-                %s
-            );
-        """
-
         total_saved_posts = 0
 
         for job in payload.jobs:
             raw_id = str(job.id_job_hw).strip()
-            job_hw_id = raw_id
-
-            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw
-            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (raw_id,))
-            found_tghw = cursor.fetchone()
-            if found_tghw:
-                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', raw_id)
-            else:
-                cursor.execute("""
-                    SELECT TOP 1 tghw.id 
-                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                      AND ISNULL(tghw.is_delete, 0) = 0
-                    ORDER BY tghw.created_at DESC
-                """, (raw_id, raw_id))
-                found_by_jn = cursor.fetchone()
-                if found_by_jn:
-                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', raw_id)
-                elif raw_id.isdigit():
-                    try:
-                        import sqlite3, os
-                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
-                        if os.path.exists(db_p):
-                            sq_c = sqlite3.connect(db_p)
-                            sq_cur = sq_c.cursor()
-                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(raw_id),))
-                            sq_r = sq_cur.fetchone()
-                            sq_c.close()
-                            if sq_r and sq_r[0]:
-                                p_name = sq_r[0]
-                                cursor.execute("""
-                                    SELECT TOP 1 tghw.id 
-                                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                                      AND ISNULL(tghw.is_delete, 0) = 0
-                                    ORDER BY tghw.created_at DESC
-                                """, (p_name, p_name))
-                                found_sq_jn = cursor.fetchone()
-                                if found_sq_jn:
-                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', raw_id)
-                    except Exception:
-                        pass
+            try:
+                job_hw_id = resolve_job_hw_id(cursor, raw_id, api_file=__file__)
+            except ValueError:
+                job_hw_id = raw_id
 
             # 1. Chuyển các bản ghi cũ của Job này thành IsOldData = 1
-            cursor.execute(sql_archive_old, (user_update, job_hw_id))
+            execute_procedure(cursor, "dbo.usp_EzeFloor_TimberPosts_Archive", {"JobHwId": job_hw_id, "Unit": active_unit, "UserUpdate": user_update})
 
             # 2. Thêm mới các post hiện tại (IsOldData = 0)
             for p in job.posts:
@@ -317,20 +198,7 @@ async def save_timber_posts_jobs(request: Request, payload: SaveTimberPostsPaylo
                 # beams-posts mappings (e.g. HWD 90x90 2.4m -> 0218185).
                 p_gal = str(gal_val)
 
-                cursor.execute(
-                    sql_insert_new,
-                    (
-                        p_type,
-                        p_height,
-                        p_size,
-                        p_post,
-                        qty_val,
-                        p_gal,
-                        job_hw_id,
-                        user_update,
-                        p_floor_level,
-                    )
-                )
+                execute_procedure(cursor, "dbo.usp_EzeFloor_TimberPosts_Insert", {"JobHwId": job_hw_id, "Unit": active_unit, "PostType": p_type, "PostHeight": p_height, "PostSize": p_size, "Post": p_post, "Qty": qty_val, "GalPostSupports": p_gal, "UserUpdate": user_update, "FloorLevel": p_floor_level})
                 total_saved_posts += 1
 
         conn.commit()

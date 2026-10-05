@@ -1,89 +1,117 @@
-"""
-Centralized application configuration.
+"""Centralized runtime configuration for EzeFloor.
 
-Runtime configuration is loaded from the single project-level ``.env`` file.
+All deployment-specific values live in the repository root .env. Application
+code imports values from this module and does not embed server addresses, ports,
+external API URLs, HTTP methods, credentials, or integration timeouts.
 """
-
 from pathlib import Path
 import os
-
 from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_DIR.parent
 ENV_FILE = PROJECT_ROOT / ".env"
-
-# Explicit path makes configuration independent of the current working directory.
 load_dotenv(dotenv_path=ENV_FILE, override=False)
 
-# PaddlePaddle flags (must be set before importing Paddle).
+def _csv(name: str):
+    return [v.strip() for v in os.getenv(name, "").split(",") if v.strip()]
+
+def _int(name: str, default: int):
+    raw = os.getenv(name, "").strip()
+    return int(raw) if raw else default
+
+def _float(name: str, default: float):
+    raw = os.getenv(name, "").strip()
+    return float(raw) if raw else default
+
+# Runtime flags
 os.environ.setdefault("FLAGS_enable_pir_api", os.getenv("FLAGS_ENABLE_PIR_API", "0"))
 os.environ.setdefault("FLAGS_enable_pir_in_executor", os.getenv("FLAGS_ENABLE_PIR_IN_EXECUTOR", "0"))
 os.environ.setdefault("FLAGS_pir_apply_inplace_pass", os.getenv("FLAGS_PIR_APPLY_INPLACE_PASS", "0"))
 os.environ.setdefault("FLAGS_use_mkldnn", os.getenv("FLAGS_USE_MKLDNN", "0"))
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", os.getenv("KMP_DUPLICATE_LIB_OK", "TRUE"))
 
-# Database
+# Application addresses
+APP_HOST = os.getenv("APP_HOST", "").strip()
+APP_PORT = _int("APP_PORT", 8090)
+APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "").strip().rstrip("/")
+FRONTEND_PUBLIC_URL = os.getenv("FRONTEND_PUBLIC_URL", "").strip().rstrip("/")
+
+# Local application database
 DB_TYPE = os.getenv("DB_TYPE", "sqlite").lower()
-_sqlite_path_raw = os.getenv("SQLITE_PATH", "storage/ezefloor.db")
-_sqlite_path = Path(_sqlite_path_raw).expanduser()
+_sqlite_raw = os.getenv("SQLITE_PATH", "storage/ezefloor.db")
+_sqlite_path = Path(_sqlite_raw).expanduser()
 if not _sqlite_path.is_absolute():
     _sqlite_path = BACKEND_DIR / _sqlite_path
 SQLITE_PATH = str(_sqlite_path.resolve())
-
-if DB_TYPE == "sqlite" and SQLITE_PATH:
+if DB_TYPE == "sqlite":
     Path(SQLITE_PATH).parent.mkdir(parents=True, exist_ok=True)
-
-MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_HOST = os.getenv("MYSQL_HOST", "").strip()
+MYSQL_PORT = _int("MYSQL_PORT", 3306)
+MYSQL_USER = os.getenv("MYSQL_USER", "").strip()
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
-MYSQL_DB = os.getenv("MYSQL_DB", "ezefloor")
+MYSQL_DB = os.getenv("MYSQL_DB", "").strip()
 
-MSSQL_HOST = os.getenv("MSSQL_HOST", "")
-MSSQL_PORT = int(os.getenv("MSSQL_PORT", "1433"))
-MSSQL_USER = os.getenv("MSSQL_USER", "")
+# MSSQL
+MSSQL_HOST = os.getenv("MSSQL_HOST", "").strip()
+MSSQL_PORT = _int("MSSQL_PORT", 1433)
+MSSQL_USER = os.getenv("MSSQL_USER", "").strip()
 MSSQL_PASSWORD = os.getenv("MSSQL_PASSWORD", "")
-MSSQL_DB = os.getenv("MSSQL_DB", "")
-# ProcurementApp is a separate catalog/workflow database on the same SQL Server.
-# Keep it explicit so EMS/emsflow queries and Procurement catalog queries never
-# accidentally change each other's default database.
-PROCUREMENT_DB = os.getenv("PROCUREMENT_DB", "ProcurementApp")
+MSSQL_DB = os.getenv("MSSQL_DB", "").strip()
+PROCUREMENT_DB = os.getenv("PROCUREMENT_DB", "").strip()
+MSSQL_LOGIN_TIMEOUT_SEC = _int("MSSQL_LOGIN_TIMEOUT_SEC", 10)
+MSSQL_QUERY_TIMEOUT_SEC = _int("MSSQL_QUERY_TIMEOUT_SEC", 30)
 
-# CORS
-_cors_env = os.getenv("CORS_ORIGINS", "http://localhost:3011,http://127.0.0.1:3011")
-CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+# CORS / proxy policy
+CORS_ORIGINS = _csv("CORS_ORIGINS")
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
 
-# External services
-TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "")
-_tasklist_urls_env = os.getenv("TASKLIST_AUTH_URLS", TASKLIST_AUTH_URL)
-TASKLIST_AUTH_URLS = [url.strip() for url in _tasklist_urls_env.split(",") if url.strip()]
+# TaskList integration
+TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "").strip()
+TASKLIST_AUTH_URLS = _csv("TASKLIST_AUTH_URLS") or ([TASKLIST_AUTH_URL] if TASKLIST_AUTH_URL else [])
 _tasklist_origin = TASKLIST_AUTH_URL.split("/api/", 1)[0].rstrip("/") if "/api/" in TASKLIST_AUTH_URL else ""
-TASKLIST_WORKFLOW_API_URL = os.getenv(
-    "TASKLIST_WORKFLOW_API_URL",
-    f"{_tasklist_origin}/api/workflow" if _tasklist_origin else "",
-).rstrip("/")
+TASKLIST_WORKFLOW_API_URL = (os.getenv("TASKLIST_WORKFLOW_API_URL", "").strip() or (f"{_tasklist_origin}/api/workflow" if _tasklist_origin else "")).rstrip("/")
 TASKLIST_WORKFLOW_API_TOKEN = os.getenv("TASKLIST_WORKFLOW_API_TOKEN", "").strip()
+TASKLIST_WORKFLOW_READ_METHOD = os.getenv("TASKLIST_WORKFLOW_READ_METHOD", "GET").strip().upper()
+TASKLIST_WORKFLOW_WRITE_METHOD = os.getenv("TASKLIST_WORKFLOW_WRITE_METHOD", "PUT").strip().upper()
+TASKLIST_API_TIMEOUT_SEC = _float("TASKLIST_API_TIMEOUT_SEC", 5.0)
+TASKLIST_AUTH_TIMEOUT_SEC = _float("TASKLIST_AUTH_TIMEOUT_SEC", 1.5)
+TASKLIST_VERIFY_SSL = os.getenv("TASKLIST_VERIFY_SSL", "true").strip().lower() in {"1","true","yes","on"}
+TASKLIST_ALLOWED_ORIGINS = _csv("TASKLIST_ALLOWED_ORIGINS")
 
-# Upload limits
-MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(50 * 1024 * 1024)))
+# Procurement integration
+PROCUREMENT_WEB_URL = os.getenv("PROCUREMENT_WEB_URL", "").strip().rstrip("/")
+PROCUREMENT_RECEIVE_JOB_URL = os.getenv("PROCUREMENT_RECEIVE_JOB_URL", "").strip()
+PROCUREMENT_RECEIVE_JOB_METHOD = os.getenv("PROCUREMENT_RECEIVE_JOB_METHOD", "POST").strip().upper()
+PROCUREMENT_API_TIMEOUT_SEC = _float("PROCUREMENT_API_TIMEOUT_SEC", 5.0)
+PROCUREMENT_DEFAULT_EMPLOYEE_ID = os.getenv("PROCUREMENT_DEFAULT_EMPLOYEE_ID", "").strip()
+SSO_DEFAULT_EMPLOYEE_ID = os.getenv("SSO_DEFAULT_EMPLOYEE_ID", "").strip()
+DEFAULT_OFFICE_CODE = os.getenv("DEFAULT_OFFICE_CODE", "").strip()
 
-# SMTP
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
+# Upload
+MAX_UPLOAD_SIZE = _int("MAX_UPLOAD_SIZE", 50 * 1024 * 1024)
+
+# SMTP / notifications
+SMTP_SERVER = os.getenv("SMTP_SERVER", "").strip()
+SMTP_PORT = _int("SMTP_PORT", 587)
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "")
-SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "EzeFloor AI Support")
+SMTP_SENDER_NAME = os.getenv("SMTP_SENDER_NAME", "").strip()
+ADMIN_NOTIFICATION_EMAIL = os.getenv("ADMIN_NOTIFICATION_EMAIL", "").strip()
 
-# Direct OpenAI support model (YOLO remains primary; explicit user action only).
-# The runtime client additionally enforces this exact model ID.
+# AI providers
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-5.6-luna"
-OPENAI_TIMEOUT_SEC = int(os.getenv("OPENAI_TIMEOUT_SEC", "180"))
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip().rstrip("/")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "").strip()
+OPENAI_TIMEOUT_SEC = _int("OPENAI_TIMEOUT_SEC", 180)
+OPENAI_MAX_RETRIES = _int("OPENAI_MAX_RETRIES", 3)
+OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_URL = os.getenv("GEMINI_API_URL", "").strip()
 
 # Session / security
-SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
-SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", "1800"))
+SESSION_TIMEOUT_MINUTES = _int("SESSION_TIMEOUT_MINUTES", 30)
+SESSION_COOKIE_MAX_AGE = _int("SESSION_COOKIE_MAX_AGE", 1800)
 PASSWORD_SALT = os.getenv("PASSWORD_SALT", "")
-MAX_FAILED_ATTEMPTS = int(os.getenv("MAX_FAILED_ATTEMPTS", "5"))
+MAX_FAILED_ATTEMPTS = _int("MAX_FAILED_ATTEMPTS", 5)
 TOOL_AI_SSO_SECRET = os.getenv("TOOL_AI_SSO_SECRET", "")

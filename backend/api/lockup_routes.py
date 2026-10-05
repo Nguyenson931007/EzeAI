@@ -15,6 +15,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
 from app.lockup_procurement_options import BUN_SEQLD_LOCKUP_OPTIONS
 
@@ -64,14 +66,7 @@ class SaveLockoutJobsPayloadSchema(BaseModel):
 
 def _query_catalog_options(cursor, group: str, customer_id: str) -> List[str]:
     try:
-        cursor.execute("""
-            SELECT option_value
-            FROM [ProcurementApp].[dbo].[catalog_options]
-            WHERE customer_id = %s
-              AND option_group = %s
-              AND is_active = 1
-            ORDER BY sort_order, id
-        """, (customer_id, group,))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_CatalogOptions_List", {"CustomerId": customer_id, "OptionGroup": group})
         rows = cursor.fetchall()
         return [str(r.get("option_value") or "").strip() for r in rows if str(r.get("option_value") or "").strip()]
     except Exception as e:
@@ -82,17 +77,7 @@ def _query_catalog_options(cursor, group: str, customer_id: str) -> List[str]:
 def _query_internal_door_types(cursor, prehung: bool, customer_id: str) -> List[str]:
     start_row, end_row = (2, 2214) if prehung else (2216, 5000)
     try:
-        cursor.execute("""
-            SELECT door_type, MIN(source_row) AS first_source_row
-            FROM [ProcurementApp].[dbo].[product_catalog]
-            WHERE customer_id = %s
-              AND catalog_type = N'DOOR'
-              AND is_active = 1
-              AND source_row BETWEEN %s AND %s
-              AND NULLIF(LTRIM(RTRIM(door_type)), N'') IS NOT NULL
-            GROUP BY door_type
-            ORDER BY MIN(source_row), door_type
-        """, (customer_id, start_row, end_row))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_InternalDoorTypes_List", {"CustomerId": customer_id, "StartRow": start_row, "EndRow": end_row})
         rows = cursor.fetchall()
         return [str(r.get("door_type") or "").strip() for r in rows if str(r.get("door_type") or "").strip()]
     except Exception as e:
@@ -102,15 +87,7 @@ def _query_internal_door_types(cursor, prehung: bool, customer_id: str) -> List[
 
 def _query_external_door_types(cursor, customer_id: str) -> List[str]:
     try:
-        cursor.execute("""
-            SELECT lookup_value
-            FROM [ProcurementApp].[dbo].[product_catalog]
-            WHERE customer_id = %s
-              AND catalog_type = N'ENTRY_DOOR'
-              AND is_active = 1
-              AND lookup_value IS NOT NULL
-            ORDER BY source_row, id
-        """, (customer_id,))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_ExternalDoorTypes_List", {"CustomerId": customer_id})
         rows = cursor.fetchall()
         values: List[str] = []
         for r in rows:
@@ -226,129 +203,19 @@ async def get_lockout_options(customer_id: str = Query("BUN-NSW-ACT", min_length
 # ══════════════════════════════════════════════════════
 
 @router.get("/jobs")
-async def get_lockout_jobs(
-    request: Request,    office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"),
-    job_number: Optional[str] = Query(None, description="Filter by specific JobNumber or hw_id")
-):
-    """
-    Truy vấn danh sách LockUp jobs từ MSSQL [ProcurementApp].[dbo].[LockUp].
-    Chỉ lấy các bản ghi ĐANG HOẠT ĐỘNG HIỆN TẠI: ISNULL(lock.IsOldData, 0) = 0.
-    """
-    active_unit = get_active_unit(request)
-    conn = None
+async def get_lockout_jobs(request: Request, office: Optional[str] = Query(None, description="Filter by office code e.g. EZE0098"), job_number: Optional[str] = Query(None, description="Filter by specific JobNumber or hw_id")):
+    active_unit=get_active_unit(request); conn=None
     try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor(as_dict=True)
-
-        where_clauses = ["ISNULL(tghw.is_delete, 0) = 0", "aj.MaNV = 'EZE0098'"]
-        params = []
-        if job_number and job_number.strip():
-            jn = job_number.strip()
-            where_clauses.append("(lj.JobNumber = %s OR tghw.id = %s)")
-            params.extend([jn, jn])
-
-        sql = f"""
-            SELECT
-                lock.ID AS lockout_id,
-                tghw.id AS IdJob_HW,
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-                tghw.id_assign_ems,
-
-                lock.[mode],
-                lock.[scope],
-                lock.label,
-                lock.door_type,
-                lock.height,
-                lock.width,
-                lock.thickness,
-                lock.jamb_or_wall,
-                lock.jamb_size,
-                lock.hung,
-                lock.[type],
-                lock.Weatherguard,
-                lock.DBLRebated,
-                lock.door_stop,
-                lock.internal_type,
-                lock.color,
-                lock.default_qty,
-                lock.short_name,
-                lock.UserUpdate AS user_update,
-                lock.DatetimeUpdate AS datetime_update,
-                lock.IsOldData AS is_old_data,
-
-                lj.JobNumber AS job_number
-
-            FROM [emsflow].[dbo].[task_group_hw] tghw
-
-            LEFT JOIN [ProcurementApp].[dbo].[LockUp] lock
-                ON tghw.id = lock.IdJob_HW
-               AND ISNULL(lock.IsOldData, 0) = 0
-               {unit_filter("lock", active_unit)}
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            INNER JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                {' AND '.join(where_clauses)}
-
-            ORDER BY tghw.id DESC, lock.ID DESC;
-        """
-
-        if params:
-            cursor.execute(sql, tuple(params))
-        else:
-            cursor.execute(sql)
-        rows = cursor.fetchall()
-
-        formatted_rows = []
+        conn=get_mssql_connection(); cursor=conn.cursor(as_dict=True)
+        execute_procedure(cursor,"dbo.usp_EzeFloor_LockUp_List",{"Unit":active_unit,"Office":(office or "EZE0098").strip().upper() or None,"JobNumber":(job_number or "").strip() or None})
+        rows=cursor.fetchall(); data=[]
         for r in rows:
-            formatted_rows.append({
-                "lockout_id": str(r.get("lockout_id")) if r.get("lockout_id") else None,
-                "IdJob_HW": r.get("IdJob_HW"),
-                "hw_id": r.get("hw_id"),
-                "job_number": r.get("job_number"),
-                "mode": r.get("mode"),
-                "scope": r.get("scope"),
-                "label": r.get("label"),
-                "door_type": r.get("door_type"),
-                "height": float(r["height"]) if r.get("height") is not None else None,
-                "width": float(r["width"]) if r.get("width") is not None else None,
-                "thickness": float(r["thickness"]) if r.get("thickness") is not None else None,
-                "jamb_or_wall": r.get("jamb_or_wall"),
-                "jamb_size": str(r["jamb_size"]) if r.get("jamb_size") is not None else None,
-                "hung": r.get("hung"),
-                "type": r.get("type"),
-                "weatherguard": "Yes" if bool(r.get("Weatherguard")) else "No",
-                "dbl_rebated": "Yes" if bool(r.get("DBLRebated")) else "No",
-                "door_stop": r.get("door_stop"),
-                "internal_type": r.get("internal_type"),
-                "color": r.get("color"),
-                "default_qty": float(r["default_qty"]) if r.get("default_qty") is not None else 1.0,
-                "short_name": r.get("short_name") or "BUN-NSW-ACT",
-                "user_update": r.get("user_update"),
-                "datetime_update": str(r.get("datetime_update")) if r.get("datetime_update") else None,
-                "is_old_data": bool(r.get("is_old_data", 0))
-            })
-
-        return {
-            "success": True,
-            "count": len(formatted_rows),
-            "data": formatted_rows
-        }
-
+            data.append({"lockout_id":str(r.get("lockout_id")) if r.get("lockout_id") else None,"IdJob_HW":r.get("IdJob_HW"),"hw_id":r.get("hw_id"),"job_number":r.get("job_number"),"mode":r.get("mode"),"scope":r.get("scope"),"label":r.get("label"),"door_type":r.get("door_type"),"height":float(r["height"]) if r.get("height") is not None else None,"width":float(r["width"]) if r.get("width") is not None else None,"thickness":float(r["thickness"]) if r.get("thickness") is not None else None,"jamb_or_wall":r.get("jamb_or_wall"),"jamb_size":str(r["jamb_size"]) if r.get("jamb_size") is not None else None,"hung":r.get("hung"),"type":r.get("type"),"weatherguard":"Yes" if bool(r.get("Weatherguard")) else "No","dbl_rebated":"Yes" if bool(r.get("DBLRebated")) else "No","door_stop":r.get("door_stop"),"internal_type":r.get("internal_type"),"color":r.get("color"),"default_qty":float(r["default_qty"]) if r.get("default_qty") is not None else 1.0,"short_name":r.get("short_name") or "BUN-NSW-ACT","user_update":r.get("user_update"),"datetime_update":str(r.get("datetime_update")) if r.get("datetime_update") else None,"is_old_data":bool(r.get("is_old_data",0))})
+        return {"success":True,"count":len(data),"data":data}
     except Exception as e:
-        logger.error(f"Error fetching LockUp jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi tải LockUp Jobs: {str(e)}")
+        logger.error(f"Error fetching LockUp jobs: {e}"); raise HTTPException(status_code=500,detail=f"Lỗi hệ thống khi tải LockUp Jobs: {str(e)}")
     finally:
-        if conn:
-            conn.close()
-
+        if conn: conn.close()
 
 # ══════════════════════════════════════════════════════
 # 2. LƯU BÓC TÁCH LOCKUP VÀO MSSQL (POST /api/lockout/save-jobs)
@@ -364,173 +231,27 @@ def _to_bit(value: Any) -> int:
 
 @router.post("/save-jobs")
 async def save_lockout_jobs(request: Request, payload: SaveLockoutJobsPayloadSchema):
-    """
-    Lưu danh sách bóc tách LockUp của nhiều Jobs vào MSSQL CSDL [ProcurementApp].[dbo].[LockUp].
-    Thực hiện hoàn toàn trong DATABASE TRANSACTION với IsOldData versioning.
-    """
-    active_unit = get_active_unit(request)
-    conn = None
+    active_unit=get_active_unit(request); conn=None
     try:
-        conn = get_mssql_connection()
-        cursor = conn.cursor()
-
-        user_update = payload.user_update or "EZE0098"
-        saved_summary = []
-
-        sql_archive_old = f"""
-            UPDATE [ProcurementApp].[dbo].[LockUp]
-            SET
-                IsOldData = 1,
-                UserUpdate = %s,
-                DatetimeUpdate = GETDATE()
-            WHERE
-                IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-                AND ISNULL(IsOldData, 0) = 0;
-        """
-
-        sql_insert_new = f"""
-            INSERT INTO [ProcurementApp].[dbo].[LockUp]
-            (
-                unit,
-                ID,
-                [mode],
-                [scope],
-                label,
-                door_type,
-                height,
-                width,
-                thickness,
-                jamb_or_wall,
-                jamb_size,
-                hung,
-                [type],
-                Weatherguard,
-                DBLRebated,
-                door_stop,
-                internal_type,
-                color,
-                default_qty,
-                IdJob_HW,
-                UserUpdate,
-                DatetimeUpdate,
-                IsOldData,
-                short_name
-            )
-            VALUES
-            (
-                {unit_value_sql(active_unit)},
-                NEWID(),
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
-            );
-        """
-
+        conn=get_mssql_connection(); conn.autocommit(False); cursor=conn.cursor(); user_update=payload.user_update or "EZE0098"; saved=[]
         for job in payload.jobs:
-            raw_id = str(job.id_job_hw).strip()
-            job_hw_id = raw_id
-
-            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw (giống FrameWork & AreaSummary & Insulation)
-            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (raw_id,))
-            found_tghw = cursor.fetchone()
-            if found_tghw:
-                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', raw_id)
-            else:
-                cursor.execute("""
-                    SELECT TOP 1 tghw.id 
-                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                      AND ISNULL(tghw.is_delete, 0) = 0
-                    ORDER BY tghw.created_at DESC
-                """, (raw_id, raw_id))
-                found_by_jn = cursor.fetchone()
-                if found_by_jn:
-                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', raw_id)
-                elif raw_id.isdigit():
-                    try:
-                        import sqlite3, os
-                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
-                        if os.path.exists(db_p):
-                            sq_c = sqlite3.connect(db_p)
-                            sq_cur = sq_c.cursor()
-                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(raw_id),))
-                            sq_r = sq_cur.fetchone()
-                            sq_c.close()
-                            if sq_r and sq_r[0]:
-                                p_name = sq_r[0]
-                                cursor.execute("""
-                                    SELECT TOP 1 tghw.id 
-                                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                                      AND ISNULL(tghw.is_delete, 0) = 0
-                                    ORDER BY tghw.created_at DESC
-                                """, (p_name, p_name))
-                                found_sq_jn = cursor.fetchone()
-                                if found_sq_jn:
-                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', raw_id)
-                    except Exception:
-                        pass
-
-            # 1. Chuyển các bản ghi cũ của Job này thành IsOldData = 1
-            cursor.execute(sql_archive_old, (user_update, job_hw_id))
-
-            # 2. Thêm mới các mốc LockUp hiện tại (IsOldData = 0)
-            inserted_count = 0
+            job_hw_id=resolve_job_hw_id(cursor,job.id_job_hw,api_file=__file__)
+            execute_procedure(cursor,"dbo.usp_EzeFloor_LockUp_Archive",{"JobHwId":job_hw_id,"Unit":active_unit,"UserUpdate":user_update})
+            count=0
             for item in job.items:
-                short_nm = item.short_name or "BUN-NSW-ACT"
-                cursor.execute(
-                    sql_insert_new,
-                    (
-                        item.mode,
-                        item.scope,
-                        item.label,
-                        item.door_type,
-                        item.height,
-                        item.width,
-                        item.thickness,
-                        item.jamb_or_wall,
-                        item.jamb_size,
-                        item.hung,
-                        item.type,
-                        _to_bit(item.weatherguard),
-                        _to_bit(item.dbl_rebated),
-                        item.door_stop,
-                        item.internal_type,
-                        item.color,
-                        item.default_qty or 1.0,
-                        job_hw_id,
-                        user_update,
-                        short_nm
-                    )
-                )
-                inserted_count += 1
-
-            saved_summary.append({
-                "id_job_hw": job_hw_id,
-                "inserted": inserted_count
-            })
-
-        # Commit Transaction khi tất cả các bước thành công
-        conn.commit()
-        logger.info(f"Save LockUp thành công bởi user '{user_update}': {saved_summary}")
-
-        return {
-            "success": True,
-            "message": f"Đã lưu thành công {len(payload.jobs)} Job(s) vào MSSQL [ProcurementApp].[dbo].[LockUp].",
-            "user_update": user_update,
-            "jobs_saved": saved_summary
-        }
-
+                execute_procedure(cursor,"dbo.usp_EzeFloor_LockUp_Insert",{"JobHwId":job_hw_id,"Unit":active_unit,"Mode":item.mode,"Scope":item.scope,"Label":item.label,"DoorType":item.door_type,"Height":item.height,"Width":item.width,"Thickness":item.thickness,"JambOrWall":item.jamb_or_wall,"JambSize":item.jamb_size,"Hung":item.hung,"Type":item.type,"Weatherguard":_to_bit(item.weatherguard),"DBLRebated":_to_bit(item.dbl_rebated),"DoorStop":item.door_stop,"InternalType":item.internal_type,"Color":item.color,"DefaultQty":item.default_qty or 1.0,"ShortName":item.short_name or "BUN-NSW-ACT","UserUpdate":user_update}); count+=1
+            saved.append({"id_job_hw":job_hw_id,"inserted":count})
+        conn.commit(); return {"success":True,"message":f"Đã lưu thành công {len(payload.jobs)} Job(s) vào MSSQL [ProcurementApp].[dbo].[LockUp].","user_update":user_update,"jobs_saved":saved}
+    except ValueError as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         if conn:
-            conn.rollback()
-        logger.error(f"Error saving LockUp jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi lưu dữ liệu LockUp: {str(e)}")
+            try: conn.rollback()
+            except Exception: pass
+        logger.error(f"Error saving LockUp jobs: {e}"); raise HTTPException(status_code=500,detail=f"Lỗi hệ thống khi lưu LockUp: {str(e)}")
     finally:
-        if conn:
-            conn.close()
-
+        if conn: conn.close()
 
 # ══════════════════════════════════════════════════════
 # 3. TÍNH TOÁN LOCKOUT TỪ CỬA CANVAS (POST /api/lockout/calculate)

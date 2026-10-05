@@ -18,6 +18,7 @@ from app.database import get_db_connection
 from app.config import (
     PASSWORD_SALT, SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASS,
     SMTP_SENDER_NAME, TASKLIST_AUTH_URLS, TOOL_AI_SSO_SECRET,
+    FRONTEND_PUBLIC_URL, ADMIN_NOTIFICATION_EMAIL, TASKLIST_AUTH_TIMEOUT_SEC, TASKLIST_VERIFY_SSL, SSO_DEFAULT_EMPLOYEE_ID,
 )
 
 # Khởi tạo APIRouter cho các API liên quan đến xác thực
@@ -142,7 +143,7 @@ def send_signup_notification(username: str, email: str):
         f"Email: {email}\n\n"
         f"Vui lòng đăng nhập vào Admin Panel trên EzeFloor để xem xét và duyệt yêu cầu."
     )
-    send_email_core("admin@ezefloor.ai", subject, body)
+    send_email_core(ADMIN_NOTIFICATION_EMAIL, subject, body)
 
 
 def send_credentials_email(email: str, username: str, password: str, action: str = "created"):
@@ -160,7 +161,7 @@ def send_credentials_email(email: str, username: str, password: str, action: str
             f"Thông tin đăng nhập:\n"
             f"Username: {username}\n"
             f"Password: {password}\n\n"
-            f"Vui lòng truy cập hệ thống tại: http://localhost:3011 để bắt đầu trải nghiệm.\n\n"
+            f"Vui lòng truy cập hệ thống tại: {FRONTEND_PUBLIC_URL} để bắt đầu trải nghiệm.\n\n"
             f"Trân trọng!"
         )
     else:
@@ -732,7 +733,7 @@ def _execute_tasklist_sso(token: Optional[str] = None, raw_username_param: Optio
 
             for url in urls_to_try:
                 try:
-                    with httpx.Client(verify=False, timeout=1.5) as client:
+                    with httpx.Client(verify=TASKLIST_VERIFY_SSL, timeout=TASKLIST_AUTH_TIMEOUT_SEC) as client:
                         res = client.get(
                             url,
                             headers={"Authorization": f"Bearer {token}"}
@@ -967,7 +968,7 @@ def generate_procurement_sso_token(ma_nv: str, expires_in_seconds: int = 300) ->
     if not TOOL_AI_SSO_SECRET:
         raise RuntimeError("TOOL_AI_SSO_SECRET is not configured in .env")
 
-    clean_ma_nv = str(ma_nv or "EZE0090").strip() or "EZE0090"
+    clean_ma_nv = str(ma_nv or SSO_DEFAULT_EMPLOYEE_ID).strip() or SSO_DEFAULT_EMPLOYEE_ID
     now = int(time.time())
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
@@ -996,7 +997,7 @@ async def get_procurement_sso_token(payload: dict):
     Sinh JWT token xác thực SSO cho hệ thống Procurement.
     Payload: { "ma_nv": "<mã nhân viên>" }
     """
-    ma_nv = payload.get("ma_nv") or payload.get("manv") or "EZE0090"
+    ma_nv = payload.get("ma_nv") or payload.get("manv") or SSO_DEFAULT_EMPLOYEE_ID
     token = generate_procurement_sso_token(str(ma_nv))
     return {
         "status": "success",

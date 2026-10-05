@@ -5,7 +5,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
-from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
+from api.unit_scope import get_active_unit
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 
 logger = logging.getLogger("ezefloor.shelving")
 
@@ -66,41 +68,13 @@ class SaveShelvingPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 def _resolve_shelving_job(cursor: Any, input_job_id: str) -> str:
-    """Xác nhận id_job_hw tồn tại trong task_group_hw và trả về ID chính xác, hoặc fallback input_job_id nếu là testing/custom."""
-    raw_id = str(input_job_id).strip()
-    if not raw_id:
-        raise HTTPException(status_code=422, detail="id_job_hw không được để trống.")
-
-    base_select = """
-        SELECT TOP 2
-            CAST(tghw.id AS nvarchar(100)) AS id
-        FROM [emsflow].[dbo].[task_group_hw] AS tghw
-        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj
-            ON tghw.id_job_ems = lj.IDJob
-           AND ISNULL(lj.IsDelete, 0) = 0
-        WHERE ISNULL(tghw.is_delete, 0) = 0
-          AND {condition}
-        ORDER BY tghw.created_at DESC, tghw.id
-    """
-    lookups = (
-        ("CAST(tghw.id AS nvarchar(100)) = %s", (raw_id,)),
-        ("CAST(tghw.id_job_ems AS nvarchar(100)) = %s", (raw_id,)),
-        ("LOWER(LTRIM(RTRIM(lj.JobNumber))) = LOWER(LTRIM(RTRIM(%s)))", (raw_id,)),
-    )
-    for condition, params in lookups:
-        try:
-            cursor.execute(base_select.format(condition=condition), params)
-            rows = cursor.fetchall()
-            if rows:
-                row = rows[0]
-                job_hw_id = str(_row_value(row, "id", 0) or "").strip()
-                if job_hw_id:
-                    return job_hw_id
-        except Exception as e:
-            logger.warning(f"Shelving lookup attempt failed: {e}")
-
-    # Fallback cho testing / standalone plan
-    return raw_id
+    try:
+        return resolve_job_hw_id(cursor, input_job_id, api_file=__file__)
+    except ValueError:
+        raw_id = str(input_job_id or "").strip()
+        if not raw_id:
+            raise HTTPException(status_code=422, detail="id_job_hw không được để trống.")
+        return raw_id
 
 
 # ══════════════════════════════════════════════════════
@@ -125,51 +99,11 @@ async def get_shelving_jobs(
 
         normalized_office = (office or "").strip().upper() or None
         normalized_hw_id = (id_job_hw or "").strip() or None
-
-        sql = f"""
-            SELECT
-                s.ID AS shelving_id,
-                s.IdJob_HW,
-                s.Type AS type,
-                s.Size AS size,
-                s.Qty AS qty,
-                s.FloorLevel AS floor_level,
-                s.UserUpdate AS user_update,
-                s.DatetimeUpdate AS datetime_update,
-                s.IsOldData AS is_old_data,
-
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-
-                lj.JobNumber AS job_number
-
-            FROM [ProcurementApp].[dbo].[Shelving] s
-
-            LEFT JOIN [emsflow].[dbo].[task_group_hw] tghw
-                ON tghw.id = s.IdJob_HW
-               AND ISNULL(tghw.is_delete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                ISNULL(s.IsOldData, 0) = 0
-                {unit_filter("s", active_unit)}
-                AND (%s IS NULL OR CAST(s.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
-                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(s.UserUpdate))) = %s)
-
-            ORDER BY s.DatetimeUpdate DESC, s.ID;
-        """
-
-        cursor.execute(sql, (
-            normalized_hw_id, normalized_hw_id, normalized_hw_id, normalized_hw_id,
-            normalized_office, normalized_office, normalized_office
-        ))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_Shelving_List", {
+            "Unit": active_unit,
+            "JobHwId": normalized_hw_id,
+            "Office": normalized_office,
+        })
         rows = cursor.fetchall()
 
         result = []
@@ -240,49 +174,9 @@ async def save_shelving_jobs(request: Request, payload: SaveShelvingPayloadSchem
         for job in payload.jobs:
             input_job_id = job.id_job_hw.strip()
             job_hw_id = _resolve_shelving_job(cursor, input_job_id)
-
-            # Step 1: Đánh dấu tất cả record hiện tại thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = f"""
-                UPDATE [ProcurementApp].[dbo].[Shelving]
-                SET
-                    IsOldData = 1,
-                    UserUpdate = %s,
-                    DatetimeUpdate = GETDATE()
-                WHERE IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-                  AND ISNULL(IsOldData, 0) = 0;
-            """
-            cursor.execute(sql_update_history, (user_update, job_hw_id))
-
-            # Step 2: INSERT tất cả Shelving items mới
-            sql_insert = f"""
-                INSERT INTO [ProcurementApp].[dbo].[Shelving]
-                (
-                unit,
-                    ID,
-                    IdJob_HW,
-                    [Type],
-                    [Size],
-                    [Qty],
-                    UserUpdate,
-                    DatetimeUpdate,
-                    IsOldData,
-                    [FloorLevel]
-                )
-                VALUES
-                (
-                {unit_value_sql(active_unit)},
-                    NEWID(),
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    GETDATE(),
-                    0,
-                    %s
-                );
-            """
+            # Step 1: archive current rows through SQL Server procedure
+            execute_procedure(cursor, "dbo.usp_EzeFloor_Shelving_Archive", {"JobHwId": job_hw_id, "Unit": active_unit, "UserUpdate": user_update})
+            # Step 2: insert current rows through SQL Server procedure
 
             items_list = job.items or job.shelving_items or []
             inserted_count = 0
@@ -292,17 +186,7 @@ async def save_shelving_jobs(request: Request, payload: SaveShelvingPayloadSchem
                 size_val = (item.size or "").strip() or None
                 fl_val = str(item.floor_level or item.floorLevel or "GF").strip() or "GF"
 
-                cursor.execute(
-                    sql_insert,
-                    (
-                        job_hw_id,
-                        type_val,
-                        size_val,
-                        qty_val,
-                        user_update,
-                        fl_val,
-                    ),
-                )
+                execute_procedure(cursor, "dbo.usp_EzeFloor_Shelving_Insert", {"JobHwId": job_hw_id, "Unit": active_unit, "Type": type_val, "Size": size_val, "Qty": qty_val, "UserUpdate": user_update, "FloorLevel": fl_val})
                 inserted_count += 1
 
             saved_summary.append({

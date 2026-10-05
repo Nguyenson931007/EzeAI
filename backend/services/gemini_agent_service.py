@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 from PIL import Image
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+from app.config import GEMINI_API_URL
 
 DEFAULT_ALLOWED_ACTIONS = {
     "add_row",

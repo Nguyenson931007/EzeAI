@@ -50,7 +50,7 @@ from api.power_truss_routes import router as power_truss_router
 from api.agent_routes import router as agent_router
 from api.plan_ai_routes import router as plan_ai_router
 from services.roof_v3 import router as roof_v3_router
-from app.config import CORS_ORIGINS, MAX_UPLOAD_SIZE
+from app.config import CORS_ORIGINS, CORS_ORIGIN_REGEX, MAX_UPLOAD_SIZE, APP_PORT
 from app.limiter import limiter
 
 # Cấu hình logging tập trung
@@ -148,7 +148,7 @@ app.add_middleware(
     allow_credentials=True,  # Bắt buộc bằng True để cookie phiên (session_token) có thể truyền tải
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex=r"https://.*\.ngrok-free\.dev",
+    allow_origin_regex=CORS_ORIGIN_REGEX,
 )
 
 # Thêm middleware giới hạn kích thước tệp upload
@@ -158,7 +158,7 @@ app.add_middleware(LimitUploadSizeMiddleware, max_upload_size=MAX_UPLOAD_SIZE)
 @app.get("/")
 async def root():
     """Endpoint gốc dùng để kiểm tra nhanh trạng thái kết nối máy chủ."""
-    return {"status": "online", "message": "EzeFloor Backend is running on port 8090"}
+    return {"status": "online", "message": f"EzeFloor Backend is running on port {APP_PORT}"}
 
 
 @app.get("/favicon.ico")

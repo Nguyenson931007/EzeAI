@@ -5,7 +5,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
-from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
+from api.unit_scope import get_active_unit
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 
 logger = logging.getLogger("ezefloor.fow_plumbing")
 
@@ -69,41 +71,14 @@ class SaveFowPlumbingPayloadSchema(BaseModel):
 # ══════════════════════════════════════════════════════
 
 def _resolve_fow_plumbing_job(cursor: Any, input_job_id: str) -> str:
-    """Xác nhận id_job_hw tồn tại trong task_group_hw và trả về ID chính xác, hoặc fallback input_job_id nếu là testing/custom."""
-    raw_id = str(input_job_id).strip()
-    if not raw_id:
-        raise HTTPException(status_code=422, detail="id_job_hw không được để trống.")
-
-    base_select = """
-        SELECT TOP 2
-            CAST(tghw.id AS nvarchar(100)) AS id
-        FROM [emsflow].[dbo].[task_group_hw] AS tghw
-        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj
-            ON tghw.id_job_ems = lj.IDJob
-           AND ISNULL(lj.IsDelete, 0) = 0
-        WHERE ISNULL(tghw.is_delete, 0) = 0
-          AND {condition}
-        ORDER BY tghw.created_at DESC, tghw.id
-    """
-    lookups = (
-        ("CAST(tghw.id AS nvarchar(100)) = %s", (raw_id,)),
-        ("CAST(tghw.id_job_ems AS nvarchar(100)) = %s", (raw_id,)),
-        ("LOWER(LTRIM(RTRIM(lj.JobNumber))) = LOWER(LTRIM(RTRIM(%s)))", (raw_id,)),
-    )
-    for condition, params in lookups:
-        try:
-            cursor.execute(base_select.format(condition=condition), params)
-            rows = cursor.fetchall()
-            if rows:
-                row = rows[0]
-                job_hw_id = str(_row_value(row, "id", 0) or "").strip()
-                if job_hw_id:
-                    return job_hw_id
-        except Exception as e:
-            logger.warning(f"FOW Plumbing lookup attempt failed: {e}")
-
-    # Fallback cho testing / standalone plan
-    return raw_id
+    try:
+        return resolve_job_hw_id(cursor, input_job_id, api_file=__file__)
+    except ValueError:
+        # Preserve legacy standalone/custom-plan behaviour.
+        raw_id = str(input_job_id or "").strip()
+        if not raw_id:
+            raise HTTPException(status_code=422, detail="id_job_hw không được để trống.")
+        return raw_id
 
 
 # ══════════════════════════════════════════════════════
@@ -128,52 +103,11 @@ async def get_fow_plumbing_jobs(
 
         normalized_office = (office or "").strip().upper() or None
         normalized_hw_id = (id_job_hw or "").strip() or None
-
-        sql = f"""
-            SELECT
-                fp.ID AS id,
-                fp.IdJob_HW AS id_job_hw,
-                fp.itemName AS item_name,
-                fp.code AS code,
-                fp.description AS description,
-                fp.qty AS qty,
-                fp.note AS note,
-                fp.FloorLevel AS floor_level,
-                fp.UserUpdate AS user_update,
-                fp.DatetimeUpdate AS datetime_update,
-                fp.IsOldData AS is_old_data,
-
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-
-                lj.JobNumber AS job_number
-
-            FROM [ProcurementApp].[dbo].[FOWPlumbing] fp
-
-            LEFT JOIN [emsflow].[dbo].[task_group_hw] tghw
-                ON tghw.id = fp.IdJob_HW
-               AND ISNULL(tghw.is_delete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                ISNULL(fp.IsOldData, 0) = 0
-                {unit_filter("fp", active_unit)}
-                AND (%s IS NULL OR CAST(fp.IdJob_HW AS nvarchar(100)) = %s OR CAST(tghw.id AS nvarchar(100)) = %s OR CAST(lj.JobNumber AS nvarchar(100)) = %s)
-                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s OR UPPER(LTRIM(RTRIM(fp.UserUpdate))) = %s)
-
-            ORDER BY fp.DatetimeUpdate DESC, fp.ID;
-        """
-        cursor.execute(sql, (
-            normalized_hw_id, normalized_hw_id, normalized_hw_id, normalized_hw_id,
-            normalized_office, normalized_office, normalized_office
-        ))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_FOWPlumbing_List", {
+            "Unit": active_unit,
+            "JobHwId": normalized_hw_id,
+            "Office": normalized_office,
+        })
         rows = cursor.fetchall()
 
         result = []
@@ -232,41 +166,12 @@ async def save_fow_plumbing_jobs(request: Request, payload: SaveFowPlumbingPaylo
         conn.autocommit(False)
         cursor = conn.cursor(as_dict=True)
 
-        sql_archive_old = f"""
-            UPDATE [ProcurementApp].[dbo].[FOWPlumbing]
-            SET IsOldData = 1,
-                UserUpdate = %s,
-                DatetimeUpdate = GETDATE()
-            WHERE IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-              AND ISNULL(IsOldData, 0) = 0;
-        """
-
-        sql_insert_new = f"""
-            INSERT INTO [ProcurementApp].[dbo].[FOWPlumbing] (
-                unit,
-                IdJob_HW,
-                itemName,
-                code,
-                description,
-                qty,
-                note,
-                UserUpdate,
-                DatetimeUpdate,
-                IsOldData,
-                FloorLevel
-            ) VALUES (
-                {unit_value_sql(active_unit)},
-                %s, %s, %s, %s, %s, %s, %s, GETDATE(), 0, %s
-            );
-        """
-
         saved_jobs = []
         for job in payload.jobs:
             job_hw_id = _resolve_fow_plumbing_job(cursor, job.id_job_hw)
 
             # 1. Archive bản ghi cũ
-            cursor.execute(sql_archive_old, (user_update, job_hw_id))
+            execute_procedure(cursor, "dbo.usp_EzeFloor_FOWPlumbing_Archive", {"JobHwId": job_hw_id, "Unit": active_unit, "UserUpdate": user_update})
 
             # 2. Thêm mới
             items = job.items if job.items is not None else job.plumbing_items
@@ -284,16 +189,7 @@ async def save_fow_plumbing_jobs(request: Request, payload: SaveFowPlumbingPaylo
                     if not name_val and not code_val and not desc_val:
                         continue
 
-                    cursor.execute(sql_insert_new, (
-                        job_hw_id,
-                        name_val,
-                        code_val,
-                        desc_val,
-                        qty_val,
-                        note_val,
-                        user_update,
-                        floor_lvl_val
-                    ))
+                    execute_procedure(cursor, "dbo.usp_EzeFloor_FOWPlumbing_Insert", {"JobHwId": job_hw_id, "Unit": active_unit, "ItemName": name_val, "Code": code_val, "Description": desc_val, "Qty": qty_val, "Note": note_val, "UserUpdate": user_update, "FloorLevel": floor_lvl_val})
                     inserted_count += 1
 
             saved_jobs.append({

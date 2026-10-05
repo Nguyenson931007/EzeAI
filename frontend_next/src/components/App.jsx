@@ -1,4 +1,5 @@
 "use client";
+import { APP_CONFIG } from "../config/appConfig";
 /**
  * App.jsx – Main Application Component
  * =====================================
@@ -1029,7 +1030,7 @@ export default function App() {
             const userData = {
               username: finalUsername,
               role: data.role || "admin",
-              ma_nv: data.manv || data.ma_nv || data.MaNV || "EZE0090",
+              ma_nv: data.manv || data.ma_nv || data.MaNV || APP_CONFIG.ssoDefaultEmployeeId,
               bophanlogin: data.bophanlogin || data.bophan || "",
               session_token: data.session_token,
               tasklist_token: urlToken || "",
@@ -1472,18 +1473,7 @@ export default function App() {
   const postMessageHandledRef = useRef(false);
 
   useEffect(() => {
-    const allowedOrigins = new Set([
-      "https://103.77.167.69:8081",
-      "http://103.77.167.69:8081",
-      "http://14.241.197.188:7749",
-      "https://14.241.197.188:7749",
-      "http://14.241.197.188",
-      "https://14.241.197.188",
-      "http://localhost:7749",
-      "http://127.0.0.1:7749",
-      "http://localhost:3011",
-      "http://127.0.0.1:3011"
-    ]);
+    const allowedOrigins = new Set(APP_CONFIG.taskListAllowedOrigins);
 
     try {
       if (document.referrer) {
@@ -1492,7 +1482,7 @@ export default function App() {
     } catch (_) { }
 
     const receiveSSO = async (event) => {
-      if (!allowedOrigins.has(event.origin) && !event.origin?.includes("14.241.197.188") && !event.origin?.includes("103.77.167.69")) return;
+      if (!allowedOrigins.has(event.origin)) return;
       if (event.data?.type !== "TASK_LIST_WEB3_SSO") return;
       if (!event.data?.token) return;
       if (postMessageHandledRef.current) return;
@@ -1531,7 +1521,7 @@ export default function App() {
         const userData = {
           username: finalUsername,
           role: data.role || "admin",
-          ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || "EZE0090",
+          ma_nv: data.manv || data.ma_nv || data.MaNV || (event.data.user && (event.data.user.ma_nv || event.data.user.MaNV || event.data.user.manv)) || APP_CONFIG.ssoDefaultEmployeeId,
           bophanlogin: data.bophanlogin || data.bophan || (event.data.user && (event.data.user.bophanlogin || event.data.user.bophan)) || "",
           session_token: data.session_token,
           tasklist_token: rawToken,

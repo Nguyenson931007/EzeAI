@@ -15,7 +15,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
 from api.auth import validate_session
-from app.config import TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_API_URL
+from app.config import (
+    TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_API_URL, TASKLIST_WORKFLOW_READ_METHOD, TASKLIST_WORKFLOW_WRITE_METHOD, TASKLIST_API_TIMEOUT_SEC,
+    PROCUREMENT_RECEIVE_JOB_URL, PROCUREMENT_RECEIVE_JOB_METHOD, PROCUREMENT_API_TIMEOUT_SEC,
+)
 import json
 
 logger = logging.getLogger("ezefloor.jobs")
@@ -1274,8 +1277,8 @@ async def get_job_floor_levels(
         try:
             import httpx
             target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/steps"
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(target, headers=workflow_headers, params={"_": int(time.time() * 1000)})
+            async with httpx.AsyncClient(timeout=TASKLIST_API_TIMEOUT_SEC) as client:
+                response = await client.request(TASKLIST_WORKFLOW_READ_METHOD, target, headers=workflow_headers, params={"_": int(time.time() * 1000)})
             if response.is_success:
                 data = response.json().get("data") or {}
                 floors = _parse_floor_levels(data.get("floor_levels"))
@@ -1345,8 +1348,8 @@ async def update_job_floor_levels(
         try:
             import httpx
             target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/floor-levels"
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.put(target, json={"floor_levels": floors}, headers=workflow_headers)
+            async with httpx.AsyncClient(timeout=TASKLIST_API_TIMEOUT_SEC) as client:
+                response = await client.request(TASKLIST_WORKFLOW_WRITE_METHOD, target, json={"floor_levels": floors}, headers=workflow_headers)
             if response.is_success:
                 payload = response.json().get("data") or {"id_job": ems_id, "floor_levels": floors}
                 return {
@@ -1613,15 +1616,23 @@ async def export_procurement(payload: dict, x_username: Optional[str] = Header(N
             "created_at": db_job_record.get("created_at")
         }
 
-    target_url = "http://14.241.197.188:7642/api/receive-job"
+    target_url = PROCUREMENT_RECEIVE_JOB_URL
     token = payload.get("token")
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    if not target_url:
+        return {
+            "status": "success",
+            "mode": "client_sso",
+            "message": "PROCUREMENT_RECEIVE_JOB_URL is not configured; frontend SSO/deep-link remains available.",
+            "job_record": db_job_record,
+        }
+
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            res = await client.post(target_url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=PROCUREMENT_API_TIMEOUT_SEC) as client:
+            res = await client.request(PROCUREMENT_RECEIVE_JOB_METHOD, target_url, json=payload, headers=headers)
             if res.status_code in [200, 201, 204]:
                 return {
                     "status": "success",

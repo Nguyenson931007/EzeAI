@@ -8,7 +8,10 @@ Sử dụng thư viện pymssql để kết nối TCP/IP đến SQL Server.
 """
 
 import logging
-from app.config import MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD, MSSQL_DB, PROCUREMENT_DB
+from app.config import (
+    MSSQL_HOST, MSSQL_PORT, MSSQL_USER, MSSQL_PASSWORD, MSSQL_DB, PROCUREMENT_DB,
+    MSSQL_LOGIN_TIMEOUT_SEC, MSSQL_QUERY_TIMEOUT_SEC,
+)
 
 logger = logging.getLogger("ezefloor.mssql")
 
@@ -33,8 +36,8 @@ def get_mssql_connection():
             password=MSSQL_PASSWORD,
             database=MSSQL_DB,
             charset="utf8",
-            login_timeout=10,
-            timeout=30,
+            login_timeout=MSSQL_LOGIN_TIMEOUT_SEC,
+            timeout=MSSQL_QUERY_TIMEOUT_SEC,
         )
         return conn
     except Exception as e:
@@ -63,8 +66,8 @@ def get_procurement_connection():
             password=MSSQL_PASSWORD,
             database=PROCUREMENT_DB,
             charset="utf8",
-            login_timeout=10,
-            timeout=30,
+            login_timeout=MSSQL_LOGIN_TIMEOUT_SEC,
+            timeout=MSSQL_QUERY_TIMEOUT_SEC,
         )
     except Exception as e:
         logger.error(

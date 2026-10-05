@@ -1,7 +1,6 @@
 """Direct OpenAI Responses API client for EzeFloor.
 
-All EzeFloor OpenAI features are intentionally locked to GPT-5.6 Luna.
-Azure OpenAI is not used by this client.
+OpenAI transport settings are loaded from the central project .env via app.config.
 """
 from __future__ import annotations
 
@@ -12,7 +11,11 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-OPENAI_MODEL_ID = "gpt-5.6-luna"
+from app.config import (
+    OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_TIMEOUT_SEC,
+    OPENAI_MAX_RETRIES, OPENAI_REASONING_EFFORT,
+)
+
 
 
 def _required_env(name: str) -> str:
@@ -23,18 +26,11 @@ def _required_env(name: str) -> str:
 
 
 def get_openai_model() -> str:
-    """Return the only model EzeFloor is allowed to use.
-
-    OPENAI_MODEL may be omitted. If configured, it must still be gpt-5.6-luna
-    so a stale environment variable cannot silently switch the application to a
-    different model.
-    """
-    configured = os.getenv("OPENAI_MODEL", OPENAI_MODEL_ID).strip() or OPENAI_MODEL_ID
-    if configured != OPENAI_MODEL_ID:
-        raise RuntimeError(
-            f"EzeFloor is locked to {OPENAI_MODEL_ID}; OPENAI_MODEL={configured!r} is not allowed"
-        )
-    return OPENAI_MODEL_ID
+    """Return the model configured in the central deployment config."""
+    configured = (OPENAI_MODEL or "").strip()
+    if not configured:
+        raise RuntimeError("OPENAI_MODEL is not configured")
+    return configured
 
 
 def _retry_delay(exc: urllib.error.HTTPError, attempt: int) -> float:
@@ -118,14 +114,16 @@ def openai_response(
     max_tokens: Optional[int] = None,
     reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Any]:
-    api_key = _required_env("OPENAI_API_KEY")
+    api_key = OPENAI_API_KEY.strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
     model_name = get_openai_model()
     if model and model.strip() and model.strip() != model_name:
         raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
 
-    timeout = int(timeout_sec or os.getenv("OPENAI_TIMEOUT_SEC", "180"))
-    max_retries = max(0, int(os.getenv("OPENAI_MAX_RETRIES", "3")))
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    timeout = int(timeout_sec or OPENAI_TIMEOUT_SEC)
+    max_retries = max(0, int(OPENAI_MAX_RETRIES))
+    base_url = OPENAI_BASE_URL.rstrip("/")
 
     payload: Dict[str, Any] = {
         "model": model_name,
@@ -136,7 +134,7 @@ def openai_response(
     # calls that can consume most of max_output_tokens before the structured
     # JSON is emitted. Default to no hidden reasoning unless a call explicitly
     # asks for more.
-    effort = (reasoning_effort or os.getenv("OPENAI_REASONING_EFFORT", "none")).strip().lower()
+    effort = (reasoning_effort or OPENAI_REASONING_EFFORT).strip().lower()
     allowed_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
     if effort not in allowed_efforts:
         raise RuntimeError(

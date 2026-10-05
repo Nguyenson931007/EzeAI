@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
-from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
+from api.unit_scope import get_active_unit
+from app.stored_procedures import execute_procedure
 from app.customer_modules.bun_nsw_act.calculators import calculate_eaves
 from app.customer_modules.base import CustomerCalculationError
 
@@ -91,51 +92,18 @@ def _row_value(row: Any, key: str, index: int) -> Any:
 
 
 def _resolve_job(cursor: Any, input_job_id: str) -> tuple[str, str]:
-    """Resolve a job only from authoritative MSSQL data.
-
-    An ambiguous IDJob/JobNumber is rejected instead of guessing a hardware
-    group.  The returned short name is also authoritative and is used to
-    validate the client supplied in the save payload.
-    """
-    base_select = """
-        SELECT TOP 2
-            CAST(tghw.id AS nvarchar(100)) AS id,
-            UPPER(LTRIM(RTRIM(COALESCE(NULLIF(lc.ShortName, ''), lj.Client)))) AS short_name
-        FROM [emsflow].[dbo].[task_group_hw] AS tghw
-        INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] AS lj
-            ON tghw.id_job_ems = lj.IDJob
-           AND ISNULL(lj.IsDelete, 0) = 0
-        LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListClient] AS lc
-            ON lc.ClientName = lj.Client
-           AND ISNULL(lc.IsDelete, 0) = 0
-        WHERE ISNULL(tghw.is_delete, 0) = 0
-          AND {condition}
-        ORDER BY tghw.created_at DESC, tghw.id
-    """
-    lookups = (
-        ("CAST(tghw.id AS nvarchar(100)) = %s", (input_job_id,)),
-        ("CAST(tghw.id_job_ems AS nvarchar(100)) = %s", (input_job_id,)),
-        ("LOWER(LTRIM(RTRIM(lj.JobNumber))) = LOWER(LTRIM(RTRIM(%s)))", (input_job_id,)),
-    )
-    for condition, params in lookups:
-        cursor.execute(base_select.format(condition=condition), params)
-        rows = cursor.fetchall()
-        if not rows:
-            continue
-        if len(rows) > 1:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Job '{input_job_id}' maps to multiple hardware groups; send the exact id_job_hw.",
-            )
-        row = rows[0]
-        job_hw_id = str(_row_value(row, "id", 0) or "").strip()
-        short_name = str(_row_value(row, "short_name", 1) or "").strip().upper()
-        if not job_hw_id or not short_name:
-            raise HTTPException(status_code=422, detail="The resolved job has no valid hardware ID or client short name.")
-        return job_hw_id, short_name
-
-    raise HTTPException(status_code=404, detail=f"Job '{input_job_id}' was not found in MSSQL.")
-
+    execute_procedure(cursor, "dbo.usp_EzeFloor_Eaves_ResolveJob", {"InputValue": input_job_id})
+    rows = cursor.fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Job '{input_job_id}' was not found in MSSQL.")
+    if len(rows) > 1:
+        raise HTTPException(status_code=409, detail=f"Job '{input_job_id}' maps to multiple hardware groups; send the exact id_job_hw.")
+    row = rows[0]
+    job_hw_id = str(_row_value(row, "id", 0) or "").strip()
+    short_name = str(_row_value(row, "short_name", 1) or "").strip().upper()
+    if not job_hw_id or not short_name:
+        raise HTTPException(status_code=422, detail="The resolved job has no valid hardware ID or client short name.")
+    return job_hw_id, short_name
 
 
 # ══════════════════════════════════════════════════════
@@ -176,50 +144,7 @@ async def get_eaves_jobs(request: Request, office: Optional[str] = Query(None, d
         cursor = conn.cursor(as_dict=True)
 
         normalized_office = (office or "").strip().upper() or None
-        sql = f"""
-            SELECT
-                es.ID AS eaves_id,
-                tghw.id AS IDJob_HW,
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-                tghw.id_assign_ems,
-
-                es.SheetBrand AS sheet_brand,
-                es.SheetThickness AS sheet_thickness,
-                es.SofitBatten AS sofit_batten,
-                es.SofitBead AS sofit_bead,
-                es.short_name AS short_name,
-                es.FloorLevel AS floor_level,
-                es.UserUpdate AS user_update,
-                es.DatetimeUpdate AS datetime_update,
-                es.IsOldData AS is_old_data,
-                es.InputDataJson AS input_data_json,
-
-                lj.JobNumber AS job_number
-
-            FROM [emsflow].[dbo].[task_group_hw] tghw
-
-            LEFT JOIN [ProcurementApp].[dbo].[EavesSoffit] es
-                ON tghw.id = es.IdJob_HW
-               AND ISNULL(es.IsOldData, 0) = 0
-               {unit_filter("es", active_unit)}
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            INNER JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                ISNULL(tghw.is_delete, 0) = 0
-                AND (%s IS NULL OR UPPER(LTRIM(RTRIM(aj.MaNV))) = %s)
-
-            ORDER BY tghw.id DESC;
-        """
-
-        cursor.execute(sql, (normalized_office, normalized_office))
+        execute_procedure(cursor, "dbo.usp_EzeFloor_Eaves_List", {"Unit": active_unit, "Office": normalized_office})
         rows = cursor.fetchall()
 
         result = []
@@ -301,67 +226,13 @@ async def save_eaves_jobs(request: Request, payload: SaveJobsPayloadSchema):
             job_hw_id, authoritative_short_name = _resolve_job(cursor, input_job_id)
             first_item = job.eaves[0]
             short_name_val = first_item.short_name.strip().upper()
-
-            # Range-lock this job/client so concurrent requests cannot both
-            # create a current row.
-            cursor.execute(f"""
-                SELECT ID
-                FROM [ProcurementApp].[dbo].[EavesSoffit] WITH (UPDLOCK, HOLDLOCK)
-                WHERE IdJob_HW = %s
-                  {unit_filter(None, active_unit)}
-                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s;
-            """, (job_hw_id, short_name_val))
-            cursor.fetchall()
-
-            # Step 1: Đánh dấu tất cả record hiện tại của Job đó thành dữ liệu lịch sử (IsOldData = 1)
-            sql_update_history = f"""
-                UPDATE [ProcurementApp].[dbo].[EavesSoffit]
-                SET
-                    IsOldData = 1,
-                    UserUpdate = %s,
-                    DatetimeUpdate = GETDATE()
-                WHERE IdJob_HW = %s
-                {unit_filter(None, active_unit)}
-                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
-                  AND ISNULL(IsOldData, 0) = 0;
-            """
-            cursor.execute(sql_update_history, (user_update, job_hw_id, short_name_val))
-
-            # Step 2: INSERT toàn bộ record trong job.eaves thành record mới (IsOldData = 0, NEWID())
-            sql_insert_new = f"""
-                INSERT INTO [ProcurementApp].[dbo].[EavesSoffit]
-                (
-                unit,
-                    ID,
-                    SheetBrand,
-                    SheetThickness,
-                    SofitBatten,
-                    SofitBead,
-                    short_name,
-                    IdJob_HW,
-                    UserUpdate,
-                    DatetimeUpdate,
-                    IsOldData,
-                    InputDataJson,
-                    FloorLevel
-                )
-                VALUES
-                (
-                {unit_value_sql(active_unit)},
-                    NEWID(),
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    GETDATE(),
-                    0,
-                    %s,
-                    %s
-                );
-            """
+            execute_procedure(cursor, "dbo.usp_EzeFloor_Eaves_Archive", {
+                "JobHwId": job_hw_id,
+                "Unit": active_unit,
+                "ShortName": short_name_val,
+                "UserUpdate": user_update,
+            })
+            # Step 2: insert current rows through SQL Server procedure
 
             for item in job.eaves:
                 item_short_name = item.short_name.strip().upper()
@@ -383,29 +254,9 @@ async def save_eaves_jobs(request: Request, payload: SaveJobsPayloadSchema):
                 if not all((sheet_brand_val, sofit_batten_val, sofit_bead_val)) or not sheet_thickness_val or sheet_thickness_val <= 0:
                     raise HTTPException(status_code=422, detail=f"Eaves setup for job '{input_job_id}' is incomplete or invalid.")
 
-                cursor.execute(
-                    sql_insert_new,
-                    (
-                        sheet_brand_val,
-                        sheet_thickness_val,
-                        sofit_batten_val,
-                        sofit_bead_val,
-                        item_short_name,
-                        job_hw_id,
-                        user_update,
-                        json.dumps(input_data_val, separators=(",", ":")),
-                        flr_lvl,
-                    ),
-                )
+                execute_procedure(cursor, "dbo.usp_EzeFloor_Eaves_Insert", {"JobHwId": job_hw_id, "Unit": active_unit, "SheetBrand": sheet_brand_val, "SheetThickness": sheet_thickness_val, "SofitBatten": sofit_batten_val, "SofitBead": sofit_bead_val, "ShortName": item_short_name, "UserUpdate": user_update, "InputDataJson": json.dumps(input_data_val, separators=(",", ":")), "FloorLevel": flr_lvl})
 
-            cursor.execute(f"""
-                SELECT COUNT(*)
-                FROM [ProcurementApp].[dbo].[EavesSoffit]
-                WHERE IdJob_HW = %s
-                  {unit_filter(None, active_unit)}
-                  AND UPPER(LTRIM(RTRIM(ISNULL(short_name, '')))) = %s
-                  AND ISNULL(IsOldData, 0) = 0;
-            """, (job_hw_id, short_name_val))
+            execute_procedure(cursor, "dbo.usp_EzeFloor_Eaves_CurrentCount", {"JobHwId": job_hw_id, "Unit": active_unit, "ShortName": short_name_val})
             active_count_row = cursor.fetchone()
             active_count = int(_row_value(active_count_row, "", 0) or 0)
             if active_count != len(job.eaves):

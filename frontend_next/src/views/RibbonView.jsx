@@ -1,3 +1,4 @@
+import { APP_CONFIG } from "../config/appConfig";
 import React, { useState, useEffect, useRef } from "react";
 import { ApiService } from "@/models/api.service";
 import TrainButton from "@/components/TrainButton";
@@ -1021,7 +1022,10 @@ export default function RibbonView({
         errorMsg = fetchErr?.message || "Unknown API error";
       }
 
-      const target = new URL("http://14.241.197.188:7642/");
+      if (!APP_CONFIG.procurementWebUrl) {
+        throw new Error("NEXT_PUBLIC_PROCUREMENT_WEB_URL is not configured.");
+      }
+      const target = new URL(APP_CONFIG.procurementWebUrl);
       target.searchParams.set("source", "tool-ai");
       target.searchParams.set("sso", "tool-ai");
       if (finalDeepLinkJob) {
@@ -1042,7 +1046,7 @@ export default function RibbonView({
         } catch (e) { }
       }
       if (!effectiveMaNv || effectiveMaNv.toLowerCase() === "admin" || effectiveMaNv.toLowerCase() === "null") {
-        effectiveMaNv = "EZE0052"; // Mã nhân viên mặc định hợp lệ trong bảng Account EMS
+        effectiveMaNv = APP_CONFIG.procurementDefaultEmployeeId;
       }
 
       // Tạo Tool AI -> Procurement SSO JWT Token (HS256 với TOOL_AI_SSO_SECRET)
@@ -2119,7 +2123,7 @@ export default function RibbonView({
                     className={`ribbon-btn accent ${isExportingProcurement ? "active" : ""}`}
                     onClick={handleExportToProcurement}
                     disabled={isExportingProcurement}
-                    title="Send job data to the system Procurement (http://14.241.197.188:7642/)"
+                    title={`Send job data to Procurement${APP_CONFIG.procurementWebUrl ? ` (${APP_CONFIG.procurementWebUrl})` : ""}`}
                   >
                     <span className="icon"><CAD_ICONS.Procurement /></span><span className="label">Procurement</span>
                   </button>

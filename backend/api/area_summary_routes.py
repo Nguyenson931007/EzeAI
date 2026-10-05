@@ -16,7 +16,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List, Any, Union
 from pydantic import BaseModel, Field
 from app.mssql_db import get_mssql_connection
-from api.unit_scope import get_active_unit, unit_filter, unit_value_sql
+from api.unit_scope import get_active_unit
+from app.stored_procedures import execute_procedure
+from app.procurement_task_sp import resolve_job_hw_id
 
 logger = logging.getLogger("ezefloor.area_summary")
 
@@ -60,57 +62,8 @@ async def get_area_summary_jobs(request: Request, office: Optional[str] = None):
     try:
         conn = get_mssql_connection()
         cursor = conn.cursor(as_dict=True)
-
-        office_condition = ""
-        params = []
-        if office:
-            office_condition = "AND aj.MaNV = %s"
-            params.append(office)
-        else:
-            office_condition = "AND aj.MaNV = 'EZE0098'"
-
-        sql = f"""
-            SELECT
-                ars.ID AS area_summary_id,
-                tghw.id AS IDJob_HW,
-                tghw.id AS hw_id,
-                tghw.id_job_ems,
-                tghw.id_assign_ems,
-
-                ars.FloorLevel AS floor_level,
-                ars.FloorAreaType AS floor_area_type,
-                ars.NetArea AS net_area,
-                ars.Product AS product,
-                ars.short_name AS short_name,
-                ars.UserUpdate AS user_update,
-                ars.DatetimeUpdate AS datetime_update,
-                ars.IsOldData AS is_old_data,
-
-                lj.JobNumber AS job_number
-
-            FROM [emsflow].[dbo].[task_group_hw] tghw
-
-            LEFT JOIN [ProcurementApp].[dbo].[AreaSummary] ars
-                ON tghw.id = ars.IDJob_HW
-               AND ISNULL(ars.IsOldData, 0) = 0
-               {unit_filter("ars", active_unit)}
-
-            LEFT JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj
-                ON tghw.id_job_ems = lj.IDJob
-                AND ISNULL(lj.IsDelete, 0) = 0
-
-            INNER JOIN [Ezequotepersonalmanagement].[dbo].[AssignJob] aj
-                ON tghw.id_assign_ems = aj.ID
-                AND ISNULL(aj.IsDelete, 0) = 0
-
-            WHERE
-                ISNULL(tghw.is_delete, 0) = 0
-                {office_condition}
-
-            ORDER BY tghw.id DESC, ars.ID DESC;
-        """
-
-        cursor.execute(sql, tuple(params))
+        normalized_office = (office or "EZE0098").strip().upper() or "EZE0098"
+        execute_procedure(cursor, "dbo.usp_EzeFloor_AreaSummary_List", {"Unit": active_unit, "Office": normalized_office})
         rows = cursor.fetchall()
 
         formatted_rows = []
@@ -198,101 +151,15 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
 
         saved_summary = []
 
-        sql_archive_old = f"""
-            UPDATE [ProcurementApp].[dbo].[AreaSummary]
-            SET
-                IsOldData = 1,
-                UserUpdate = %s,
-                DatetimeUpdate = GETDATE()
-            WHERE
-                IDJob_HW = %s
-                {unit_filter(None, active_unit)}
-                AND ISNULL(IsOldData, 0) = 0;
-        """
-
-        sql_insert_new = f"""
-            INSERT INTO [ProcurementApp].[dbo].[AreaSummary]
-            (
-                unit,
-                ID,
-                FloorLevel,
-                FloorAreaType,
-                NetArea,
-                Product,
-                short_name,
-                IDJob_HW,
-                UserUpdate,
-                DatetimeUpdate,
-                IsOldData
-            )
-            VALUES
-            (
-                {unit_value_sql(active_unit)},
-                NEWID(),
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                GETDATE(),
-                0
-            );
-        """
-
         for job in payload.jobs:
             raw_id = str(job.id_job_hw).strip()
-            job_hw_id = raw_id
-
-            # Ánh xạ input_job_id sang chính xác tghw.id trong task_group_hw (giống FrameWork)
-            cursor.execute("SELECT id FROM [emsflow].[dbo].[task_group_hw] WHERE id = %s AND is_delete = 0", (raw_id,))
-            found_tghw = cursor.fetchone()
-            if found_tghw:
-                job_hw_id = found_tghw[0] if isinstance(found_tghw, (list, tuple)) else found_tghw.get('id', raw_id)
-            else:
-                # Tìm theo JobNumber từ ListJobs (VD: 'TestAI')
-                cursor.execute("""
-                    SELECT TOP 1 tghw.id 
-                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                      AND ISNULL(tghw.is_delete, 0) = 0
-                    ORDER BY tghw.created_at DESC
-                """, (raw_id, raw_id))
-                found_by_jn = cursor.fetchone()
-                if found_by_jn:
-                    job_hw_id = found_by_jn[0] if isinstance(found_by_jn, (list, tuple)) else found_by_jn.get('id', raw_id)
-                elif raw_id.isdigit():
-                    # Nếu là local SQLite ID (như 98), tra cứu project_name tương ứng
-                    try:
-                        import sqlite3
-                        import os
-                        db_p = os.path.join(os.path.dirname(__file__), "..", "storage", "ezefloor.db")
-                        if os.path.exists(db_p):
-                            sq_c = sqlite3.connect(db_p)
-                            sq_cur = sq_c.cursor()
-                            sq_cur.execute("SELECT project_name FROM jobs WHERE id = ?", (int(raw_id),))
-                            sq_r = sq_cur.fetchone()
-                            sq_c.close()
-                            if sq_r and sq_r[0]:
-                                p_name = sq_r[0]
-                                cursor.execute("""
-                                    SELECT TOP 1 tghw.id 
-                                    FROM [emsflow].[dbo].[task_group_hw] tghw
-                                    INNER JOIN [Ezequotepersonalmanagement].[dbo].[ListJobs] lj ON tghw.id_job_ems = lj.IDJob
-                                    WHERE (lj.JobNumber = %s OR LOWER(TRIM(lj.JobNumber)) = LOWER(TRIM(%s)))
-                                      AND ISNULL(tghw.is_delete, 0) = 0
-                                    ORDER BY tghw.created_at DESC
-                                """, (p_name, p_name))
-                                found_sq_jn = cursor.fetchone()
-                                if found_sq_jn:
-                                    job_hw_id = found_sq_jn[0] if isinstance(found_sq_jn, (list, tuple)) else found_sq_jn.get('id', raw_id)
-                    except Exception as e:
-                        logger.warning(f"Không thể tra cứu local SQLite job ID {raw_id}: {e}")
+            try:
+                job_hw_id = resolve_job_hw_id(cursor, raw_id, api_file=__file__)
+            except ValueError:
+                job_hw_id = raw_id
 
             # 1. Chuyển các bản ghi cũ của Job này thành IsOldData = 1
-            cursor.execute(sql_archive_old, (user_update, job_hw_id))
+            execute_procedure(cursor, "dbo.usp_EzeFloor_AreaSummary_Archive", {"JobHwId": job_hw_id, "Unit": active_unit, "UserUpdate": user_update})
 
             # 2. Thêm mới các mốc diện tích hiện tại (IsOldData = 0)
             inserted_count = 0
@@ -301,18 +168,7 @@ async def save_area_summary_jobs(payload: SaveJobsPayloadSchema, request: Reques
                 short_name_val = (item.short_name or "").strip() or "BUN-NSW-ACT"
                 prod_val = (item.product or "").strip() or None
 
-                cursor.execute(
-                    sql_insert_new,
-                    (
-                        item.floor_level or "Level 1",
-                        item.floor_area_type or "Dry",
-                        net_val,
-                        prod_val,
-                        short_name_val,
-                        job_hw_id,
-                        user_update
-                    )
-                )
+                execute_procedure(cursor, "dbo.usp_EzeFloor_AreaSummary_Insert", {"JobHwId": job_hw_id, "Unit": active_unit, "FloorLevel": item.floor_level or "Level 1", "FloorAreaType": item.floor_area_type or "Dry", "NetArea": net_val, "Product": prod_val, "ShortName": short_name_val, "UserUpdate": user_update})
                 inserted_count += 1
 
             saved_summary.append({

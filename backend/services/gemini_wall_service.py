@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 from PIL import Image, ImageDraw
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+from app.config import GEMINI_API_URL
 
 
 def _distance(a, b):
