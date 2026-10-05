@@ -16,7 +16,7 @@ from typing import List, Optional
 from app.database import get_db_connection
 from api.auth import validate_session
 from app.config import (
-    TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_API_URL, TASKLIST_WORKFLOW_READ_METHOD, TASKLIST_WORKFLOW_WRITE_METHOD, TASKLIST_API_TIMEOUT_SEC,
+    TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_ENDPOINT, TASKLIST_WORKFLOW_READ_METHOD, TASKLIST_WORKFLOW_WRITE_METHOD, TASKLIST_API_TIMEOUT_SEC,
     PROCUREMENT_RECEIVE_JOB_URL, PROCUREMENT_RECEIVE_JOB_METHOD, PROCUREMENT_API_TIMEOUT_SEC,
 )
 import json
@@ -1273,10 +1273,10 @@ async def get_job_floor_levels(
     elif tasklist_token:
         workflow_headers["Authorization"] = f"Bearer {tasklist_token.strip()}"
 
-    if TASKLIST_WORKFLOW_API_URL and len(workflow_headers) > 1:
+    if TASKLIST_WORKFLOW_ENDPOINT and len(workflow_headers) > 1:
         try:
             import httpx
-            target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/steps"
+            target = f"{TASKLIST_WORKFLOW_ENDPOINT}/jobs/{ems_id}/steps"
             async with httpx.AsyncClient(timeout=TASKLIST_API_TIMEOUT_SEC) as client:
                 response = await client.request(TASKLIST_WORKFLOW_READ_METHOD, target, headers=workflow_headers, params={"_": int(time.time() * 1000)})
             if response.is_success:
@@ -1344,10 +1344,10 @@ async def update_job_floor_levels(
         workflow_headers["X-API-Key"] = TASKLIST_WORKFLOW_API_TOKEN
     elif tasklist_token:
         workflow_headers["Authorization"] = f"Bearer {tasklist_token.strip()}"
-    if TASKLIST_WORKFLOW_API_URL and len(workflow_headers) > 1:
+    if TASKLIST_WORKFLOW_ENDPOINT and len(workflow_headers) > 1:
         try:
             import httpx
-            target = f"{TASKLIST_WORKFLOW_API_URL}/jobs/{ems_id}/floor-levels"
+            target = f"{TASKLIST_WORKFLOW_ENDPOINT}/jobs/{ems_id}/floor-levels"
             async with httpx.AsyncClient(timeout=TASKLIST_API_TIMEOUT_SEC) as client:
                 response = await client.request(TASKLIST_WORKFLOW_WRITE_METHOD, target, json={"floor_levels": floors}, headers=workflow_headers)
             if response.is_success:

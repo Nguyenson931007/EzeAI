@@ -34,7 +34,6 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", os.getenv("KMP_DUPLICATE_LIB_OK", 
 # Application addresses
 APP_HOST = os.getenv("APP_HOST", "").strip()
 APP_PORT = _int("APP_PORT", 8090)
-APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "").strip().rstrip("/")
 FRONTEND_PUBLIC_URL = os.getenv("FRONTEND_PUBLIC_URL", "").strip().rstrip("/")
 
 # Local application database
@@ -67,17 +66,27 @@ CORS_ORIGINS = _csv("CORS_ORIGINS")
 CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
 
 # TaskList integration
-TASKLIST_AUTH_URL = os.getenv("TASKLIST_AUTH_URL", "").strip()
-TASKLIST_AUTH_URLS = _csv("TASKLIST_AUTH_URLS") or ([TASKLIST_AUTH_URL] if TASKLIST_AUTH_URL else [])
-_tasklist_origin = TASKLIST_AUTH_URL.split("/api/", 1)[0].rstrip("/") if "/api/" in TASKLIST_AUTH_URL else ""
-TASKLIST_WORKFLOW_API_URL = (os.getenv("TASKLIST_WORKFLOW_API_URL", "").strip() or (f"{_tasklist_origin}/api/workflow" if _tasklist_origin else "")).rstrip("/")
-TASKLIST_WORKFLOW_API_TOKEN = os.getenv("TASKLIST_WORKFLOW_API_TOKEN", "").strip()
+# One canonical server URL. Endpoint paths and HTTP methods remain configurable,
+# so moving TaskList or changing its API contract never requires a code change.
+TASKLIST_API_URL = os.getenv("TASKLIST_API_URL", "").strip().rstrip("/")
+TASKLIST_AUTH_PATH = os.getenv("TASKLIST_AUTH_PATH", "").strip()
+TASKLIST_WORKFLOW_PATH = os.getenv("TASKLIST_WORKFLOW_PATH", "/api/workflow").strip()
+TASKLIST_AUTH_METHOD = os.getenv("TASKLIST_AUTH_METHOD", "GET").strip().upper()
 TASKLIST_WORKFLOW_READ_METHOD = os.getenv("TASKLIST_WORKFLOW_READ_METHOD", "GET").strip().upper()
 TASKLIST_WORKFLOW_WRITE_METHOD = os.getenv("TASKLIST_WORKFLOW_WRITE_METHOD", "PUT").strip().upper()
+TASKLIST_WORKFLOW_API_TOKEN = os.getenv("TASKLIST_WORKFLOW_API_TOKEN", "").strip()
 TASKLIST_API_TIMEOUT_SEC = _float("TASKLIST_API_TIMEOUT_SEC", 5.0)
 TASKLIST_AUTH_TIMEOUT_SEC = _float("TASKLIST_AUTH_TIMEOUT_SEC", 1.5)
 TASKLIST_VERIFY_SSL = os.getenv("TASKLIST_VERIFY_SSL", "true").strip().lower() in {"1","true","yes","on"}
 TASKLIST_ALLOWED_ORIGINS = _csv("TASKLIST_ALLOWED_ORIGINS")
+
+def _tasklist_endpoint(path: str) -> str:
+    if not TASKLIST_API_URL or not path:
+        return ""
+    return f"{TASKLIST_API_URL}/{path.lstrip('/')}"
+
+TASKLIST_AUTH_ENDPOINT = _tasklist_endpoint(TASKLIST_AUTH_PATH)
+TASKLIST_WORKFLOW_ENDPOINT = _tasklist_endpoint(TASKLIST_WORKFLOW_PATH)
 
 # Procurement integration
 PROCUREMENT_WEB_URL = os.getenv("PROCUREMENT_WEB_URL", "").strip().rstrip("/")

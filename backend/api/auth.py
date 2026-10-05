@@ -17,7 +17,7 @@ import logging
 from app.database import get_db_connection
 from app.config import (
     PASSWORD_SALT, SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASS,
-    SMTP_SENDER_NAME, TASKLIST_AUTH_URLS, TOOL_AI_SSO_SECRET,
+    SMTP_SENDER_NAME, TASKLIST_AUTH_ENDPOINT, TASKLIST_AUTH_METHOD, TOOL_AI_SSO_SECRET,
     FRONTEND_PUBLIC_URL, ADMIN_NOTIFICATION_EMAIL, TASKLIST_AUTH_TIMEOUT_SEC, TASKLIST_VERIFY_SSL, SSO_DEFAULT_EMPLOYEE_ID,
 )
 
@@ -727,24 +727,20 @@ def _execute_tasklist_sso(token: Optional[str] = None, raw_username_param: Optio
 
         # 2. Nếu chưa có user_data, thử xác thực qua các endpoint máy chủ Tasklist khả dụng
         if not user_data:
-            candidate_urls = TASKLIST_AUTH_URLS
-            seen = set()
-            urls_to_try = [u for u in candidate_urls if u and not (u in seen or seen.add(u))]
-
-            for url in urls_to_try:
+            if TASKLIST_AUTH_ENDPOINT:
                 try:
                     with httpx.Client(verify=TASKLIST_VERIFY_SSL, timeout=TASKLIST_AUTH_TIMEOUT_SEC) as client:
-                        res = client.get(
-                            url,
-                            headers={"Authorization": f"Bearer {token}"}
+                        res = client.request(
+                            TASKLIST_AUTH_METHOD,
+                            TASKLIST_AUTH_ENDPOINT,
+                            headers={"Authorization": f"Bearer {token}"},
                         )
-                        if res.status_code == 200:
-                            res_json = res.json()
-                            user_data = res_json.get("data") or res_json
-                            logger.info(f"[SSO] Xác thực Tasklist thành công qua endpoint: {url}")
-                            break
-                except Exception:
-                    continue
+                    if res.status_code == 200:
+                        res_json = res.json()
+                        user_data = res_json.get("data") or res_json
+                        logger.info("[SSO] Xác thực Tasklist thành công.")
+                except Exception as exc:
+                    logger.warning("[SSO] Không gọi được TaskList auth API: %s", exc)
 
     # 3. Fallback khi không có token hoặc token không chứa claims nhưng có username từ caller
     if not user_data and raw_username_param:

@@ -1,4 +1,4 @@
-import { APP_CONFIG, buildDirectBackendUrl } from "../config/appConfig";
+import { APP_CONFIG } from "../config/appConfig";
 
 // Public API origin is configured once in the repository-level .env.
 // Empty means same-origin requests through the Next.js rewrite proxy.
@@ -376,51 +376,21 @@ export const ApiService = {
 
   // --- Jobs ---
   async saveJob(payload) {
-    try {
-      const res = await fetch(`${BASE_URL}/jobs`, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify(payload),
-        credentials: "include"
-      });
-      return handleResponse(res);
-    } catch (fetchErr) {
-      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        const directUrl = buildDirectBackendUrl("/jobs");
-        if (!directUrl) throw fetchErr;
-        console.warn(`[saveJob] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
-        const directRes = await fetch(directUrl, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify(payload),
-          credentials: "include"
-        });
-        return handleResponse(directRes);
-      }
-      throw fetchErr;
-    }
+    const res = await fetch(`${BASE_URL}/jobs`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+      credentials: "include"
+    });
+    return handleResponse(res);
   },
 
   async getJobData(jobId) {
-    try {
-      const res = await fetch(`${BASE_URL}/jobs/data/${jobId}`, {
-        headers: getHeaders(),
-        credentials: "include"
-      });
-      return handleResponse(res);
-    } catch (fetchErr) {
-      if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        const directUrl = buildDirectBackendUrl(`/jobs/data/${jobId}`);
-        if (!directUrl) throw fetchErr;
-        console.warn(`[getJobData] Proxy failed (${fetchErr.message}), retrying directly to ${directUrl}...`);
-        const directRes = await fetch(directUrl, {
-          headers: getHeaders(),
-          credentials: "include"
-        });
-        return handleResponse(directRes);
-      }
-      throw fetchErr;
-    }
+    const res = await fetch(`${BASE_URL}/jobs/data/${jobId}`, {
+      headers: getHeaders(),
+      credentials: "include"
+    });
+    return handleResponse(res);
   },
 
   async findJob(query) {

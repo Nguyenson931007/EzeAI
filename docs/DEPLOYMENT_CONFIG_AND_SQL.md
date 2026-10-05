@@ -8,7 +8,7 @@ Run `tools/finalize_runtime_config.ps1` after applying the patch to merge the ne
 
 `tools/check_runtime_config.py` fails when application source contains a literal deployment IP/localhost URL. It is intended to be run before commits/releases.
 
-Empty values are valid only for optional/secret capabilities (for example an unused Gemini key or notification email). Required active integrations use configured values or are derived from an existing canonical setting such as `TASKLIST_AUTH_URL`.
+Empty values are valid only for optional/secret capabilities (for example an unused Gemini key or notification email). Required active integrations use configured values or are derived from an existing canonical setting such as `TASKLIST_API_URL`.
 
 ## SQL Server
 
