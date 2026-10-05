@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from api.auth import validate_session
-from services.document_ai_service import review_document_with_openai
+from services.document_ai_service import review_document_tasks
 
 logger = logging.getLogger("ezefloor.document_ai")
 router = APIRouter(prefix="/plan-ai", tags=["Document-AI"])
@@ -31,8 +31,9 @@ async def document_review(
     evidence_rules: Optional[str] = Form(None),
     customer: str = Form(...),
     project_context: str = Form(...),
-    task_schemas: str = Form(...),
+    tasks: str = Form(...),
     model: Optional[str] = Form(None),
+    use_yolo: Optional[str] = Form(None),
     username: str = Depends(validate_session),
 ):
     if not (file.filename or "").lower().endswith(".pdf"):
@@ -51,14 +52,15 @@ async def document_review(
 
     try:
         result = await run_in_threadpool(
-            review_document_with_openai,
+            review_document_tasks,
             pdf_bytes=content,
             selected_pages=pages,
             evidence_rules=_json(evidence_rules, {}),
             customer=customer,
             project_context=_json(project_context, {}),
-            task_schemas=_json(task_schemas, {}),
+            tasks=_json(tasks, {}),
             model=model,
+            use_yolo=(str(use_yolo).lower() == "true"),
         )
         logger.info("Document AI completed pages=%s customer=%s user=%s", pages, customer, username)
         return result

@@ -4,7 +4,7 @@ import { ApiService } from "@/models/api.service";
 import TrainButton from "@/components/TrainButton";
 import { useAppModel } from "@/models/app.context";
 import { useDialog } from "@/components/DialogContext";
-import { clearWorkspaceState } from "@/utils/workspaceStorage";
+import { clearWorkspaceState, clearWorkspaceStateByPrefix } from "@/utils/workspaceStorage";
 import WallThicknessDialog from "@/components/WallThicknessDialog";
 import DoorConfigDialog from "@/components/DoorConfigDialog";
 import FrameworkJobsModal from "@/components/FrameworkJobsModal";
@@ -814,6 +814,18 @@ export default function RibbonView({
   };
 
   const handleCreateNewProject = () => {
+    // Ngăn App restore effect load lại snapshot "Untitled Project" cũ từ IndexedDB
+    // ngay sau khi mình xóa canvas (bug: bấm New -> OK nhưng page không trắng).
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("ezefloor_skip_restore", "1");
+      }
+    } catch (_) { }
+    // Xóa luôn các snapshot per-unit còn sót lại của "Untitled Project" để
+    // restore effect (nếu chạy lần 2) cũng không còn gì để load về.
+    try {
+      clearWorkspaceStateByPrefix("active_session::" + encodeURIComponent("Untitled Project") + "::");
+    } catch (_) { }
     if (setCurrentJobId) setCurrentJobId(null);
     if (setCurrentProjectName) setCurrentProjectName("Untitled Project");
     if (setPages) setPages([]);

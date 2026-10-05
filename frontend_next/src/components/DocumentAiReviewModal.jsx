@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as pdfjsLib from "pdfjs-dist";
 import { ApiService } from "@/models/api.service";
@@ -13,7 +13,6 @@ const card = { border: "1px solid #e2e8f0", borderRadius: "10px", background: "#
 const TASK_LABELS = {
   frame_hardware: "Frame Hardware",
   flooring_decking: "Flooring & Decking",
-  hebel_flooring: "Hebel Flooring",
   insulation: "Insulation",
   eaves_soffit: "Eaves & Soffit",
   cladding: "Cladding",
@@ -28,7 +27,14 @@ const TASK_LABELS = {
   hardies_fire_walls: "Hardies Fire Walls",
 };
 
-export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPages = [], customer, taskContext, projectContext = {}, onResult }) {
+const STATUS_STYLES = {
+  CHANGE: { background: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd" },
+  KEEP: { background: "#dcfce7", color: "#166534", border: "1px solid #86efac" },
+  NO_EVIDENCE: { background: "#f1f5f9", color: "#64748b", border: "1px solid #cbd5e1" },
+  UNRESOLVED: { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" },
+};
+
+export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPages = [], customer, taskContext, projectContext = {}, onResult, onApplyTaskResults }) {
   const [reviewFile, setReviewFile] = useState(null);
   const [reviewFileSource, setReviewFileSource] = useState("current");
   const [pages, setPages] = useState([]);
@@ -39,8 +45,26 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [embeddedTasks, setEmbeddedTasks] = useState(new Set());
+  const [reviewMode, setReviewMode] = useState("direct");
+  const abortRef = useRef(null);
+  const projectContextRef = useRef(projectContext || {});
+  // Job/Unit identity captured when the latest result arrived. Embed is blocked
+  // if the live context no longer matches (user switched Job/Unit with the
+  // modal still open) — prevents staging one unit's proposal into another.
+  const resultContextRef = useRef(null);
 
   const taskKeys = useMemo(() => Object.keys(taskContext || {}), [taskContext]);
+  const taskKeySignature = useMemo(() => taskKeys.join("|"), [taskKeys]);
+
+  useEffect(() => {
+    projectContextRef.current = projectContext || {};
+  }, [projectContext]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
 
   const fileStem = useMemo(
     () => String(reviewFile?.name || "").replace(/\.[^/.]+$/, "").toLowerCase(),
@@ -57,7 +81,9 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
     setPageRules({});
     setResult(null);
     setError("");
-  }, [open, pdfFile, taskKeys]);
+    setEmbeddedTasks(new Set());
+    resultContextRef.current = null;
+  }, [open, pdfFile, taskKeySignature]);
 
   useEffect(() => {
     if (!open || !reviewFile) return;
@@ -184,8 +210,66 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
     };
   };
 
+  const contextIdentity = (context) => JSON.stringify({
+    job_id: context?.job_id ?? null,
+    project_name: context?.project_name ?? null,
+    unit: context?.unit ?? null,
+  });
+
+  const cancelReview = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setRunning(false);
+    setError("EzeIn review canceled.");
+  };
+
+  const isTaskEmbeddable = (task) => {
+    if (!task || !task.task_key || embeddedTasks.has(task.task_key)) return false;
+    const rows = task.mode === "rows" ? (task.rows || []) : [];
+    const updates = task.mode === "rows" ? [] : (task.field_updates || []);
+    return rows.length > 0 || updates.length > 0;
+  };
+
+  const hasEmbeddableTasks = (result?.task_results || []).some(isTaskEmbeddable);
+
+  // Stage GPT task results straight into the task forms (no file download).
+  // The parent merges them into the staged proposals; the modal stays open so
+  // more tasks can be embedded one by one.
+  const embedTaskResults = (tasks) => {
+    // H1 guard: never embed a result that belongs to a different Job/Unit.
+    const liveIdentity = contextIdentity(projectContextRef.current || {});
+    if (resultContextRef.current && liveIdentity !== resultContextRef.current) {
+      setError("Job or Unit changed after the review finished. Please run EzeIn review again for the current Job/Unit before embedding.");
+      return;
+    }
+    const list = (tasks || []).filter((t) => t && t.task_key && !embeddedTasks.has(t.task_key));
+    if (!list.length) return;
+    if (typeof onApplyTaskResults === "function") {
+      onApplyTaskResults(list);
+    } else {
+      onResult?.({ ...(result || {}), task_results: list });
+    }
+    setEmbeddedTasks((prev) => {
+      const next = new Set(prev);
+      list.forEach((t) => next.add(t.task_key));
+      return next;
+    });
+  };
+
+  const embedTaskResult = (task) => embedTaskResults([task]);
+  // H2 guard: only embed tasks that actually have content. Embedding an empty
+  // (NO_EVIDENCE) task must not wipe a proposal staged from a previous run.
+  const embedAllTasks = () => embedTaskResults((result?.task_results || []).filter(isTaskEmbeddable));
+
   const run = async () => {
     if (!reviewFile || selected.size === 0 || selectedTasks.size === 0) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestedProjectContext = { ...(projectContextRef.current || {}) };
+    const requestedContextIdentity = contextIdentity(requestedProjectContext);
     setRunning(true);
     setError("");
     try {
@@ -213,7 +297,9 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
         selectedPages,
         customer,
         tasks: selectedTaskContext,
-        projectContext,
+        projectContext: requestedProjectContext,
+        signal: controller.signal,
+        useYolo: reviewMode === "yolo",
         evidenceRules: {
           selected_pages_only: true,
           respect_unit_context: true,
@@ -221,18 +307,28 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
           geometry_is_read_only: true,
         },
       });
+
+      // Never stage a completed AI result into a different job/unit if the user
+      // changed context while the request was running.
+      const liveContextIdentity = contextIdentity(projectContextRef.current || {});
+      if (liveContextIdentity !== requestedContextIdentity) {
+        throw new Error("Job or Unit changed while EzeIn was reviewing. The stale result was discarded.");
+      }
+
       setResult(res);
-      onResult?.(res);
+      setEmbeddedTasks(new Set());
+      // Remember which Job/Unit this result belongs to; embed is blocked if
+      // the user switches context afterwards without re-running.
+      resultContextRef.current = requestedContextIdentity;
     } catch (e) {
+      if (e?.name === "AbortError") {
+        setError("EzeIn review canceled.");
+        return;
+      }
       const message = e?.message || "Document AI failed.";
       setError(message);
-      onResult?.({
-        success: false,
-        summary: "EzeIn review failed.",
-        error: message,
-        task_results: [],
-      });
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setRunning(false);
     }
   };
@@ -375,8 +471,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
 
           <button
             type="button"
-            onClick={onClose}
-            disabled={running}
+            onClick={running ? cancelReview : onClose}
             style={{
               background: "#f1f5f9",
               border: "1px solid #e2e8f0",
@@ -407,7 +502,28 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>Tasks to review</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>Tasks to review</div>
+              <select
+                value={reviewMode}
+                onChange={(e) => setReviewMode(e.target.value)}
+                disabled={running}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "4px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#334155",
+                  cursor: running ? "not-allowed" : "pointer",
+                }}
+                title="Review mode"
+              >
+                <option value="direct">Direct EzeIn</option>
+                <option value="yolo">YOLO + EzeIn</option>
+              </select>
+            </div>
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
               Selected: <b>{selectedTasks.size}</b> / {taskKeys.length}
             </div>
@@ -718,34 +834,160 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
             borderTop: "1px solid #e2e8f0",
             paddingTop: 10,
             marginTop: 2,
-            maxHeight: 150,
+            maxHeight: 320,
             overflowY: "auto",
+            flexShrink: 0,
           }}
         >
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>EzeIn Report</div>
-          <div style={{ fontSize: 12, color: "#475569", marginBottom: 8 }}>
-            {result.summary || "Review completed."}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {(result.task_results || []).map((r) => (
-              <span
-                key={r.task_key}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ fontWeight: 800 }}>EzeIn JSON Output</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={embedAllTasks}
+                disabled={running || !hasEmbeddableTasks}
                 style={{
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 999,
-                  padding: "4px 8px",
-                  fontSize: 10,
-                  background: "#f8fafc",
+                  background: "#2563eb",
+                  border: "1px solid #2563eb",
+                  color: "#ffffff",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: running || !hasEmbeddableTasks ? "not-allowed" : "pointer",
+                  opacity: running || !hasEmbeddableTasks ? 0.55 : 1,
                 }}
               >
-                <b>{r.task_key}</b>
-                {" · "}
-                {r.mode === "rows"
-                  ? `${(r.rows || []).length} row(s)`
-                  : `${(r.field_updates || []).length} update(s)`}
-              </span>
-            ))}
+                Embed All
+              </button>
+              <button
+                type="button"
+                onClick={() => onResult?.(result)}
+                disabled={running}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  color: "#334155",
+                  borderRadius: 6,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: running ? "not-allowed" : "pointer",
+                  opacity: running ? 0.55 : 1,
+                }}
+              >
+                View Report
+              </button>
+            </div>
           </div>
+          <div style={{ fontSize: 12, color: "#475569", marginBottom: 8 }}>
+            {result.summary || "Review completed."}
+            {" "}Inspect each task's JSON, then embed it directly into the task form.
+          </div>
+          {(result.task_results || []).map((task) => {
+            const taskKey = task.task_key;
+            const label = TASK_LABELS[taskKey] || taskKey;
+            const rowCount = task.mode === "rows" ? (task.rows || []).length : 0;
+            const updateCount = task.mode === "rows" ? 0 : (task.field_updates || []).length;
+            const actionable = rowCount > 0 || updateCount > 0;
+            const embedded = embeddedTasks.has(taskKey);
+            const statusKey = String(task.status || "UNRESOLVED").toUpperCase();
+            const statusStyle = STATUS_STYLES[statusKey] || STATUS_STYLES.UNRESOLVED;
+            return (
+              <div
+                key={`ezein-json-${taskKey}`}
+                style={{ ...card, padding: 10, marginBottom: 8 }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, minWidth: 0, flexWrap: "wrap" }}>
+                    <b>{label}</b>
+                    <span
+                      style={{
+                        ...statusStyle,
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        fontSize: 10,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {statusKey}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#64748b" }}>
+                      {task.mode === "rows" ? `${rowCount} row(s)` : `${updateCount} update(s)`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => embedTaskResult(task)}
+                    disabled={running || embedded || !actionable}
+                    title={
+                      !actionable
+                        ? "No proposed changes to embed"
+                        : embedded
+                          ? "Already embedded into the task form"
+                          : "Stage these proposals into the task form"
+                    }
+                    style={{
+                      background: embedded ? "#dcfce7" : "#2563eb",
+                      border: embedded ? "1px solid #86efac" : "1px solid #2563eb",
+                      color: embedded ? "#166534" : "#ffffff",
+                      borderRadius: 6,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: running || embedded || !actionable ? "not-allowed" : "pointer",
+                      opacity: running || embedded || !actionable ? 0.65 : 1,
+                    }}
+                  >
+                    {embedded ? "Embedded ✓" : "Embed into Task"}
+                  </button>
+                </div>
+                {task.summary ? (
+                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>{task.summary}</div>
+                ) : null}
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 11, color: "#2563eb", fontWeight: 700 }}>
+                    View JSON
+                  </summary>
+                  <pre
+                    style={{
+                      background: "#0f172a",
+                      color: "#e2e8f0",
+                      borderRadius: 8,
+                      padding: 10,
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      overflowX: "auto",
+                      maxHeight: 220,
+                      overflowY: "auto",
+                      marginTop: 6,
+                      marginBottom: 0,
+                      whiteSpace: "pre",
+                    }}
+                  >
+                    {JSON.stringify(task, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -763,6 +1005,10 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
         <div style={{ minWidth: 0 }}>
           {error ? (
             <span style={{ color: "#b91c1c", fontSize: 12 }}>{error}</span>
+          ) : embeddedTasks.size > 0 ? (
+            <span style={{ fontSize: 12, color: "#166534" }}>
+              Embedded <b>{embeddedTasks.size}</b> task(s) — review the staged proposals in the task panel, then use <b>Save EzeIn</b> to save.
+            </span>
           ) : (
             <span style={{ fontSize: 13, color: "#64748b" }}>
               Ready to review: <b>{selected.size}</b> page(s) • <b>{selectedTasks.size}</b> task(s)
@@ -772,8 +1018,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
 
         <div style={{ display: "flex", gap: 10 }}>
           <button
-            onClick={onClose}
-            disabled={running}
+            onClick={running ? cancelReview : onClose}
             style={{
               padding: "8px 20px",
               background: "#f1f5f9",
@@ -785,7 +1030,7 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
               fontWeight: 600,
             }}
           >
-            Cancel
+            {running ? "Cancel Review" : "Cancel"}
           </button>
 
           <button

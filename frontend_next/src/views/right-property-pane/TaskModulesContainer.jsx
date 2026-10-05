@@ -236,7 +236,7 @@ export default function TaskModulesContainer({
         {stagedGptFormProposals.map((proposal, idx) => (
           <div key={`${proposal?.field || "field"}-${idx}`} style={{ padding:"7px 0", borderTop: idx ? "1px solid #f5d0fe" : 0 }}>
             <div style={{ fontSize:"10.5px", color:"#334155" }}>
-              <b>{proposal?.field || "Field"}</b>: {String(proposal?.old_value ?? "—")} → <b style={{ color:"#7e22ce" }}>{String(proposal?.new_value ?? "—")}</b>
+              <b>{proposal?.field || "Field"}</b>: {String(proposal?.old_value ?? "—")} → <b style={{ color:"#7e22ce" }}>{String(proposal?.value ?? proposal?.new_value ?? "—")}</b>
             </div>
             {proposal?.reason ? <div style={{ marginTop:3, fontSize:"9.5px", color:"#7c3aed" }}><b>EzeIn note:</b> {proposal.reason}</div> : null}
             <div style={{ display:"flex", gap:6, marginTop:6 }}>

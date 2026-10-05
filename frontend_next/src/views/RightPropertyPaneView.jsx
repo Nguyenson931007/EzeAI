@@ -5067,10 +5067,9 @@ export default function RightPropertyPaneView({
   // Auto Fill is only an initializer. Once a drawing-derived task row exists,
   // keep its aggregate fields live as the canonical plan changes.
   //
-  // IMPORTANT: depend on scalar/signature values only. `effectiveDoorsByPage`,
-  // `roomsByPageProp`, and `cadMetrics` may be recreated by upstream selectors,
-  // so using those objects directly here can retrigger this effect after every
-  // render and create a setState -> render -> effect loop.
+  // IMPORTANT: depend on scalar/signature values only. Upstream selectors may
+  // recreate objects on render; object dependencies here can cause a
+  // setState -> render -> effect loop.
   const measuredEavesForSync = Number(Number(cadMetrics?.perimeterM || 0).toFixed(2));
   const sheetAreaForSync = Number(Number(cadMetrics?.grandTotalArea || 0).toFixed(2));
   const wetRoomCountForSync = React.useMemo(() => {
@@ -5162,7 +5161,15 @@ export default function RightPropertyPaneView({
   ]);
 
 
-  const documentAiTaskContext = React.useMemo(() => ({
+  // EzeIn only reviews the customer's modules plus Window. Anything else
+  // (e.g. hebel_flooring) is not used and must not appear in the review list.
+  const ezeInTaskKeys = React.useMemo(
+    () => Array.from(new Set([...(customerModuleIds || []), "windows"])),
+    [customerModuleIds]
+  );
+
+  const documentAiTaskContext = React.useMemo(() => {
+    const all = {
     frame_hardware: { mode: "rows", rows: frameWallEntries, form: moduleFormData.frame_hardware || {} },
     flooring_decking: { mode: "rows", rows: flooringEntries, form: moduleFormData.flooring_decking || {} },
     hebel_flooring: { mode: "rows", rows: hebelFlooringEntries, form: moduleFormData.hebel_flooring || {} },
@@ -5178,21 +5185,37 @@ export default function RightPropertyPaneView({
     fow_plumbing: { mode: "rows", rows: fowPlumbingEntries, form: moduleFormData.fow_plumbing || {} },
     final_fit: { mode: "form", rows: [], form: moduleFormData.final_fit || {} },
     hardies_fire_walls: { mode: "rows", rows: hardiesFireWallEntries, form: moduleFormData.hardies_fire_walls || {} },
-  }), [
+    };
+    const allowed = new Set(ezeInTaskKeys);
+    return Object.fromEntries(Object.entries(all).filter(([taskKey]) => allowed.has(taskKey)));
+  }, [
+    ezeInTaskKeys,
     frameWallEntries, flooringEntries, hebelFlooringEntries, insulationWallEntries, insulationAreaEntries,
     eavesEntries, claddingWallEntries, lockupEntries, fixoutDoorEntries, windowEntries, shelvingEntries,
     timberPostEntries, powerTrussEntries, fowPlumbingEntries, hardiesFireWallEntries, moduleFormData
   ]);
 
-  const handleDocumentAiResult = React.useCallback((result) => {
-    setGptReport(result);
-    setShowDocumentAi(false);
-    setShowGptReport(true);
+  const documentAiProjectContext = React.useMemo(() => ({
+    job_id: currentJobId || null,
+    project_name: currentProjectName || null,
+    unit: activeWorkPackUnit || "Unit 1",
+    current_page_index: Number.isInteger(currentPage) ? currentPage : null,
+    current_floor_level: pages?.[currentPage]?.floor_name || pages?.[currentPage]?.floorLevel || pages?.[currentPage]?.floor_level || null,
+  }), [currentJobId, currentProjectName, activeWorkPackUnit, currentPage, pages]);
+
+  // Stage GPT task results into the task forms for review. Merges per task key
+  // so tasks can be embedded one by one from the EzeIn modal without wiping
+  // proposals that are already staged for other tasks.
+  const stageGptTaskResults = React.useCallback((taskResults) => {
     const nextRows = {};
     const nextForms = {};
-    for (const task of result?.task_results || []) {
+    for (const task of taskResults || []) {
       if (task.mode === "rows") {
-        nextRows[task.task_key] = (task.rows || []).map((row, index) => {
+        // H2 guard: never overwrite an already-staged proposal with an empty
+        // result (e.g. task went CHANGE -> NO_EVIDENCE between runs).
+        const stagedRows = task.rows || [];
+        if (!stagedRows.length) continue;
+        nextRows[task.task_key] = stagedRows.map((row, index) => {
           const action = String(row?.action || "ADD").toUpperCase();
           const targetRowId = row?.row_id ?? row?.target_row_id ?? null;
           return {
@@ -5217,26 +5240,60 @@ export default function RightPropertyPaneView({
         nextForms[task.task_key] = task.field_updates;
       }
     }
-    setGptTaskRows(nextRows);
-    setGptFormProposals(nextForms);
+    setGptTaskRows((prev) => ({ ...(prev || {}), ...nextRows }));
+    setGptFormProposals((prev) => ({ ...(prev || {}), ...nextForms }));
   }, []);
+
+  const handleDocumentAiResult = React.useCallback((result) => {
+    setGptReport(result);
+    setShowDocumentAi(false);
+    setShowGptReport(true);
+    stageGptTaskResults(result?.task_results || []);
+  }, [stageGptTaskResults]);
+
+  // Embed GPT task results straight from the EzeIn modal into the task forms.
+  // The modal stays open so more tasks can be embedded; staged proposals are
+  // reviewed inline in each task panel and saved through the normal Save EzeIn
+  // flow (proposal is only cleared after the real save succeeds).
+  const handleApplyGptTaskResults = React.useCallback((taskResults) => {
+    stageGptTaskResults(Array.isArray(taskResults) ? taskResults : []);
+  }, [stageGptTaskResults]);
 
   const requestMountedTaskSave = React.useCallback((taskKey) => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return Promise.resolve({ ok: false, error: "Browser save bridge is unavailable." });
     const requestId = `gpt-save-${taskKey}-${Date.now()}`;
-    // Give React time to commit the GPT rows/form value before the task's normal
-    // Save handler reads its current state. Two RAFs also avoid stale closures.
-    const dispatchSave = () => window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-task", {
-      detail: { requestId, taskKey, handled: false, source: "gpt" },
-    }));
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(() => window.requestAnimationFrame(dispatchSave));
-    } else {
-      setTimeout(dispatchSave, 0);
-    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener("ezefloor:gpt-save-result", handleResult);
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      };
+      const handleResult = (event) => {
+        const detail = event?.detail || {};
+        if (detail.requestId !== requestId) return;
+        finish(detail);
+      };
+      const timeoutId = window.setTimeout(() => finish({
+        requestId, taskKey, ok: false, error: "The mounted task did not acknowledge the EzeIn save request."
+      }), 30000);
+      window.addEventListener("ezefloor:gpt-save-result", handleResult);
+
+      const dispatchSave = () => window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-task", {
+        detail: { requestId, taskKey, handled: false, source: "gpt" },
+      }));
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(dispatchSave));
+      } else {
+        window.setTimeout(dispatchSave, 0);
+      }
+    });
   }, []);
 
-  const commitGptRowsToTask = React.useCallback((taskKey) => {
+  const commitGptRowsToTask = React.useCallback(async (taskKey) => {
     const proposals = gptTaskRows?.[taskKey] || [];
     if (!proposals.length) return;
 
@@ -5249,15 +5306,61 @@ export default function RightPropertyPaneView({
       return next;
     };
 
-    const applyProposals = (setter) => setter((previous) => {
-      let rows = [...(previous || [])];
-      for (const proposal of proposals) {
+    // Lockup/fixout/window rows carry the canvas identity in doorId/door_id
+    // while id may be a generated wrapper. Match proposals on any of them so
+    // UPDATE/DELETE/ADD map to the right row no matter which id GPT returned.
+    const matchRowIdentity = (row, targetId) => {
+      if (targetId == null || String(targetId).trim() === "") return false;
+      const target = String(targetId).trim();
+      return ["id", "doorId", "door_id"].some((key) => {
+        const value = row?.[key];
+        return value != null && String(value).trim() !== "" && String(value).trim() === target;
+      });
+    };
+
+    // Per-task identity keys for ADD dedup (H3). An ADD whose identity matches
+    // an existing row on ALL keys (all non-empty) is skipped instead of
+    // creating a duplicate. Keys are chosen so a full match almost certainly
+    // means "the same real-world item".
+    const TASK_ADD_IDENTITY_KEYS = {
+      flooring_decking: ["roomId"],
+      shelving: ["roomId", "type", "size"],
+      cladding: ["wallId"],
+      timber_posts: ["label"],
+      fow_plumbing: ["usage_label", "code"],
+      power_truss_braces: ["type", "floorLevel"],
+      hardies_fire_walls: ["location"],
+      frame_hardware: ["wallId"],
+      insulation: ["type", "floorLevel", "height", "length"],
+      lock_up: ["label"],
+      fixout: ["door_label"],
+      windows: ["label"],
+    };
+
+    const matchAddIdentity = (row, candidate) => {
+      const keys = TASK_ADD_IDENTITY_KEYS[taskKey] || [];
+      if (!keys.length) return false;
+      return keys.every((key) => {
+        const a = row?.[key];
+        const b = candidate?.[key];
+        return a != null && b != null
+          && String(a).trim() !== "" && String(b).trim() !== ""
+          && String(a).trim() === String(b).trim();
+      });
+    };
+
+    // Pure merge: applies GPT proposals (ADD/UPDATE/DELETE) to a row list.
+    // Extracted so the windows branch can merge into moduleFormData rows
+    // (C7) instead of only the internal windowEntries state.
+    const mergeGptProposals = (previousRows, proposalList) => {
+      let rows = [...(previousRows || [])];
+      for (const proposal of proposalList) {
         const action = String(proposal?._gptAction || proposal?.action || "ADD").toUpperCase();
         const targetId = proposal?._gptTargetRowId ?? proposal?.row_id ?? null;
         if (action === "KEEP" || action === "UNKNOWN") continue;
 
         if (action === "UPDATE") {
-          const index = rows.findIndex((row) => String(row?.id ?? "") === String(targetId ?? ""));
+          const index = rows.findIndex((row) => matchRowIdentity(row, targetId));
           if (index < 0) continue;
           rows[index] = {
             ...rows[index],
@@ -5276,18 +5379,42 @@ export default function RightPropertyPaneView({
             `GPT proposes deleting row ${targetId || ""} from ${taskKey}. Continue?`
           );
           if (ok && targetId != null) {
-            rows = rows.filter((row) => String(row?.id ?? "") !== String(targetId));
+            rows = rows.filter((row) => !matchRowIdentity(row, targetId));
           }
           continue;
         }
 
         const candidate = cleanProposal(proposal);
         const candidateId = String(candidate?.id ?? "");
-        const alreadyExists = candidateId && rows.some((row) => String(row?.id ?? "") === candidateId);
-        if (!alreadyExists) rows.push(candidate);
+        const alreadyExists = candidateId && rows.some((row) => matchRowIdentity(row, candidateId));
+        if (alreadyExists) continue;
+        // An ADD that references an existing door is really an UPDATE.
+        // Merging avoids duplicate rows for the same door.
+        const doorIdentity = candidate?.doorId ?? candidate?.door_id ?? null;
+        const existingIndex = doorIdentity != null && String(doorIdentity).trim() !== ""
+          ? rows.findIndex((row) => matchRowIdentity(row, doorIdentity))
+          : -1;
+        if (existingIndex >= 0) {
+          rows[existingIndex] = {
+            ...rows[existingIndex],
+            ...candidate,
+            id: rows[existingIndex]?.id,
+            generatedByAI: true,
+            ai_generated: true,
+            generated_by: "gpt",
+            source: "gpt_document_ai",
+          };
+          continue;
+        }
+        // H3: skip ADD when a row with the same task identity already exists
+        // (prevents duplicates on run -> save -> run -> save for non-door tasks).
+        if (rows.some((row) => matchAddIdentity(row, candidate))) continue;
+        rows.push(candidate);
       }
       return rows;
-    });
+    };
+
+    const applyProposals = (setter, proposalList = proposals) => setter((previous) => mergeGptProposals(previous, proposalList));
 
     if (taskKey === "frame_hardware") applyProposals(setFrameWallEntries);
     else if (taskKey === "flooring_decking") applyProposals(setFlooringEntries);
@@ -5295,18 +5422,49 @@ export default function RightPropertyPaneView({
     else if (taskKey === "cladding") applyProposals(setCladdingWallEntries);
     else if (taskKey === "lock_up") applyProposals(setLockupEntries);
     else if (taskKey === "fixout") applyProposals(setFixoutDoorEntries);
-    else if (taskKey === "windows") applyProposals(setWindowEntries);
+    else if (taskKey === "windows") {
+      // C7: the Window tab renders from moduleFormData.fixout.fixout_reveal_openings,
+      // so GPT rows must be merged there — committing only to the internal
+      // windowEntries state leaves them invisible and unsavable.
+      let currentRevealRows = [];
+      try {
+        const raw = moduleFormData?.fixout?.fixout_reveal_openings;
+        const parsed = raw ? JSON.parse(raw) : [];
+        currentRevealRows = Array.isArray(parsed) ? parsed : [];
+      } catch (_) { /* keep empty */ }
+      const windowProposals = proposals.map((p) => ({ ...p, type: "window" }));
+      const mergedRevealRows = mergeGptProposals(currentRevealRows, windowProposals);
+      handleModuleFormChange("fixout", "fixout_reveal_openings", JSON.stringify(mergedRevealRows));
+      setWindowEntries(mergedRevealRows.filter((row) => String(row?.type || "").toLowerCase() === "window"));
+    }
     else if (taskKey === "shelving") applyProposals(setShelvingEntries);
     else if (taskKey === "timber_posts") applyProposals(setTimberPostEntries);
     else if (taskKey === "power_truss_braces") applyProposals(setPowerTrussEntries);
     else if (taskKey === "fow_plumbing") applyProposals(setFowPlumbingEntries);
     else if (taskKey === "hardies_fire_walls") applyProposals(setHardiesFireWallEntries);
-    else if (taskKey === "insulation") applyProposals(setInsulationAreaEntries);
-    else return;
+    else if (taskKey === "insulation") {
+      const wallIds = new Set((insulationWallEntries || []).map((row) => String(row?.id ?? "")));
+      const areaIds = new Set((insulationAreaEntries || []).map((row) => String(row?.id ?? "")));
+      const isAreaProposal = (proposal) => {
+        const targetId = String(proposal?._gptTargetRowId ?? proposal?.row_id ?? "");
+        if (targetId && areaIds.has(targetId)) return true;
+        if (targetId && wallIds.has(targetId)) return false;
+        const kind = String(proposal?.areaType || proposal?.type || "").trim().toLowerCase();
+        return kind === "floor" || kind === "ceiling" || kind.includes("floor insulation") || kind.includes("ceiling insulation");
+      };
+      const areaProposals = proposals.filter(isAreaProposal);
+      const wallProposals = proposals.filter((proposal) => !isAreaProposal(proposal));
+      if (wallProposals.length) applyProposals(setInsulationWallEntries, wallProposals);
+      if (areaProposals.length) applyProposals(setInsulationAreaEntries, areaProposals);
+    } else return;
 
-    setGptTaskRows((prev) => ({ ...prev, [taskKey]: [] }));
-    requestMountedTaskSave(taskKey);
-  }, [gptTaskRows, requestMountedTaskSave]);
+    const saveResult = await requestMountedTaskSave(taskKey);
+    if (saveResult?.ok) {
+      setGptTaskRows((prev) => ({ ...prev, [taskKey]: [] }));
+    } else if (typeof window !== "undefined") {
+      window.alert(saveResult?.error || `Unable to save EzeIn changes for ${taskKey}. The proposal was kept for retry.`);
+    }
+  }, [gptTaskRows, requestMountedTaskSave, insulationWallEntries, insulationAreaEntries, moduleFormData, handleModuleFormChange]);
 
   const clearNonGptTaskData = React.useCallback((taskKey) => {
     const confirmed = typeof window === "undefined" || window.confirm(
@@ -5332,7 +5490,7 @@ export default function RightPropertyPaneView({
     }
   }, []);
 
-  const applyGptFormProposal = React.useCallback((taskKey, proposalIndex, useGptValue) => {
+  const applyGptFormProposal = React.useCallback(async (taskKey, proposalIndex, useGptValue) => {
     const proposals = gptFormProposals?.[taskKey] || [];
     const proposal = proposals[proposalIndex];
     if (!proposal) return;
@@ -5349,20 +5507,30 @@ export default function RightPropertyPaneView({
             cursor[part] = { ...(cursor[part] || {}) };
             cursor = cursor[part];
           }
-          cursor[fieldPath[fieldPath.length - 1]] = proposal.new_value;
+          cursor[fieldPath[fieldPath.length - 1]] = proposal.value ?? proposal.new_value;
           next[taskKey] = taskForm;
           return next;
         });
       }
     }
 
-    setGptFormProposals((prev) => ({
-      ...prev,
-      [taskKey]: (prev?.[taskKey] || []).filter((_, idx) => idx !== proposalIndex),
-    }));
+    if (!useGptValue || taskKey === "final_fit") {
+      setGptFormProposals((prev) => ({
+        ...prev,
+        [taskKey]: (prev?.[taskKey] || []).filter((_, idx) => idx !== proposalIndex),
+      }));
+      return;
+    }
 
-    // Single-form tasks only save after the user explicitly accepts GPT.
-    if (useGptValue && taskKey !== "final_fit") requestMountedTaskSave(taskKey);
+    const saveResult = await requestMountedTaskSave(taskKey);
+    if (saveResult?.ok) {
+      setGptFormProposals((prev) => ({
+        ...prev,
+        [taskKey]: (prev?.[taskKey] || []).filter((_, idx) => idx !== proposalIndex),
+      }));
+    } else if (typeof window !== "undefined") {
+      window.alert(saveResult?.error || `Unable to save EzeIn changes for ${taskKey}. The proposal was kept for retry.`);
+    }
   }, [gptFormProposals, requestMountedTaskSave]);
 
   const openGptTask = React.useCallback((taskKey) => {
@@ -6041,7 +6209,9 @@ export default function RightPropertyPaneView({
             planPages={pages}
             customer={selectedCustomerClient}
             taskContext={documentAiTaskContext}
+            projectContext={documentAiProjectContext}
             onResult={handleDocumentAiResult}
+            onApplyTaskResults={handleApplyGptTaskResults}
           />
 
           <DocumentAiReportModal

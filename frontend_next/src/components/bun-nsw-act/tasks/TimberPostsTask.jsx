@@ -1021,7 +1021,7 @@ export default function TimberPostsTask({
                               transition: "background 0.15s ease"
                             }}
                           >
-                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
+                            <td style={{ padding: "6px 8px", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
 
                             {/* Post Type */}
                             <td style={{ padding: "4px 8px" }}>

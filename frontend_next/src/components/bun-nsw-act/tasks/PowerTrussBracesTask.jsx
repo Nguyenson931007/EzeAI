@@ -824,7 +824,7 @@ export default function PowerTrussBracesTask({
                                 transition: "background 0.15s ease"
                               }}
                             >
-                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
+                              <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
 
                               {/* Wall Height */}
                               <td style={{ padding: "4px 8px" }}>

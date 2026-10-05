@@ -431,12 +431,12 @@
       "output_mode": "row",
       "identity_fields": [
         "id",
-        "label",
-        "fixout_id",
+        "doorId",
+        "door_label",
         "floorLevel"
       ],
       "fields": {
-        "label": {
+        "door_label": {
           "type": "text",
           "allow_gpt": true,
           "role": "identity"
@@ -530,6 +530,7 @@
       "output_mode": "row",
       "identity_fields": [
         "id",
+        "doorId",
         "label",
         "floorLevel"
       ],
@@ -549,11 +550,10 @@
           "allow_gpt": true,
           "role": "level"
         },
-        "type": {
-          "type": "dropdown",
+        "windowType": {
+          "type": "text",
           "allow_gpt": true,
-          "role": "classification",
-          "option_key": "type"
+          "role": "classification"
         },
         "height": {
           "type": "number",

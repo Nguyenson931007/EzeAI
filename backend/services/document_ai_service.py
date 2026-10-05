@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,46 @@ from services.document_ai_task_schema import (
     gpt_allowed_fields,
     normalize_task_key,
 )
+
+logger = logging.getLogger("ezefloor.document_ai_service")
+
+
+# ---------------------------------------------------------------------------
+# External prompt files (backend/prompts/).
+# The .md files are the source of truth so prompts can be tuned without code
+# changes. Hardcoded fallbacks below are used only if the files are missing
+# (e.g. an incomplete deployment) — never edit prompts in code; edit the files.
+# ---------------------------------------------------------------------------
+_PROMPTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "prompts"))
+
+
+def _load_prompt_text(relative_path: str) -> Optional[str]:
+    try:
+        full = os.path.join(_PROMPTS_DIR, relative_path)
+        with open(full, "r", encoding="utf-8") as fh:
+            text = fh.read().strip()
+            return text or None
+    except OSError:
+        return None
+
+
+def _load_task_guidance() -> Dict[str, str]:
+    guidance: Dict[str, str] = {}
+    tasks_dir = os.path.join(_PROMPTS_DIR, "tasks")
+    try:
+        names = sorted(os.listdir(tasks_dir))
+    except OSError:
+        return guidance
+    for name in names:
+        if not name.endswith(".md"):
+            continue
+        text = _load_prompt_text(os.path.join("tasks", name))
+        if text:
+            guidance[name[:-3]] = text
+    return guidance
+
+
+_TASK_GUIDANCE: Dict[str, str] = _load_task_guidance()
 
 
 def _native_page_text(doc: fitz.Document, page_index: int) -> Dict[str, Any]:
@@ -135,7 +176,8 @@ def extract_selected_pages(pdf_bytes: bytes, selected_pages: List[Dict[str, Any]
     return results
 
 
-SYSTEM_PROMPT = """You are EzeFloor Document AI.
+# Fallback only — the live prompt is backend/prompts/system.md (see above).
+_SYSTEM_PROMPT_FALLBACK = """You are EzeFloor Document AI.
 
 ROLE
 - Read text extracted locally from selected PDF pages.
@@ -192,9 +234,21 @@ EXPECTED OUTPUT
 }
 """
 
+SYSTEM_PROMPT = _load_prompt_text("system.md") or _SYSTEM_PROMPT_FALLBACK
+
 
 _GPT_META_KEYS = {
     "action", "row_id", "source_page", "source_text", "confidence", "reason",
+}
+
+# Legacy/alternate field names mapped to the canonical schema field per task.
+# (fixout rows use door_label; older prompts called it label. window rows use
+# windowType; older prompts called it type — a stray `type` on a window row
+# would also corrupt the reveal export, which treats non-"window" type as
+# "Door Opening".)
+_TASK_FIELD_ALIASES = {
+    "fixout": {"label": "door_label"},
+    "windows": {"type": "windowType"},
 }
 _FORBIDDEN_GEOMETRY_KEYS = {
     "x", "y", "x1", "y1", "x2", "y2", "bbox", "polygon", "points",
@@ -279,7 +333,18 @@ def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, custome
     if not isinstance(rows, list):
         return []
     allowed = _allowed_row_fields(task_key, customer)
-    existing_ids = {str(row.get("id")) for row in (task.get("rows") or []) if isinstance(row, dict) and row.get("id") is not None}
+    # Row identity may live under id/doorId/door_id (e.g. lockup rows carry the
+    # canvas door id in doorId while id is a generated wrapper). Accept any of
+    # them as row_id and canonicalize to the row's id for downstream merging.
+    identity_to_id: Dict[str, str] = {}
+    for existing in (task.get("rows") or []):
+        if not isinstance(existing, dict) or existing.get("id") is None:
+            continue
+        canonical_id = str(existing.get("id"))
+        for identity_key in ("id", "doorId", "door_id"):
+            identity_value = existing.get(identity_key)
+            if identity_value is not None and str(identity_value).strip() != "":
+                identity_to_id.setdefault(str(identity_value).strip(), canonical_id)
     result: List[Dict[str, Any]] = []
     for raw in rows:
         if not isinstance(raw, dict):
@@ -287,6 +352,9 @@ def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, custome
         clean: Dict[str, Any] = {}
         proposed_values = raw.get("values") if isinstance(raw.get("values"), dict) else {}
         combined = {**proposed_values, **{k: v for k, v in raw.items() if k != "values"}}
+        for alias_from, alias_to in _TASK_FIELD_ALIASES.get(task_key, {}).items():
+            if alias_from in combined and alias_to not in combined:
+                combined[alias_to] = combined.pop(alias_from)
         for key, value in combined.items():
             key = str(key)
             if key in _FORBIDDEN_GEOMETRY_KEYS or key.startswith("geometry_"):
@@ -305,12 +373,13 @@ def _clean_proposed_rows(rows: Any, task: Dict[str, Any], task_key: str, custome
         clean["action"] = _action(raw.get("action"))
         if clean.get("_gpt_validation_errors"):
             clean["action"] = "UNKNOWN"
-        row_id = str(raw.get("row_id") or "").strip()
+        row_id = str(raw.get("row_id") or raw.get("target_row_id") or "").strip()
         if clean["action"] in {"UPDATE", "DELETE"}:
-            if not row_id or row_id not in existing_ids:
+            canonical_id = identity_to_id.get(row_id)
+            if not row_id or canonical_id is None:
                 clean["action"] = "UNKNOWN"
             else:
-                clean["row_id"] = row_id
+                clean["row_id"] = canonical_id
         clean["confidence"] = _confidence(raw.get("confidence"))
         result.append(clean)
     return result
@@ -341,12 +410,21 @@ def _review_document_batch(
     # Keep the system instructions only in the system message. Repeating them in
     # the user message wastes tokens, especially when All Tasks is split into
     # multiple batches.
+    # Attach per-task guidance (backend/prompts/tasks/<task_key>.md) so each
+    # task carries its own scoping rules (e.g. fixout = interior doors only).
+    guided_contracts: Dict[str, Any] = {}
+    for _key, _contract in (task_contracts or {}).items():
+        _guided = dict(_contract or {})
+        _guidance = _TASK_GUIDANCE.get(_key)
+        if _guidance:
+            _guided["guidance"] = _guidance
+        guided_contracts[_key] = _guided
     context = {
         "customer": customer,
         "project_context": project_context or {},
         "evidence_rules": evidence_rules or {},
         "selected_pages": pages,
-        "tasks": task_contracts,
+        "tasks": guided_contracts,
     }
     raw = openai_response(
         messages=[
@@ -375,12 +453,54 @@ def review_document_tasks(
     project_context: Optional[Dict[str, Any]] = None,
     evidence_rules: Optional[Dict[str, Any]] = None,
     model: Optional[str] = None,
+    use_yolo: bool = False,
 ) -> Dict[str, Any]:
     model_name = get_openai_model()
     if model and model.strip() and model.strip() != model_name:
         raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
 
     pages = extract_selected_pages(pdf_bytes, selected_pages)
+
+    # YOLO local detection: enrich pages with door/window positions (x, y).
+    # Runs only when the user selects "YOLO + EzeIn" mode in the popup.
+    if use_yolo:
+        try:
+            from services.door_segment_service import DoorSegmentService
+            yolo = DoorSegmentService()
+            yolo_results = yolo.predict_from_pdf(pdf_bytes, filename="document.pdf")
+            yolo_by_page = {}
+            for pr in yolo_results or []:
+                pidx = pr.get("page_index")
+                dets = []
+                for d in (pr.get("doors") or []):
+                    c = d.get("centroid") or d.get("center") or [0, 0]
+                    dets.append({
+                        "label": d.get("class") or d.get("label") or "door",
+                        "type": "door",
+                        "x": round(float(c[0]), 1),
+                        "y": round(float(c[1]), 1),
+                        "confidence": round(float(d.get("confidence", 0)), 3),
+                        "id": d.get("id"),
+                    })
+                for w in (pr.get("windows") or []):
+                    c = w.get("centroid") or w.get("center") or [0, 0]
+                    dets.append({
+                        "label": w.get("class") or w.get("label") or "window",
+                        "type": "window",
+                        "x": round(float(c[0]), 1),
+                        "y": round(float(c[1]), 1),
+                        "confidence": round(float(w.get("confidence", 0)), 3),
+                        "id": w.get("id"),
+                    })
+                yolo_by_page[pidx] = dets
+            for pg in pages:
+                pidx = int(pg.get("page_number") or 1) - 1
+                pg["yolo_detections"] = yolo_by_page.get(pidx, [])
+        except Exception as yolo_err:
+            logger.warning("YOLO detection failed, continuing without positions: %s", yolo_err)
+            for pg in pages:
+                pg["yolo_detections"] = []
+
     task_contracts = build_task_contracts(tasks, customer)
     if not task_contracts:
         raise RuntimeError("No supported Document AI task schemas were supplied")

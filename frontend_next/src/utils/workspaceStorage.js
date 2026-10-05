@@ -63,6 +63,28 @@ export async function loadWorkspaceState(key) {
   }
 }
 
+export async function clearWorkspaceStateByPrefix(prefix) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAllKeys();
+      req.onsuccess = () => {
+        const keys = req.result || [];
+        keys.forEach((k) => {
+          if (typeof k === "string" && k.indexOf(prefix) === 0) store.delete(k);
+        });
+      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.warn("[WorkspaceStorage] Error clearing state by prefix:", err);
+    return false;
+  }
+}
+
 export async function clearWorkspaceState(key) {
   try {
     const db = await openDB();

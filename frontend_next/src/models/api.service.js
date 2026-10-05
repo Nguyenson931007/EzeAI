@@ -1286,7 +1286,7 @@ export const ApiService = {
     });
     return handleResponse(res);
   },
-  async reviewDocumentWithAI({ file, selectedPages = [], customer = "", tasks = {}, projectContext = {}, evidenceRules = {}, model = null }) {
+  async reviewDocumentWithAI({ file, selectedPages = [], customer = "", tasks = {}, projectContext = {}, evidenceRules = {}, model = null, signal = undefined, useYolo = false }) {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("selected_pages", JSON.stringify(selectedPages));
@@ -1295,11 +1295,13 @@ export const ApiService = {
     fd.append("project_context", JSON.stringify(projectContext || {}));
     fd.append("evidence_rules", JSON.stringify(evidenceRules || {}));
     if (model) fd.append("model", model);
+    fd.append("use_yolo", useYolo ? "true" : "false");
     const res = await fetch(`${BASE_URL}/api/ai/plan/document-review`, {
       method: "POST",
       headers: getHeaders(null),
       body: fd,
       credentials: "include",
+      signal,
     });
     return handleResponse(res);
   },
