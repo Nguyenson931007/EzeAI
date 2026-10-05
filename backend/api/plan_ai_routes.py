@@ -133,6 +133,8 @@ async def document_review(
     selected_pages: str = Form(...),
     customer: str = Form(...),
     tasks: str = Form(...),
+    project_context: Optional[str] = Form(None),
+    evidence_rules: Optional[str] = Form(None),
     model: Optional[str] = Form(None),
     username: str = Depends(validate_session),
 ):
@@ -141,6 +143,8 @@ async def document_review(
         raise HTTPException(status_code=400, detail="Document AI currently requires a PDF file")
     pages_obj = _json(selected_pages, [])
     tasks_obj = _json(tasks, {})
+    project_context_obj = _json(project_context, {})
+    evidence_rules_obj = _json(evidence_rules, {})
     if not isinstance(pages_obj, list) or not pages_obj:
         raise HTTPException(status_code=400, detail="Select at least one PDF page")
     if not isinstance(tasks_obj, dict) or not tasks_obj:
@@ -152,6 +156,8 @@ async def document_review(
             selected_pages=pages_obj,
             customer=customer,
             tasks=tasks_obj,
+            project_context=project_context_obj,
+            evidence_rules=evidence_rules_obj,
             model=model,
         )
     except RuntimeError as exc:

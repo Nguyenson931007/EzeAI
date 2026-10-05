@@ -28,7 +28,7 @@ const TASK_LABELS = {
   hardies_fire_walls: "Hardies Fire Walls",
 };
 
-export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPages = [], customer, taskContext, onResult }) {
+export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPages = [], customer, taskContext, projectContext = {}, onResult }) {
   const [reviewFile, setReviewFile] = useState(null);
   const [reviewFileSource, setReviewFileSource] = useState("current");
   const [pages, setPages] = useState([]);
@@ -213,6 +213,13 @@ export default function DocumentAiReviewModal({ open, onClose, pdfFile, planPage
         selectedPages,
         customer,
         tasks: selectedTaskContext,
+        projectContext,
+        evidenceRules: {
+          selected_pages_only: true,
+          respect_unit_context: true,
+          respect_floor_context: true,
+          geometry_is_read_only: true,
+        },
       });
       setResult(res);
       onResult?.(res);

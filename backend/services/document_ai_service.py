@@ -166,6 +166,8 @@ TASK RULES
 - single_form tasks: return field_updates and require user confirmation before overwrite.
 - A row may be flat using schema field keys, or may put proposed field values under a `values` object.
 - Every proposed change should include source_page, source_text, confidence, and reason when evidence exists.
+- project_context.job_id/project_name/unit are hard boundaries. Never copy or infer task data from a different job or unit.
+- When a selected page has floor_level, proposed rows must belong to that floor unless the document explicitly states the value is global.
 - If evidence is weak, use UNKNOWN/UNRESOLVED instead of guessing.
 - Page evidence behavior is controlled by use_plan_context/evidence_mode, not by in_plan alone.
 - When use_plan_context=true, plan_page_index/floor_level may be used only as supplied context.
@@ -332,6 +334,8 @@ def _review_document_batch(
     pages: List[Dict[str, Any]],
     customer: str,
     task_contracts: Dict[str, Any],
+    project_context: Optional[Dict[str, Any]] = None,
+    evidence_rules: Optional[Dict[str, Any]] = None,
     timeout: int,
 ) -> Dict[str, Any]:
     # Keep the system instructions only in the system message. Repeating them in
@@ -339,6 +343,8 @@ def _review_document_batch(
     # multiple batches.
     context = {
         "customer": customer,
+        "project_context": project_context or {},
+        "evidence_rules": evidence_rules or {},
         "selected_pages": pages,
         "tasks": task_contracts,
     }
@@ -360,7 +366,16 @@ def _review_document_batch(
     return parsed
 
 
-def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, Any]], customer: str, tasks: Dict[str, Any], model: Optional[str] = None) -> Dict[str, Any]:
+def review_document_tasks(
+    *,
+    pdf_bytes: bytes,
+    selected_pages: List[Dict[str, Any]],
+    customer: str,
+    tasks: Dict[str, Any],
+    project_context: Optional[Dict[str, Any]] = None,
+    evidence_rules: Optional[Dict[str, Any]] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     model_name = get_openai_model()
     if model and model.strip() and model.strip() != model_name:
         raise RuntimeError(f"EzeFloor is locked to {model_name}; requested model {model!r} is not allowed")
@@ -388,6 +403,8 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
             pages=pages,
             customer=customer,
             task_contracts=batch_contracts,
+            project_context=project_context,
+            evidence_rules=evidence_rules,
             timeout=timeout,
         )
         parsed_batches.append(parsed_batch)
@@ -520,6 +537,7 @@ def review_document_tasks(*, pdf_bytes: bytes, selected_pages: List[Dict[str, An
         "status": "success",
         "provider": "openai",
         "model": model_name,
+        "project_context": project_context or {},
         "summary": " | ".join(summaries),
         "pages": [{
             k: p[k]

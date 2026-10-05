@@ -5066,52 +5066,100 @@ export default function RightPropertyPaneView({
 
   // Auto Fill is only an initializer. Once a drawing-derived task row exists,
   // keep its aggregate fields live as the canonical plan changes.
+  //
+  // IMPORTANT: depend on scalar/signature values only. `effectiveDoorsByPage`,
+  // `roomsByPageProp`, and `cadMetrics` may be recreated by upstream selectors,
+  // so using those objects directly here can retrigger this effect after every
+  // render and create a setState -> render -> effect loop.
+  const measuredEavesForSync = Number(Number(cadMetrics?.perimeterM || 0).toFixed(2));
+  const sheetAreaForSync = Number(Number(cadMetrics?.grandTotalArea || 0).toFixed(2));
+  const wetRoomCountForSync = React.useMemo(() => {
+    const allRooms = roomsByPageProp && Object.keys(roomsByPageProp).length
+      ? Object.values(roomsByPageProp).flat()
+      : (rooms || []);
+    return allRooms.filter((room) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['’]?dry|shower/i.test(String(room?.room_name || room?.name || room?.label || ""))).length;
+  }, [roomsByPageProp, rooms]);
+  const finalFitPatchForSync = buildFinalFitPatch(Object.values(effectiveDoorsByPage || {}).flat());
+  const finalFitEnabledForSync = String(finalFitPatchForSync.final_fit_enabled || "");
+  const finalFitPassageHandlesForSync = String(finalFitPatchForSync.passage_handles || "");
+  const finalFitDoorStopsForSync = String(finalFitPatchForSync.door_stops || "");
+
   React.useEffect(() => {
-    const measuredEaves = Number(cadMetrics?.perimeterM || 0);
     setEavesEntries((prev) => {
       const list = Array.isArray(prev) ? prev : [];
       const hasDrawingRow = list.some((row) => row?.id === "eaves-ai-measured" || String(row?.autofill_source || "").includes("drawing"));
       if (!hasDrawingRow) return prev;
-      const next = list.flatMap((row) => {
-        const isDrawing = row?.id === "eaves-ai-measured" || String(row?.autofill_source || "").includes("drawing");
-        if (!isDrawing) return [row];
-        if (!(measuredEaves > 0)) return [];
-        if (Number(row?.length || 0) === Number(measuredEaves.toFixed(2))) return [row];
-        return [{ ...row, length: Number(measuredEaves.toFixed(2)), autofill_source: "drawing" }];
-      });
-      return JSON.stringify(next) === JSON.stringify(list) ? prev : next;
-    });
 
-    const allRooms = roomsByPageProp && Object.keys(roomsByPageProp).length
-      ? Object.values(roomsByPageProp).flat()
-      : (rooms || []);
-    const wetRooms = allRooms.filter((room) => /bath|ensuite|\bens\b|\bwc\b|toilet|powder|laundry|l['’]?dry|shower/i.test(String(room?.room_name || room?.name || room?.label || ""))).length;
-    const doorPatch = buildFinalFitPatch(Object.values(effectiveDoorsByPage || {}).flat());
-    const sheetArea = Number(cadMetrics?.grandTotalArea || 0);
+      let changed = false;
+      const next = [];
+      for (const row of list) {
+        const isDrawing = row?.id === "eaves-ai-measured" || String(row?.autofill_source || "").includes("drawing");
+        if (!isDrawing) {
+          next.push(row);
+          continue;
+        }
+        if (!(measuredEavesForSync > 0)) {
+          changed = true;
+          continue;
+        }
+        if (Number(row?.length || 0) === measuredEavesForSync) {
+          next.push(row);
+          continue;
+        }
+        changed = true;
+        next.push({ ...row, length: measuredEavesForSync, autofill_source: "drawing" });
+      }
+      return changed ? next : prev;
+    });
 
     setModuleFormData((prev) => {
-      const next = {
+      const eavesValue = measuredEavesForSync > 0 ? measuredEavesForSync.toFixed(2) : "";
+      const wetRoomsValue = String(wetRoomCountForSync);
+      const sheetAreaValue = sheetAreaForSync > 0 ? sheetAreaForSync.toFixed(2) : "";
+      const currentEaves = prev?.eaves_soffit || {};
+      const currentFow = prev?.fow_plumbing || {};
+      const currentFinal = prev?.final_fit || {};
+      const currentSheet = prev?.sheet_schedule || {};
+
+      const eavesChanged = String(currentEaves.total_eave_length ?? "") !== eavesValue;
+      const fowChanged = String(currentFow.detected_wet_rooms ?? "") !== wetRoomsValue;
+      const finalChanged =
+        String(currentFinal.final_fit_enabled ?? "") !== finalFitEnabledForSync ||
+        String(currentFinal.passage_handles ?? "") !== finalFitPassageHandlesForSync ||
+        String(currentFinal.door_stops ?? "") !== finalFitDoorStopsForSync;
+      const sheetChanged = String(currentSheet.total_area ?? "") !== sheetAreaValue;
+
+      if (!eavesChanged && !fowChanged && !finalChanged && !sheetChanged) return prev;
+
+      return {
         ...prev,
-        eaves_soffit: {
-          ...(prev.eaves_soffit || {}),
-          total_eave_length: measuredEaves > 0 ? String(measuredEaves.toFixed(2)) : "",
-        },
-        fow_plumbing: {
-          ...(prev.fow_plumbing || {}),
-          detected_wet_rooms: String(wetRooms),
-        },
-        final_fit: {
-          ...(prev.final_fit || {}),
-          ...doorPatch,
-        },
-        sheet_schedule: {
-          ...(prev.sheet_schedule || {}),
-          total_area: sheetArea > 0 ? sheetArea.toFixed(2) : "",
-        },
+        ...(eavesChanged ? {
+          eaves_soffit: { ...currentEaves, total_eave_length: eavesValue },
+        } : {}),
+        ...(fowChanged ? {
+          fow_plumbing: { ...currentFow, detected_wet_rooms: wetRoomsValue },
+        } : {}),
+        ...(finalChanged ? {
+          final_fit: {
+            ...currentFinal,
+            final_fit_enabled: finalFitEnabledForSync,
+            passage_handles: finalFitPassageHandlesForSync,
+            door_stops: finalFitDoorStopsForSync,
+          },
+        } : {}),
+        ...(sheetChanged ? {
+          sheet_schedule: { ...currentSheet, total_area: sheetAreaValue },
+        } : {}),
       };
-      return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
     });
-  }, [cadMetrics, effectiveDoorsByPage, roomsByPageProp, rooms]);
+  }, [
+    measuredEavesForSync,
+    sheetAreaForSync,
+    wetRoomCountForSync,
+    finalFitEnabledForSync,
+    finalFitPassageHandlesForSync,
+    finalFitDoorStopsForSync,
+  ]);
 
 
   const documentAiTaskContext = React.useMemo(() => ({

@@ -752,7 +752,7 @@ export default function ShelvingTask({
                             }}
                             title="Click to select · Double-click to edit"
                           >
-                            <td style={{ textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={row} /></td>
+                            <td style={{ textAlign: "center", fontWeight: 700 }}><TaskRowNumber index={idx} row={item} /></td>
                             <td>
                               {isRowEditing ? (
                                 <select value={editRowData.type || "Robe"} onChange={(event) => setEditRowData((prev) => ({ ...prev, type: event.target.value }))} style={controlStyle}>
