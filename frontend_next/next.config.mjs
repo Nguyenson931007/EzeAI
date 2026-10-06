@@ -45,6 +45,11 @@ const proxyMaxBodySize = process.env.NEXT_PROXY_MAX_BODY_SIZE || "";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Socket.IO's Engine.IO endpoint is `/socket.io/`. If Next normalizes that
+  // URL to `/socket.io`, the mounted ASGI app redirects it back with the
+  // backend's private 127.0.0.1 address in Location. Keeping the trailing
+  // slash prevents that redirect from ever reaching the browser.
+  skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || "",
     NEXT_PUBLIC_PROCUREMENT_WEB_URL: process.env.PROCUREMENT_WEB_URL || "",
@@ -60,7 +65,9 @@ const nextConfig = {
     return [
       // Socket.IO handshake/polling. Production proxies can upgrade this same
       // path to websocket; polling remains a safe fallback.
-      { source: "/socket.io/:path*", destination: `${backendUrl}/socket.io/:path*` },
+      { source: "/socket.io", destination: `${backendUrl}/socket.io/` },
+      { source: "/socket.io/", destination: `${backendUrl}/socket.io/` },
+      { source: "/socket.io/:path+", destination: `${backendUrl}/socket.io/:path+` },
 
       // Main API routes
       { source: "/api/:path*", destination: `${backendUrl}/api/:path*` },
