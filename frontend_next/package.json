@@ -15,6 +15,7 @@
     "polygon-clipping": "^0.15.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "socket.io-client": "^4.8.4",
     "three": "^0.184.0",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.13"

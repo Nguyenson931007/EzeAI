@@ -252,6 +252,7 @@ export default function HardiesFireWallsTask({
 
   // ── START EDITING ──
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     setEditRowData({ ...item });
   };
@@ -299,16 +300,15 @@ export default function HardiesFireWallsTask({
       // Store in local cache always
       localStorage.setItem(hardiesCacheKey, JSON.stringify(wallEntries));
 
-      // Attempt to save through ApiService if endpoint is available
-      try {
-        if (typeof ApiService.saveCladdingJobs === "function") {
-          await ApiService.saveCladdingJobs({
-            user_update: currentUsername || "admin",
-            jobs: [{ id_job_hw: savedJobId, walls: wallEntries, task: "hardies_fire_walls" }]
-          });
-        }
-      } catch (apiErr) {
-        console.warn("Backend API save optional fallback:", apiErr);
+      if (typeof ApiService.saveCladdingJobs !== "function") {
+        throw new Error("The Hardies database endpoint is unavailable.");
+      }
+      const response = await ApiService.saveCladdingJobs({
+        user_update: currentUsername || "admin",
+        jobs: [{ id_job_hw: savedJobId, walls: wallEntries, task: "hardies_fire_walls" }]
+      });
+      if (!response?.success) {
+        throw new Error(response?.message || response?.detail || "The database did not confirm the save.");
       }
 
       setSaveStatus("success");
@@ -367,7 +367,7 @@ export default function HardiesFireWallsTask({
           onSave={handleSaveToMSSQL}
           saveDisabled={isSaving}
           saveStatus={isSaving ? "saving" : (saveStatus || "idle")}
-          autoFillLabel="Auto Fill"
+          autoFillLabel="Fill"
           dataSource={dataSource}
           isReadOnly={isReadOnly}
           onEdit={() => setIsReadOnly(false)}

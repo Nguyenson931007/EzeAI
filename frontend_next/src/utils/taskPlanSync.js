@@ -360,8 +360,18 @@ const linkedObjectIds = (row) => [
  * receive rows immediately. Unlinked manual rows remain task-only.
  */
 export const reconcileTaskRowsWithPlan = (rows = [], planRows = []) => {
-  const current = Array.isArray(rows) ? rows : [];
-  const generated = Array.isArray(planRows) ? planRows : [];
+  const dedupe = (items) => {
+    const source = Array.isArray(items) ? items : [];
+    const identity = (row, index) => {
+      const linked = linkedObjectIds(row).sort().join("|");
+      return linked ? `linked:${linked}` : (text(row?.id) || `row:${index}`);
+    };
+    const latest = new Map();
+    source.forEach((row, index) => latest.set(identity(row, index), row));
+    return source.filter((row, index) => latest.get(identity(row, index)) === row);
+  };
+  const current = dedupe(rows);
+  const generated = dedupe(planRows);
   const manualRows = current.filter((row) => {
     const source = lower(row?.autofill_source || row?.source);
     return linkedObjectIds(row).length === 0 && !source.includes("drawing") && source !== "ai_generated";

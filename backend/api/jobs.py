@@ -7,13 +7,17 @@ Khôi phục, Đổi tên, Xóa dự án, Trích xuất & thu nhỏ ảnh thu nh
 Xem lịch sử chỉnh sửa chéo, và Chia sẻ dự án công khai qua Token bảo mật.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query
+from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query, Request
 import secrets
 import logging
 import time
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import get_db_connection
+from app.mssql_db import get_procurement_connection
+from app.procurement_task_sp import resolve_job_hw_id
+from app.stored_procedures import execute_procedure
+from api.unit_scope import get_active_unit
 from api.auth import validate_session
 from app.config import (
     TASKLIST_WORKFLOW_API_TOKEN, TASKLIST_WORKFLOW_ENDPOINT, TASKLIST_WORKFLOW_READ_METHOD, TASKLIST_WORKFLOW_WRITE_METHOD, TASKLIST_API_TIMEOUT_SEC,
@@ -25,6 +29,31 @@ logger = logging.getLogger("ezefloor.jobs")
 
 # Khởi tạo APIRouter cho các API liên quan đến quản lý dự án
 router = APIRouter()
+
+TASK_ARCHIVE_PROCEDURES = {
+    "frame_hardware": "dbo.usp_EzeFloor_FrameWork_Archive",
+    "flooring_decking": "dbo.usp_EzeFloor_AreaSummary_Archive",
+    "hebel_flooring": "dbo.usp_EzeFloor_AreaSummary_Archive",
+    "insulation": "dbo.usp_EzeFloor_Insulation_Archive",
+    "eaves_soffit": "dbo.usp_EzeFloor_Eaves_Archive",
+    "cladding": "dbo.usp_EzeFloor_Cladding_Archive",
+    "hardies_fire_walls": "dbo.usp_EzeFloor_Cladding_Archive",
+    "lockup": "dbo.usp_EzeFloor_LockUp_Archive",
+    "lock_up": "dbo.usp_EzeFloor_LockUp_Archive",
+    "fixout": "dbo.usp_EzeFloor_Fixout_Archive",
+    "window": "dbo.usp_EzeFloor_Fixout_Archive",
+    "windows": "dbo.usp_EzeFloor_Fixout_Archive",
+    "shelving": "dbo.usp_EzeFloor_Shelving_Archive",
+    "timber_posts": "dbo.usp_EzeFloor_TimberPosts_Archive",
+    "fow_plumbing": "dbo.usp_EzeFloor_FOWPlumbing_Archive",
+    "power_truss_braces": "dbo.usp_EzeFloor_PowerTruss_Archive",
+}
+
+
+class TaskDataDelete(BaseModel):
+    task: str
+    job_id: str
+    user_update: Optional[str] = None
 
 # ── Katherine (EZE0098) standard HW contract ──
 # Cairns keeps its existing separate workflow. Every other Katherine customer
@@ -858,6 +887,55 @@ def get_jobs_progress_report(
         conn.close()
 
 
+@router.post("/jobs/task-data/delete")
+def delete_task_data(payload: TaskDataDelete, request: Request):
+    """Archive all saved rows for one task/job/unit without inserting replacements."""
+    task_key = str(payload.task or "").strip().lower()
+    procedure = TASK_ARCHIVE_PROCEDURES.get(task_key)
+    if not procedure:
+        raise HTTPException(status_code=422, detail=f"Task '{task_key}' does not store data in Procurement.")
+
+    user_update = (
+        str(payload.user_update or "").strip()
+        or str(request.headers.get("x-username") or "").strip()
+        or "admin"
+    )
+    conn = None
+    try:
+        conn = get_procurement_connection()
+        conn.autocommit(False)
+        cursor = conn.cursor()
+        job_hw_id = resolve_job_hw_id(cursor, payload.job_id, api_file=__file__)
+        execute_procedure(cursor, procedure, {
+            "JobHwId": job_hw_id,
+            "Unit": get_active_unit(request),
+            "UserUpdate": user_update,
+        })
+        conn.commit()
+        return {
+            "success": True,
+            "task": task_key,
+            "job_id": job_hw_id,
+            "message": "Task data deleted from the database.",
+        }
+    except ValueError as error:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=422, detail=str(error))
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except Exception as error:
+        if conn:
+            conn.rollback()
+        logger.exception("Could not delete Procurement task data")
+        raise HTTPException(status_code=500, detail=str(error))
+    finally:
+        if conn:
+            conn.close()
+
+
 @router.get("/jobs/{username}", response_model=List[JobResponse])
 def get_user_jobs(username: str, limit: int = 20, offset: int = 0, current_user: str = Depends(validate_session)):
     """
@@ -1148,6 +1226,85 @@ def get_shared_job(token: str):
 
 
 
+@router.get("/jobs/ems/{ems_id}/task-modules")
+async def get_job_task_modules(
+    ems_id: str,
+    response: Response,
+    _: str = Depends(validate_session),
+):
+    """Get task modules for a job (for realtime polling)."""
+    from app.mssql_db import get_mssql_connection
+    conn = None
+    try:
+        conn = get_mssql_connection()
+        cursor = conn.cursor(as_dict=True)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        cursor.execute(
+            """
+            SELECT TOP 1 CAST(t.id AS nvarchar(100)) AS hw_id
+            FROM [emsflow].[dbo].[task_group_hw] AS t WITH (NOLOCK)
+            WHERE t.id_job_ems = %s
+              AND ISNULL(t.is_delete, 0) = 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM [emsflow].[dbo].[task_group_hw_steps] AS contract WITH (NOLOCK)
+                  WHERE contract.task_group_hw_id = t.id
+                    AND contract.step_number IN (12, 13)
+              )
+            ORDER BY t.created_at DESC, t.id DESC
+            """,
+            (ems_id,),
+        )
+        hw_row = cursor.fetchone()
+        hw_id = str(hw_row.get("hw_id") or "").strip() if hw_row else ""
+        if not hw_id:
+            return {
+                "status": "success",
+                "success": True,
+                "data": {
+                    "id_job": ems_id,
+                    "task_modules": [],
+                    "task_modules_configured": False,
+                },
+            }
+        step_to_module = KATHERINE_STEP_TO_MODULE
+        modules = []
+        configured = False
+        cursor.execute(
+            """
+            SELECT step_number, is_visible
+            FROM [emsflow].[dbo].[task_group_hw_steps] WITH (NOLOCK)
+            WHERE task_group_hw_id = %s
+              AND step_number BETWEEN 1 AND 13
+            ORDER BY step_number
+            """,
+            (hw_id,),
+        )
+        for row in cursor.fetchall():
+            is_visible = row.get("is_visible")
+            if is_visible is not None:
+                configured = True
+            if is_visible in (True, 1, "1"):
+                step = int(row.get("step_number") or 0)
+                module_id = step_to_module.get(step)
+                if module_id and module_id not in modules:
+                    modules.append(module_id)
+        return {
+            "status": "success",
+            "success": True,
+            "data": {
+                "id_job": ems_id,
+                "hw_id": hw_id,
+                "task_modules": modules,
+                "task_modules_configured": configured,
+            },
+        }
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+
 @router.put("/jobs/ems/{ems_id}/task-modules")
 async def update_job_task_modules(
     ems_id: str,
@@ -1230,6 +1387,19 @@ async def update_job_task_modules(
                 updated_rows += int(cursor.rowcount or 0)
 
         conn.commit()
+
+        # Emit real-time event for EzeFloor frontend (Tasklist pattern)
+        try:
+            from socketio_server import emit_task_updated
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(emit_task_updated("task_modules", ems_id, extra={"modules": requested}))
+            except RuntimeError:
+                pass  # No running loop, skip emit
+        except Exception:
+            pass  # Socket.io not available, don't break the save
+
         return {
             "status": "success",
             "success": True,

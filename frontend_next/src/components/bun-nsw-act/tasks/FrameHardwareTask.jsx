@@ -6,7 +6,7 @@ import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { getWallClass } from "@/utils/geometry";
 import { normalizeFloorLevelCode, resolveObjectFloorLevel } from "@/utils/floorLevel";
-import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { buildArchitecturalFloorLevelMap, getArchitecturalPageIndices, normalizeFloorLevel, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
@@ -410,6 +410,7 @@ export default function FrameHardwareTask({
   editingRowIdRef.current = editingRowId;
 
   const handleStartEdit = (w) => {
+    setIsReadOnly(false);
     setEditingRowId(w.id);
     setEditRowData({
       height: w.height ? String(w.height).replace("mm", "").trim() : "2700",
@@ -539,6 +540,42 @@ export default function FrameHardwareTask({
     }, 100);
   };
 
+  // Manual "Add data" button: re-check DB for framework data
+  const handleAddDataFromDb = async () => {
+    if (!resolvedJobKey || resolvedJobKey.toLowerCase() === "default" || resolvedJobKey.toLowerCase() === "testai") return;
+    setIsLoadingFromDb(true);
+    try {
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Framework DB load timeout")), 10000)
+      );
+      const res = await Promise.race([
+        ApiService.fetchFrameworkJobs(),
+        timeoutPromise
+      ]);
+      if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const target = resolvedJobKey.toLowerCase();
+        const matchedRows = res.data.filter(j => {
+          const jn = String(j.job_number || "").trim().toLowerCase();
+          const hw = String(j.IDJob_HW || j.hw_id || "").trim().toLowerCase();
+          return (jn && jn === target) || (hw && hw === target);
+        });
+        if (matchedRows.length > 0) {
+          setDataSource("db");
+          setIsReadOnly(true);
+        } else {
+          setDataSource(null);
+          setIsReadOnly(false);
+        }
+      }
+    } catch (err) {
+      console.warn("Add Framework data from DB failed:", err);
+      setDataSource(null);
+      setIsReadOnly(false);
+    } finally {
+      setIsLoadingFromDb(false);
+    }
+  };
+
   const handleAddTimberWall = () => {
     const lenMm = parseFloat(timberWallLength) || (cadMetrics.grandTotalLength ? Math.round(cadMetrics.grandTotalLength * 1000) : 18500);
     const hMm = timberWallHeight !== "Select..." ? parseInt(timberWallHeight, 10) : 2440;
@@ -646,8 +683,16 @@ export default function FrameHardwareTask({
     const autoLoad = async () => {
       setIsLoadingFromDb(true);
       try {
-        const res = await ApiService.fetchFrameworkJobs();
+        // Timeout after 10s to prevent stuck Loading... if backend hangs
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Framework DB load timeout")), 10000)
+        );
+        const res = await Promise.race([
+          ApiService.fetchFrameworkJobs(),
+          timeoutPromise
+        ]);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -1084,6 +1129,7 @@ export default function FrameHardwareTask({
           isOpen={isSection2Open}
           onToggle={() => setIsSection2Open((open) => !open)}
           onAutoFill={handleAutoFillAI}
+          onAddData={handleAddDataFromDb}
           onClear={onClearData}
           onSave={handleSaveToDatabase}
           saveDisabled={isSaving || qualifiedWalls.length === 0}
@@ -1120,7 +1166,7 @@ export default function FrameHardwareTask({
                 </React.Fragment>
               ))}
               {qualifiedWalls.length === 0 ? (
-                <TaskEmptyRow colSpan={6}>No walls entered. Add a wall above or use Auto Fill.</TaskEmptyRow>
+                <TaskEmptyRow colSpan={6}>No walls entered. Add a wall above or use Fill.</TaskEmptyRow>
               ) : null}
             </tbody>
           </TaskSummaryTable>
@@ -1487,6 +1533,7 @@ export default function FrameHardwareTask({
         isOpen={isSection2Open}
         onToggle={() => setIsSection2Open((v) => !v)}
         onAutoFill={() => onAddDataAI?.("frame_hardware")}
+        onAddData={handleAddDataFromDb}
         onClear={onClearData}
         onSave={handleSaveToDatabase}
         saveDisabled={isSaving}
@@ -1522,7 +1569,7 @@ export default function FrameHardwareTask({
                   ))}
                   {qualifiedWalls.length === 0 && (
                     <TaskEmptyRow colSpan={isBunVic ? 4 : 8}>
-                      No walls entered. Enter wall specifications above or click Auto Fill (AI).
+                      No walls entered. Enter wall specifications above or click Fill.
                     </TaskEmptyRow>
                   )}
                 </tbody>

@@ -572,6 +572,54 @@ export default function RightPropertyPaneView({
 
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
+  const [taskLeavePrompt, setTaskLeavePrompt] = React.useState(null);
+
+  const confirmTaskLeave = React.useCallback(() => {
+    if (typeof window === "undefined") return Promise.resolve(true);
+    const guard = window.__ezefloorActiveTaskDraft;
+    if (!guard?.dirty) return Promise.resolve(true);
+    return new Promise((resolve) => setTaskLeavePrompt({ guard, resolve, saving: false, error: "" }));
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    window.__ezefloorConfirmTaskLeave = confirmTaskLeave;
+    return () => {
+      if (window.__ezefloorConfirmTaskLeave === confirmTaskLeave) delete window.__ezefloorConfirmTaskLeave;
+    };
+  }, [confirmTaskLeave]);
+
+  const finishTaskLeave = React.useCallback(async (choice) => {
+    const prompt = taskLeavePrompt;
+    if (!prompt) return;
+    if (choice === "cancel") {
+      setTaskLeavePrompt(null);
+      prompt.resolve(false);
+      return;
+    }
+    if (choice === "save") {
+      setTaskLeavePrompt((current) => current ? { ...current, saving: true, error: "" } : current);
+      try {
+        await prompt.guard.save();
+      } catch (error) {
+        setTaskLeavePrompt((current) => current ? {
+          ...current,
+          saving: false,
+          error: error?.message || "Could not save this task. Please try again.",
+        } : current);
+        return;
+      }
+    }
+    prompt.guard.discard();
+    setTaskLeavePrompt(null);
+    prompt.resolve(true);
+  }, [taskLeavePrompt]);
+
+  const requestActivePaneTab = React.useCallback(async (nextValue) => {
+    const nextTab = typeof nextValue === "function" ? nextValue(activePaneTab) : nextValue;
+    if (nextTab === activePaneTab) return;
+    if (await confirmTaskLeave()) setActivePaneTab(nextTab);
+  }, [activePaneTab, confirmTaskLeave]);
   const [explorerViewMode, setExplorerViewMode] = React.useState("tree"); // "tree" | "properties"
   const pendingOpenAfterMoveRef = React.useRef(false);
   const prevCanvasMovingRef = React.useRef(false);
@@ -1471,7 +1519,7 @@ export default function RightPropertyPaneView({
         effectiveScalesByPage || {},
         fallbackScale,
       );
-      setFrameWallEntries(frameRows);
+      setFrameWallEntries((current) => replaceAutoFillRows(current, frameRows));
       generatedCount = frameRows.length;
       if (frameRows[0]) {
         formPatch = {
@@ -1503,7 +1551,7 @@ export default function RightPropertyPaneView({
             ...perPage,
           ]);
         } else {
-          setFlooringEntries(perPage);
+          setFlooringEntries((current) => replaceAutoFillRows(current, perPage));
         }
         formPatch = {
           dryArea: dry ? dry.toFixed(2) : "",
@@ -1607,7 +1655,7 @@ export default function RightPropertyPaneView({
         blockWork: "No",
         floorLevel: row.floorLevel || "GF",
       }));
-      setFixoutDoorEntries(rows);
+      setFixoutDoorEntries((current) => replaceAutoFillRows(current, rows));
       handleModuleFormChange("fixout", "fixout_excluded_window_ids", "[]");
 
       const currentRevealRows = (() => {
@@ -1625,11 +1673,11 @@ export default function RightPropertyPaneView({
       generatedCount = rows.length + windowRevealRows.length;
     } else if (normalizedModuleId === "lock_up") {
       const rows = buildLockupRows(allDoors, allWallsForDoorRouting);
-      setLockupEntries(rows);
+      setLockupEntries((current) => replaceAutoFillRows(current, rows));
       generatedCount = rows.length;
     } else if (normalizedModuleId === "windows") {
       const rows = buildWindowRows(allDoors);
-      setWindowEntries(rows);
+      setWindowEntries((current) => replaceAutoFillRows(current, rows));
       const windowRevealRows = rows.map((row, index) => ({
         ...row,
         id: `window-reveal-${row.doorId || index}`,
@@ -1656,7 +1704,7 @@ export default function RightPropertyPaneView({
     } else if (normalizedModuleId === "shelving") {
       const roomPages = roomsByPageProp && Object.keys(roomsByPageProp).length ? Object.values(roomsByPageProp).flat() : currentRooms;
       const rows = buildShelvingRows(roomPages || []);
-      setShelvingEntries(rows);
+      setShelvingEntries((current) => replaceAutoFillRows(current, rows));
       generatedCount = rows.length;
     } else if (normalizedModuleId === "eaves_soffit") {
       // Geometry can fill measured length; brand/thickness/batten/bead stay catalog-driven.
@@ -1708,7 +1756,7 @@ export default function RightPropertyPaneView({
           autofill_source: "drawing",
         };
       }).filter((row) => row.length);
-      setCladdingWallEntries(rows);
+      setCladdingWallEntries((current) => replaceAutoFillRows(current, rows));
       generatedCount = rows.length;
       formPatch = { floor_level: floorLevelForPage(currentPage) };
     } else if (normalizedModuleId === "timber_posts") {
@@ -1725,7 +1773,7 @@ export default function RightPropertyPaneView({
         galPostSupports: p.galPostSupports || 0,
         autofill_source: "drawing",
       }));
-      setTimberPostEntries(explicitPosts);
+      setTimberPostEntries((current) => replaceAutoFillRows(current, explicitPosts));
       generatedCount = explicitPosts.length;
     } else if (normalizedModuleId === "power_truss_braces") {
       // Only consume explicitly detected/entered structural brace geometry.
@@ -1738,7 +1786,7 @@ export default function RightPropertyPaneView({
         qty: Number(b.qty || 1),
         autofill_source: "drawing",
       })).filter((b) => b.wallHeight && b.length);
-      setPowerTrussEntries(braces);
+      setPowerTrussEntries((current) => replaceAutoFillRows(current, braces));
       generatedCount = braces.length;
     } else if (normalizedModuleId === "fow_plumbing") {
       // Plumbing product rows require Procurement catalog identity. Keep existing rows;
@@ -2128,6 +2176,10 @@ export default function RightPropertyPaneView({
     if (currentProjectName && targetName === currentProjectName) {
       return;
     }
+
+    // A task draft belongs to the job currently on screen. Resolve it before
+    // clearing/loading the drawing workspace for another job.
+    if (!(await confirmTaskLeave())) return;
 
     // Check if the current workspace has active drawing data (pages, walls, etc.)
     const hasCurrentDrawing = (pagesProp && pagesProp.length > 0) ||
@@ -2546,6 +2598,23 @@ export default function RightPropertyPaneView({
   // ── DYNAMIC TASK EXPANSION & DRAG RESIZING STATE ──
   const isTaskModuleActive = isHwOrAllUser && taskModuleTabs.some(t => t.id === activePaneTab);
   const activeModuleTab = taskModuleTabs.find(t => t.id === activePaneTab);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    if (!isTaskModuleActive || !activeModuleTab) {
+      delete window.__ezefloorActiveTaskContext;
+      return undefined;
+    }
+    const context = {
+      taskKey: activeModuleTab.baseId || parseFlooringTaskId(activePaneTab)?.baseId || activePaneTab,
+      jobId: currentJobId || currentProjectName || null,
+    };
+    window.__ezefloorActiveTaskContext = context;
+    return () => {
+      if (window.__ezefloorActiveTaskContext === context) delete window.__ezefloorActiveTaskContext;
+    };
+  }, [isTaskModuleActive, activeModuleTab, activePaneTab, currentJobId, currentProjectName]);
+
   const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
   const [taskPanelWidth, setTaskPanelWidth] = React.useState(420);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -3429,7 +3498,20 @@ export default function RightPropertyPaneView({
   const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
     setLockupEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
-      const doorOnlyRows = (Array.isArray(next) ? next : []).filter((row) => !isWindowOpening(row));
+      const prevById = new Map((Array.isArray(prev) ? prev : []).map((r) => [String(r?.id ?? r?.doorId ?? ""), r]));
+      const doorOnlyRows = (Array.isArray(next) ? next : [])
+        .filter((row) => !isWindowOpening(row))
+        .map((row) => {
+          const key = String(row?.id ?? row?.doorId ?? "");
+          const prevRow = prevById.get(key);
+          const src = String(row?.autofill_source || row?.autoFillSource || "").toLowerCase();
+          if (prevRow && src && src !== "manual") {
+            const editable = ["category", "hung", "internal_type", "internalType", "color", "jamb_or_wall", "jambOrWall"];
+            const changed = editable.some((f) => String(row?.[f] ?? "") !== String(prevRow?.[f] ?? ""));
+            if (changed) return { ...row, autofill_source: "manual" };
+          }
+          return row;
+        });
       queueTaskRowsToPlan("lock_up", doorOnlyRows);
       return doorOnlyRows;
     });
@@ -3719,7 +3801,20 @@ export default function RightPropertyPaneView({
   const handleSetFixoutDoorEntries = React.useCallback((actionOrEntries) => {
     setFixoutDoorEntries(prev => {
       const next = typeof actionOrEntries === "function" ? actionOrEntries(prev) : actionOrEntries;
-      const doorOnlyRows = (Array.isArray(next) ? next : []).filter((row) => !isWindowOpening(row));
+      const prevById = new Map((Array.isArray(prev) ? prev : []).map((r) => [String(r?.id ?? r?.doorId ?? ""), r]));
+      const doorOnlyRows = (Array.isArray(next) ? next : [])
+        .filter((row) => !isWindowOpening(row))
+        .map((row) => {
+          const key = String(row?.id ?? row?.doorId ?? "");
+          const prevRow = prevById.get(key);
+          const src = String(row?.autofill_source || row?.autoFillSource || "").toLowerCase();
+          if (prevRow && src && src !== "manual") {
+            const editable = ["category", "hung", "door_type", "doorType", "hf_ho", "hfHo", "color", "jamb_size", "jambSize"];
+            const changed = editable.some((f) => String(row?.[f] ?? "") !== String(prevRow?.[f] ?? ""));
+            if (changed) return { ...row, autofill_source: "manual" };
+          }
+          return row;
+        });
       queueTaskRowsToPlan("fixout", doorOnlyRows);
       return doorOnlyRows;
     });
@@ -5711,7 +5806,7 @@ export default function RightPropertyPaneView({
               deleteItem={deleteItem}
               toggleItemVisibility={toggleItemVisibility}
               setHiddenItemIds={setHiddenItemIds}
-              setActivePaneTab={setActivePaneTab}
+              setActivePaneTab={requestActivePaneTab}
               autoMergeCollinearWalls={autoMergeCollinearWalls}
             />
           ) : activePaneTab === "job_task" ? (
@@ -5731,7 +5826,7 @@ export default function RightPropertyPaneView({
               fetchTasks={fetchTasks}
               handleOpenJobTask={handleOpenJobTask}
               loadingJobId={loadingJobId}
-              setActivePaneTab={setActivePaneTab}
+              setActivePaneTab={requestActivePaneTab}
             />
           ) : ((activePaneTab === "explorer" || isTaskModuleActive) && explorerViewMode === "properties") || activePaneTab === "properties" ? (
             /* ══════════════════════════════════════════════════════
@@ -5776,7 +5871,7 @@ export default function RightPropertyPaneView({
                     {selectedType ? selectedType.toUpperCase() : selectedAnnotation ? (selectedAnnotation.type || "ANNOTATION").toUpperCase() : "PROPERTIES"}
                   </span>
                   <button
-                    onClick={() => setActivePaneTab("collapsed")}
+                    onClick={() => requestActivePaneTab("collapsed")}
                     title="Close properties pane"
                     style={{
                       background: "transparent",
@@ -6075,7 +6170,7 @@ export default function RightPropertyPaneView({
               setIsSkirtingSummaryExpanded={setIsSkirtingSummaryExpanded}
               isWindowSummaryExpanded={isWindowSummaryExpanded}
               setIsWindowSummaryExpanded={setIsWindowSummaryExpanded}
-              setActivePaneTab={setActivePaneTab}
+              setActivePaneTab={requestActivePaneTab}
               lintelController={lintelController}
             />
           ) : null}
@@ -6094,7 +6189,7 @@ export default function RightPropertyPaneView({
           onClearNonGpt={clearNonGptTaskData}
           aiGeneratedSuccess={aiGeneratedSuccess}
           handleResetModuleData={handleResetModuleData}
-          setActivePaneTab={setActivePaneTab}
+          setActivePaneTab={requestActivePaneTab}
           handleModuleFormChange={handleModuleFormChange}
           handleAddDataAI={handleAddDataAI}
           handleSelectEntry={handleSelectEntry}
@@ -6177,7 +6272,7 @@ export default function RightPropertyPaneView({
       {/* ── RIGHT VERTICAL TAB BAR ── */}
       <RightPropertyTabBar
         activePaneTab={activePaneTab}
-        setActivePaneTab={setActivePaneTab}
+        setActivePaneTab={requestActivePaneTab}
         isHwOrAllUser={isHwOrAllUser}
         taskListJobs={taskListJobs}
         EXTRA_MODULE_TABS={EXTRA_MODULE_TABS}
@@ -6198,6 +6293,61 @@ export default function RightPropertyPaneView({
           if (isGptAdmin) setShowDocumentAi(true);
         }}
       />
+
+      {taskLeavePrompt && (
+        <div
+          className="custom-dialog-overlay task-leave-overlay"
+          role="presentation"
+        >
+          <div
+            className="custom-dialog-box task-leave-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unsaved-task-title"
+          >
+            <div className="custom-dialog-header task-leave-dialog__header">
+              <span className="task-leave-dialog__icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M12 3 2.8 19a1.4 1.4 0 0 0 1.2 2h16a1.4 1.4 0 0 0 1.2-2L12 3Z" />
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </span>
+              <div>
+                <div id="unsaved-task-title" className="task-leave-dialog__title">Unsaved task changes</div>
+                <div className="task-leave-dialog__eyebrow">TASK DRAFT</div>
+              </div>
+            </div>
+
+            <div className="custom-dialog-body task-leave-dialog__body">
+              <p className="custom-dialog-message task-leave-dialog__message">
+                Would you like to save your changes before leaving this task?
+              </p>
+              <div className="task-leave-dialog__hint">
+                Choosing <strong>Don't Save</strong> will discard the changes made since the last save.
+              </div>
+              {taskLeavePrompt.error && (
+                <div className="task-leave-dialog__error" role="alert">
+                  {taskLeavePrompt.error}
+                </div>
+              )}
+            </div>
+
+            <div className="custom-dialog-footer task-leave-dialog__footer">
+              <button className="custom-dialog-btn cancel" type="button" disabled={taskLeavePrompt.saving} onClick={() => finishTaskLeave("cancel")}>
+                Cancel
+              </button>
+              <button className="custom-dialog-btn task-leave-dialog__discard" type="button" disabled={taskLeavePrompt.saving} onClick={() => finishTaskLeave("discard")}>
+                Don't Save
+              </button>
+              <button className="custom-dialog-btn confirm task-leave-dialog__save" type="button" disabled={taskLeavePrompt.saving} onClick={() => finishTaskLeave("save")}>
+                {taskLeavePrompt.saving && <span className="task-leave-dialog__spinner" aria-hidden="true" />}
+                {taskLeavePrompt.saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── TAKEOFF EXPORT PROPERTIES MODAL ── */}
       {isGptAdmin && (

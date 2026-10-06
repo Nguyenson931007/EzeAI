@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import useCurrentTaskFloorLevel from "./useCurrentTaskFloorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
-import { TaskActionButtons, TaskField as Field, TaskInlineEnteredSection, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
+import { TaskActionButtons, TaskCard, TaskField as Field, TaskInlineEnteredSection, TaskSectionHeader, TaskSummaryTable, TaskEmptyRow, TaskSummaryFooter, TaskRowNumber } from "./TaskUi";
 import { createPortal } from "react-dom";
 import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { isWindowOpening, sanitizeProcurementDoorType } from "@/utils/procurementAutoFill";
+import { isWindowOpening, sanitizeProcurementDoorType, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import {
   FIXOUT_HEIGHTS,
@@ -1037,15 +1037,14 @@ function ScrollPanel({ id, memory, selectedKey, maxHeight = "min(62vh, 520px)", 
   );
 }
 
-function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDoorsProperty, activePanel = "entered", onSelectPanel, scrollMemory }) {
+function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDoorsProperty, openPanels, onTogglePanel, scrollMemory }) {
   const read = (key, fallback = "") => formData?.[key] ?? fallback;
   const write = (key, value) => { if (onChange) onChange("fixout", key, value); };
 
   const [robeDraft, setRobeDraft] = useState({ label: "", unitHeight: "2040", unitSize: "", wall: "90", type: "", thicks: "16" });
   const [revealDraft, setRevealDraft] = useState({ type: "window", height: "", width: "", blockWork: "No" });
-  // Accordion: only one panel is the "main" panel at a time (default: Entered doors).
-  const isRobeOpen = activePanel === "robe";
-  const isTrimOpen = activePanel === "trim";
+  const isRobeOpen = openPanels?.has("robe") ?? false;
+  const isTrimOpen = openPanels?.has("trim") ?? false;
   const [editingRobeLabelIndex, setEditingRobeLabelIndex] = useState(null);
   const [editingRevealLabelIndex, setEditingRevealLabelIndex] = useState(null);
   const robeRows = safeParseJson(read("fixout_smart_robe_rows", "[]"), []);
@@ -1121,23 +1120,19 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDo
   const fieldStyle = { display: "flex", flexDirection: "column", gap: "3px", minWidth: "90px", flex: "1 1 110px" };
   const labelStyle = { fontSize: "10px", color: "#475569", fontWeight: 700 };
   const inputStyle = { width: "100%", boxSizing: "border-box", height: "29px", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "4px 6px", fontSize: "10.5px", background: "#fff" };
-  const cardStyle = { border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#fff" };
-  const titleStyle = { padding: "9px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontWeight: 800, fontSize: "12px", color: "#0f2744" };
-
   const trimSelect = (label, key, defaultValue) => (
     <label style={fieldStyle}><span style={labelStyle}>{label}</span><select style={inputStyle} value={read(key, defaultValue)} onChange={(e) => write(key, e.target.value)}>{FIXOUT_TRIM_DESCRIPTIONS.map((v) => <option key={v} value={v === "spec" ? "" : v}>{v}</option>)}</select></label>
   );
 
   return (
     <>
-      <div style={cardStyle}>
-        <div onClick={() => onSelectPanel?.(isRobeOpen ? "entered" : "robe")} style={{ ...titleStyle, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", borderBottom: isRobeOpen ? "1px solid #e2e8f0" : "none", cursor: "pointer", userSelect: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "7px", flex: 1 }}>
-            <span>2. Smart Robe Door</span>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>{isRobeOpen ? "▲" : "▼"}</span>
-          </div>
-          <label onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>
-        </div>
+      <TaskCard>
+        <TaskSectionHeader
+          title="2. Smart Robe Door"
+          isOpen={isRobeOpen}
+          onToggle={() => onTogglePanel?.("robe")}
+          right={<label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "10px" }}><span>Finger Grips</span><select style={{ ...inputStyle, width: "70px" }} value={read("fixout_smart_robe_finger_grips", "No")} onChange={(e) => write("fixout_smart_robe_finger_grips", e.target.value)}>{FIXOUT_FINGER_GRIPS.map((v) => <option key={v}>{v}</option>)}</select></label>}
+        />
         {isRobeOpen && (
           <ScrollPanel id="robe" memory={scrollMemory}>
             <div className="fixout-procurement-card-body">
@@ -1185,13 +1180,14 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDo
             </div>
           </ScrollPanel>
         )}
-      </div>
+      </TaskCard>
 
-      <div style={cardStyle}>
-        <div onClick={() => onSelectPanel?.(isTrimOpen ? "entered" : "trim")} style={{ ...titleStyle, borderBottom: isTrimOpen ? "1px solid #e2e8f0" : "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}>
-          <span>3. Additional trim measurements</span>
-          <span style={{ fontSize: "11px", color: "#64748b" }}>{isTrimOpen ? "▲" : "▼"}</span>
-        </div>
+      <TaskCard>
+        <TaskSectionHeader
+          title="3. Additional trim measurements"
+          isOpen={isTrimOpen}
+          onToggle={() => onTogglePanel?.("trim")}
+        />
         {isTrimOpen && (
           <ScrollPanel id="trim" memory={scrollMemory}>
             <div className="fixout-trim-groups-eze">
@@ -1279,7 +1275,7 @@ function FixoutInputSections({ formData = {}, onChange, doorNames = [], updateDo
             </div>
           </ScrollPanel>
         )}
-      </div>
+      </TaskCard>
     </>
   );
 }
@@ -1307,11 +1303,19 @@ export default function FixoutTask({
   const optionSet = useMemo(() => getFixoutParity(activeCustomerShortName), [activeCustomerShortName]);
 
   const floorLevel = useCurrentTaskFloorLevel(formData);
-  // Which panel is expanded: "door" | "robe" | "trim" | "entered". Entered doors is the default.
-  const [activePanel, setActivePanel] = useState("entered");
+  // Each task section is independent: opening one never collapses another.
+  const [openPanels, setOpenPanels] = useState(() => new Set(["entered"]));
+  const togglePanel = useCallback((panelId) => {
+    setOpenPanels((current) => {
+      const next = new Set(current);
+      if (next.has(panelId)) next.delete(panelId);
+      else next.add(panelId);
+      return next;
+    });
+  }, []);
   const scrollMemory = useRef({}); // remembered scrollTop per panel
-  const isDoorInformationOpen = activePanel === "door";
-  const isEnteredOpen = activePanel === "entered";
+  const isDoorInformationOpen = openPanels.has("door");
+  const isEnteredOpen = openPanels.has("entered");
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingData, setIsAddingData] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1455,6 +1459,7 @@ export default function FixoutTask({
   }, [entries]);
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     const isCavity = isCavityStyleCategory(item.category || "cavity");
     const isEzyJamb = item.door_frame === "Ezy Jamb" || item.door_frame === "Eze Jamb";
@@ -1569,6 +1574,7 @@ export default function FixoutTask({
       try {
         const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         const rows = Array.isArray(res?.data) ? res.data : [];
         const revealRows = rows
           .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
@@ -1792,21 +1798,12 @@ export default function FixoutTask({
         onEdit={() => setIsReadOnly(false)}
       />
 
-      <div style={S.card}>
-        <div
-          onClick={() => setActivePanel(isDoorInformationOpen ? "entered" : "door")}
-          style={{
-            ...S.cardTitle,
-            padding: "10px 14px",
-            minHeight: "40px",
-            borderBottom: isDoorInformationOpen ? "1px solid #e2e8f0" : "none",
-          }}
-        >
-          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>1. Door information</span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700, flexShrink: 0 }}>
-            {isDoorInformationOpen ? "▲" : "▼"}
-          </span>
-        </div>
+      <TaskCard>
+        <TaskSectionHeader
+          title="1. Door information"
+          isOpen={isDoorInformationOpen}
+          onToggle={() => togglePanel("door")}
+        />
 
         {isDoorInformationOpen && (
           <ScrollPanel id="door" memory={scrollMemory}>
@@ -1850,30 +1847,21 @@ export default function FixoutTask({
             </div>
           </ScrollPanel>
         )}
-      </div>
+      </TaskCard>
 
-      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} updateDoorsProperty={updateDoorsProperty} activePanel={activePanel} onSelectPanel={setActivePanel} scrollMemory={scrollMemory} />
+      <FixoutInputSections formData={formData} onChange={onChange} doorNames={prehungDoors} updateDoorsProperty={updateDoorsProperty} openPanels={openPanels} onTogglePanel={togglePanel} scrollMemory={scrollMemory} />
 
-
-      {!isEnteredOpen ? (
-        <div
-          onClick={() => setActivePanel("entered")}
-          style={{ ...S.cardTitle, border: "1px solid #cbd5e1", borderRadius: "8px" }}
-          title="Click to expand Entered doors"
-        >
-          <span>4. Entered doors <span style={{ fontWeight: 600, color: "#64748b", fontSize: "11px" }}>({totalCount})</span></span>
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: 700 }}>▼</span>
-        </div>
-      ) : (
+      <TaskInlineEnteredSection
+        title={<span>4. Entered doors <span className="task-ui-section-count">{totalCount}</span></span>}
+        isOpen={isEnteredOpen}
+        onToggle={() => togglePanel("entered")}
+        footer={(
+          <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
+            {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
+          </TaskSummaryFooter>
+        )}
+      >
         <ScrollPanel id="entered" memory={scrollMemory} selectedKey={selectedEntryId}>
-          <TaskInlineEnteredSection
-            title="4. Entered doors"
-            footer={(
-              <TaskSummaryFooter right={saveSuccess ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Saved to SQL!</span> : null}>
-                {totalCount} {totalCount === 1 ? "door item" : "door items"} entered
-              </TaskSummaryFooter>
-            )}
-          >
             <style>{FIXOUT_ROW_CSS}</style>
             <TaskSummaryTable className="fixout-summary-main" minWidth="2130px">
               <thead>
@@ -2144,9 +2132,8 @@ export default function FixoutTask({
                 ))}
               </tbody>
             </TaskSummaryTable>
-          </TaskInlineEnteredSection>
         </ScrollPanel>
-      )}
+      </TaskInlineEnteredSection>
 
     </div>
   );

@@ -7,6 +7,7 @@ import { ApiService } from "@/models/api.service";
 import { SHELVING_TYPES, SHELVING_SIZES, SHELVING_EXTRA_FIELDS } from "@/constants/procurementFormParity";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 const parseShelvingExtras = (value) => {
   try { if (value && typeof value === "object") return value; return value ? JSON.parse(value) : {}; } catch { return {}; }
@@ -332,6 +333,7 @@ export default function ShelvingTask({
   }, [entries]);
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     setEditRowData({
       ...item,
@@ -401,6 +403,7 @@ export default function ShelvingTask({
       try {
         const res = await ApiService.fetchShelvingJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.type || r.size || r.qty)

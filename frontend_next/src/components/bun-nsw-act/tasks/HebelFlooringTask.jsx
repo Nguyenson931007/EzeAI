@@ -6,7 +6,7 @@ import { ApiService } from "@/models/api.service";
 import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByGroup, canonicalProductValue } from "@/utils/catalogHelpers";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 export default function HebelFlooringTask({
@@ -356,6 +356,7 @@ export default function HebelFlooringTask({
       try {
         const res = await ApiService.fetchAreaSummaryJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -1029,7 +1030,7 @@ export default function HebelFlooringTask({
               {enteredRows.length === 0 ? (
                 <tr>
                   <td colSpan="6" style={{ padding: "20px 12px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "11px" }}>
-                    No flooring areas entered yet. Use <strong>⚡ Auto Fill (AI)</strong> to populate data from the selected plan.
+                    No flooring areas entered yet. Use <strong>Fill</strong> to populate data from the selected plan.
                   </td>
                 </tr>
               ) : (

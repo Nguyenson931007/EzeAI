@@ -9,6 +9,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 export default function CladdingTask({
   formData = {},
@@ -356,6 +357,7 @@ export default function CladdingTask({
   }, [entries, walls, wallsByPage, claddingWallCacheKey]);
 
   const handleStartEdit = (w) => {
+    setIsReadOnly(false);
     setEditingRowId(w.id);
     const heightMm = normalizeCladdingHeightMm(w.height ?? w.wallHeight ?? w.wall_height) || 2440;
     const lengthM = dimensionToMetres(w.length ?? w.wallLength ?? w.wall_length);
@@ -448,6 +450,7 @@ export default function CladdingTask({
       try {
         const res = await ApiService.fetchCladdingJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

@@ -62,7 +62,7 @@ export function TaskActionButtons({
   addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
-  autoFillLabel = "Auto Fill",
+  autoFillLabel = "Fill",
   saveLabel = "Save",
   dataSource = null,
   isReadOnly = false,
@@ -89,12 +89,18 @@ export function TaskActionButtons({
   );
 }
 
-export function TaskInlineEnteredSection({ title, children, footer, className = "" }) {
+export function TaskInlineEnteredSection({ title, children, footer, className = "", isOpen, onToggle, right }) {
+  const isCollapsible = typeof isOpen === "boolean" && typeof onToggle === "function";
+  const isVisible = isCollapsible ? isOpen : true;
   return (
-    <section className={`task-ui-inline-entered ${className}`.trim()}>
-      {title ? <div className="task-ui-inline-entered-title">{title}</div> : null}
-      <div className="task-ui-inline-entered-body">{children}</div>
-      {footer ? <div className="task-ui-inline-entered-footer">{footer}</div> : null}
+    <section className={`task-ui-inline-entered${isCollapsible ? " is-collapsible" : ""} ${className}`.trim()}>
+      {title ? (isCollapsible ? (
+        <TaskSectionHeader title={title} isOpen={isOpen} onToggle={onToggle} right={right} />
+      ) : (
+        <div className="task-ui-inline-entered-title">{title}</div>
+      )) : null}
+      {isVisible ? <div className="task-ui-inline-entered-body">{children}</div> : null}
+      {isVisible && footer ? <div className="task-ui-inline-entered-footer">{footer}</div> : null}
     </section>
   );
 }
@@ -110,7 +116,7 @@ export function EnteredDataCard({
   addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
-  autoFillLabel = "Auto Fill",
+  autoFillLabel = "Fill",
   saveLabel = "Save",
   dataSource = null,
   isReadOnly = false,

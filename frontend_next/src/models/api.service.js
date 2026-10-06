@@ -178,6 +178,16 @@ export const ApiService = {
     return handleResponse(res);
   },
 
+  async getTaskModules(emsId) {
+    const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/task-modules`, {
+      method: "GET",
+      headers: { ...getHeaders() },
+      credentials: "include",
+      cache: "no-store",
+    });
+    return handleResponse(res);
+  },
+
   async updateTaskModules(emsId, taskModules = []) {
     const res = await fetch(`${BASE_URL}/jobs/ems/${encodeURIComponent(emsId)}/task-modules`, {
       method: "PUT",
@@ -858,6 +868,16 @@ export const ApiService = {
         texts,
         gap_threshold: gapThreshold
       }),
+      credentials: "include"
+    });
+    return handleResponse(res);
+  },
+
+  async deleteTaskData(task, jobId) {
+    const res = await fetch(`${BASE_URL}/jobs/task-data/delete`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ task, job_id: jobId }),
       credentials: "include"
     });
     return handleResponse(res);

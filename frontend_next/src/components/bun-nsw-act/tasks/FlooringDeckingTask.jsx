@@ -7,7 +7,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByArea, canonicalProductValue } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
 
 const isFlooringAiRow = (row) => {
@@ -166,6 +166,7 @@ export default function FlooringDeckingTask({
   };
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     const rawM2 = item.totalM2 !== undefined ? String(item.totalM2).replace(/m²/gi, "").trim() : (item.areaM2 ? String(item.areaM2) : "");
     setEditRowData({
@@ -586,6 +587,7 @@ export default function FlooringDeckingTask({
       try {
         const res = await ApiService.fetchAreaSummaryJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -1443,7 +1445,7 @@ export default function FlooringDeckingTask({
               {enteredRows.length === 0 ? (
                 <tr>
                   <td colSpan="5" style={{ padding: "20px 12px", textAlign: "center", color: "#94a3b8", fontStyle: "italic", fontSize: "11px" }}>
-                    No flooring areas entered yet. Use <strong>⚡ Auto Fill (AI)</strong> to populate data from the selected plan.
+                    No flooring areas entered yet. Use <strong>Fill</strong> to populate data from the selected plan.
                   </td>
                 </tr>
               ) : (

@@ -58,6 +58,10 @@ const nextConfig = {
   // API Rewrites — proxy all backend endpoints to Python backend on :8090
   async rewrites() {
     return [
+      // Socket.IO handshake/polling. Production proxies can upgrade this same
+      // path to websocket; polling remains a safe fallback.
+      { source: "/socket.io/:path*", destination: `${backendUrl}/socket.io/:path*` },
+
       // Main API routes
       { source: "/api/:path*", destination: `${backendUrl}/api/:path*` },
 

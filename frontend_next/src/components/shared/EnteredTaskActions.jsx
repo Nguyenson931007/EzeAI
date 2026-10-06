@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ApiService } from "@/models/api.service";
+
+const DATABASE_TASKS = new Set([
+  "frame_hardware", "flooring_decking", "hebel_flooring", "insulation",
+  "eaves_soffit", "cladding", "hardies_fire_walls", "lockup", "lock_up",
+  "fixout", "window", "windows", "shelving", "timber_posts", "fow_plumbing",
+  "power_truss_braces",
+]);
 
 export default function EnteredTaskActions({
   onAutoFill,
@@ -12,7 +20,7 @@ export default function EnteredTaskActions({
   addDataDisabled = false,
   saveDisabled = false,
   saveStatus = "idle",
-  autoFillLabel = "Auto Fill",
+  autoFillLabel = "Fill",
   addDataLabel = "Add data",
   saveLabel = "Save",
   // ── New: Read-only / Edit mode for DB-loaded data ──
@@ -22,16 +30,60 @@ export default function EnteredTaskActions({
   isLoadingFromDb = false // true while auto-loading data from DB
 }) {
   const [portalHost, setPortalHost] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const onSaveRef = useRef(onSave);
+  const onAutoFillRef = useRef(onAutoFill);
   const saveDisabledRef = useRef(saveDisabled);
   const isReadOnlyRef = useRef(isReadOnly);
+  const dirtyRef = useRef(false);
+  const previousReadOnlyRef = useRef(isReadOnly);
+  const wasLoadingFromDbRef = useRef(isLoadingFromDb);
+  const didRunPlanFallbackRef = useRef(false);
   onSaveRef.current = onSave;
+  onAutoFillRef.current = onAutoFill;
   saveDisabledRef.current = saveDisabled;
   isReadOnlyRef.current = isReadOnly;
   const isSaving = saveStatus === "saving";
   const isSaved = saveStatus === "success";
   const isSaveError = saveStatus === "error";
   const isDbSource = dataSource === "db";
+
+  const markDirty = () => {
+    if (isReadOnlyRef.current) return;
+    dirtyRef.current = true;
+  };
+
+  const clearDirty = () => {
+    dirtyRef.current = false;
+  };
+
+  const deleteTaskData = async () => {
+    const confirmed = typeof window !== "undefined" && window.appDialog?.showConfirm
+      ? await window.appDialog.showConfirm("Delete this task's saved data from the database?")
+      : window.confirm("Delete this task's saved data from the database?");
+    if (!confirmed) return;
+
+    const context = typeof window !== "undefined" ? window.__ezefloorActiveTaskContext : null;
+    const taskKey = String(context?.taskKey || "").trim().toLowerCase();
+    try {
+      setIsDeleting(true);
+      if (DATABASE_TASKS.has(taskKey)) {
+        if (!context?.jobId) throw new Error("No active job was found for this task.");
+        await ApiService.deleteTaskData(taskKey, context.jobId);
+      }
+      await onClear?.();
+      clearDirty();
+    } catch (error) {
+      const message = error?.message || "Could not delete this task's saved data.";
+      if (typeof window !== "undefined" && window.appDialog?.showAlert) {
+        await window.appDialog.showAlert(message);
+      } else if (typeof window !== "undefined") {
+        window.alert(message);
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const commitVisibleInlineEdits = () => {
     if (typeof document === "undefined") return 0;
@@ -86,8 +138,74 @@ export default function EnteredTaskActions({
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
     }
 
-    return onSaveRef.current?.();
+    const result = await onSaveRef.current?.();
+    if (typeof window !== "undefined") {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    }
+    if (dirtyRef.current) {
+      throw new Error("The task was not saved. Please fix the error and try again.");
+    }
+    return result;
   };
+
+  useEffect(() => {
+    if (previousReadOnlyRef.current && !isReadOnly) markDirty();
+    if (isReadOnly) clearDirty();
+    previousReadOnlyRef.current = isReadOnly;
+  }, [isReadOnly]);
+
+  useEffect(() => {
+    if (saveStatus === "success") clearDirty();
+  }, [saveStatus]);
+
+  useEffect(() => {
+    if (isLoadingFromDb) {
+      wasLoadingFromDbRef.current = true;
+      return;
+    }
+    if (
+      wasLoadingFromDbRef.current &&
+      !didRunPlanFallbackRef.current &&
+      dataSource !== "db" &&
+      !window.__ezefloorActiveTaskDraft?.skipPlanFallback &&
+      typeof onAutoFillRef.current === "function"
+    ) {
+      didRunPlanFallbackRef.current = true;
+      markDirty();
+      onAutoFillRef.current();
+    }
+    wasLoadingFromDbRef.current = false;
+  }, [isLoadingFromDb, dataSource]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const guard = {
+      get dirty() { return dirtyRef.current; },
+      save: saveLatestTaskState,
+      discard: clearDirty,
+    };
+    window.__ezefloorActiveTaskDraft = guard;
+
+    const markFromTaskControl = (event) => {
+      if (isReadOnlyRef.current) return;
+      if (event.target?.closest?.(".task-panel")) markDirty();
+    };
+    const beforeUnload = (event) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    document.addEventListener("input", markFromTaskControl, true);
+    document.addEventListener("change", markFromTaskControl, true);
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      if (window.__ezefloorActiveTaskDraft === guard) delete window.__ezefloorActiveTaskDraft;
+      document.removeEventListener("input", markFromTaskControl, true);
+      document.removeEventListener("change", markFromTaskControl, true);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -134,8 +252,9 @@ export default function EnteredTaskActions({
     return () => window.removeEventListener("ezefloor:gpt-save-task", handleGptSaveRequest);
   }, []);
 
-  // Determine effective save label
-  const effectiveSaveLabel = isDbSource && !isReadOnly ? "Update" : saveLabel;
+  // Saving is always explicit. "Saved" is a status, never a second disabled
+  // Save button beside the status badge.
+  const effectiveSaveLabel = saveLabel;
 
   const actionButtons = (onAutoFill || onAddData || onClear || onSave || isDbSource || isLoadingFromDb) ? (
     <div
@@ -156,7 +275,7 @@ export default function EnteredTaskActions({
             borderRadius: "5px",
             minHeight: "28px",
             display: "inline-flex",
-            alignItems: "center"
+            alignItems: "center",
           }}
         >
           ⏳ Loading...
@@ -164,7 +283,7 @@ export default function EnteredTaskActions({
       )}
 
       {/* DB source badge — shown when data comes from database */}
-      {isDbSource && !isLoadingFromDb && (
+      {!isLoadingFromDb && (isDbSource || isReadOnly || onSave) && (
         <span
           style={{
             fontSize: "10px",
@@ -177,11 +296,12 @@ export default function EnteredTaskActions({
             borderRadius: "5px",
             minHeight: "28px",
             display: "inline-flex",
-            alignItems: "center"
+            alignItems: "center",
+            order: isReadOnly ? 2 : 0,
           }}
-          title={isReadOnly ? "Data loaded from database — press Edit to modify" : "Editing DB data — press Update to save changes"}
+          title={isReadOnly ? "Saved data — press Edit to modify" : "Changes are local until you press Save"}
         >
-          {isReadOnly ? "📋 Saved" : "✏️ Editing"}
+          {isReadOnly ? "✓ Saved" : "✏️ Editing"}
         </span>
       )}
 
@@ -200,10 +320,12 @@ export default function EnteredTaskActions({
             minHeight: "28px",
             borderRadius: "5px",
             cursor: "pointer",
-            whiteSpace: "nowrap"
+            whiteSpace: "nowrap",
+            order: 1,
           }}
           onClick={(e) => {
             e.stopPropagation();
+            markDirty();
             onEdit();
           }}
           title="Unlock editing to modify saved data"
@@ -232,10 +354,11 @@ export default function EnteredTaskActions({
           }}
           onClick={(e) => {
             e.stopPropagation();
+            markDirty();
             onAutoFill();
           }}
           disabled={autoFillDisabled}
-          title="Auto Fill"
+          title="Fill from plan"
         >
           ⚡ {autoFillLabel}
         </button>
@@ -261,6 +384,7 @@ export default function EnteredTaskActions({
           }}
           onClick={(e) => {
             e.stopPropagation();
+            markDirty();
             onAddData();
           }}
           disabled={addDataDisabled}
@@ -289,16 +413,17 @@ export default function EnteredTaskActions({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            onClear();
+            void deleteTaskData();
           }}
-          title="Clear data"
+          disabled={isDeleting}
+          title="Delete task data from the database"
         >
-          Clear data
+          {isDeleting ? "Deleting..." : "Delete"}
         </button>
       )}
 
       {/* Save / Update button — disabled in read-only mode */}
-      {onSave && !isLoadingFromDb && (
+      {onSave && !isLoadingFromDb && !isReadOnly && (
         <button
           className={`entered-task-action entered-task-action--confirm${isSaved ? " is-saved" : ""}${isSaveError ? " is-error" : ""}`}
           type="button"
@@ -318,7 +443,13 @@ export default function EnteredTaskActions({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            if (!isReadOnly) void saveLatestTaskState();
+            if (!isReadOnly) {
+              void saveLatestTaskState().catch(async (error) => {
+                const message = error?.message || "Could not save this task.";
+                if (window.appDialog?.showAlert) await window.appDialog.showAlert(message);
+                else window.alert(message);
+              });
+            }
           }}
           disabled={saveDisabled || isSaving || isReadOnly}
           title={isReadOnly ? "Data already saved — press Edit to modify" : "Save"}

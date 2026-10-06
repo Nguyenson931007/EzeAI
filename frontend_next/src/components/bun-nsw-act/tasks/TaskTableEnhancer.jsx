@@ -1165,9 +1165,11 @@ export default function TaskTableEnhancer({ children, taskId, onBeforeInlineComm
           padding: 0 !important;
           margin: 0 !important;
           box-sizing: border-box !important;
-          max-height: min(58vh, 640px);
-          overflow: auto !important;
-          overscroll-behavior: contain;
+          max-height: none !important;
+          overflow-x: auto !important;
+          overflow-y: visible !important;
+          overscroll-behavior-x: contain;
+          overscroll-behavior-y: auto;
         }
         .task-table-viewport > .task-data-table {
           margin: 0 !important;

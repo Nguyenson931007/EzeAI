@@ -4,6 +4,7 @@ import { ApiService } from "@/models/api.service";
 import { useAppModel } from "@/models/app.context";
 import { getActiveClientShortName } from "@/constants/clients";
 import { isBunVicCustomer } from "@/constants/procurementFormParity";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { isAiGeneratedTaskRow, TaskEmptyRow, TaskSummaryFooter, TaskSummaryTable, TaskRowNumber } from "./TaskUi";
 
@@ -72,6 +73,7 @@ export default function WindowTask({
       try {
         const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         const savedWindows = (Array.isArray(res?.data) ? res.data : [])
           .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
           .filter((row) => String(row?.door_type || "").toLowerCase().includes("window"))
@@ -218,6 +220,7 @@ export default function WindowTask({
 
   const startEdit = (row) => {
     if (!row?.id) return;
+    setIsReadOnly(false);
     setSelectedEntryId(row.id);
     setEditingRowId(row.id);
     setEditDraft({

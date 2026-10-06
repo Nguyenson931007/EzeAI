@@ -10,6 +10,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 const FLOOR_LEVEL_OPTIONS = ["GF", "FF", "SF", "TF", "4F", "5F"];
 
@@ -401,6 +402,7 @@ export default function TimberPostsTask({
   }, [entries]);
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     const pType = item.postType || item.type || "MERBAU GL17 FJL POST";
     const pHeight = item.postHeight || item.height || "2700 mm";
@@ -486,6 +488,7 @@ export default function TimberPostsTask({
       try {
         const res = await ApiService.fetchTimberPostsJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedJob = res.data.find(j => {

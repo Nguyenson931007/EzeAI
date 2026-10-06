@@ -17,6 +17,7 @@ import { APP_CONFIG } from "../config/appConfig";
  *   6. BOQ/Export → DocumentController (exportPDF)
  */
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { connectEzeFloorSocket, disconnectEzeFloorSocket } from "@/services/ezeFloorSocket";
 import * as pdfjsLib from "pdfjs-dist";
 import dynamic from "next/dynamic";
 import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId, snapRoomPolygonToWalls } from "@/utils/geometry";
@@ -231,6 +232,54 @@ export default function App() {
   const floorSyncInFlightRef = useRef(false);
   const lastLocalFloorMutationAtRef = useRef(0);
 
+  const applyRemoteTaskModules = useCallback((modules, source, expectedEmsId = null) => {
+    if (!Array.isArray(modules) || typeof window === "undefined") return false;
+
+    try {
+      const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+      const pending = raw ? JSON.parse(raw) : null;
+      if (!pending) return false;
+
+      const activeEmsId = String(
+        pending.id_job_ems || pending.ems_id || pending.id || pending.hw_id || ""
+      ).trim();
+      const eventEmsId = String(expectedEmsId || "").trim();
+      if (eventEmsId && activeEmsId && eventEmsId !== activeEmsId) return false;
+
+      const previousModules = Array.isArray(pending.task_modules)
+        ? pending.task_modules
+        : (Array.isArray(pending.selected_modules) ? pending.selected_modules : null);
+      const changed = JSON.stringify(previousModules) !== JSON.stringify(modules);
+      const nextPending = {
+        ...pending,
+        task_modules: modules,
+        selected_modules: modules,
+        task_modules_configured: true,
+      };
+      const serializedPending = JSON.stringify(nextPending);
+      const serializedModules = JSON.stringify(modules);
+
+      sessionStorage.setItem("pendingEmsJob", serializedPending);
+      sessionStorage.setItem("selectedModules", serializedModules);
+      try {
+        localStorage.setItem("pendingEmsJob", serializedPending);
+        localStorage.setItem("selectedModules", serializedModules);
+      } catch (_) { }
+
+      if (changed) {
+        window.dispatchEvent(new CustomEvent("task-modules-updated", {
+          detail: {
+            ...nextPending,
+            source,
+          }
+        }));
+      }
+      return changed;
+    } catch (_) {
+      return false;
+    }
+  }, []);
+
   const syncBuildingFloorLevels = useCallback(async (nextFloors, { persist = true } = {}) => {
     const normalized = normalizeTaskFloorCodes(nextFloors);
     floorSyncInFlightRef.current = true;
@@ -366,6 +415,74 @@ export default function App() {
       document.removeEventListener("visibilitychange", refreshOnVisibility);
     };
   }, [currentProjectName, isLoggedIn]);
+
+  // Socket.io real-time: listen for task module updates (Tasklist pattern)
+  useEffect(() => {
+    if (typeof window === "undefined" || !isLoggedIn) return undefined;
+    const socket = connectEzeFloorSocket();
+    if (!socket) return undefined;
+    const handleTaskUpdated = (payload) => {
+      const task = String(payload?.task || "");
+      if (task !== "task_modules") return;
+      const modules = Array.isArray(payload?.modules) ? payload.modules : null;
+      if (!modules) return;
+      applyRemoteTaskModules(
+        modules,
+        "socketio-realtime",
+        payload?.id_job_ems || payload?.ems_id || payload?.job_hw_id
+      );
+    };
+    socket.on("ezefloor:task_updated", handleTaskUpdated);
+    return () => {
+      socket.off("ezefloor:task_updated", handleTaskUpdated);
+      disconnectEzeFloorSocket();
+    };
+  }, [applyRemoteTaskModules, isLoggedIn]);
+
+  // Poll task modules for realtime updates from Procurement/TaskList
+  // (same pattern as floor levels poll)
+  useEffect(() => {
+    if (typeof window === "undefined" || !isLoggedIn) return undefined;
+    let disposed = false;
+    let requestInFlight = false;
+    const refreshTaskModules = async () => {
+      if (disposed || requestInFlight || document.hidden) return;
+      let pending = null;
+      try {
+        const raw = sessionStorage.getItem("pendingEmsJob") || localStorage.getItem("pendingEmsJob");
+        pending = raw ? JSON.parse(raw) : null;
+      } catch (_) { return; }
+      const emsId = pending?.id_job_ems || pending?.ems_id || pending?.id || pending?.hw_id;
+      if (!emsId) return;
+      requestInFlight = true;
+      try {
+        const response = await ApiService.getTaskModules(emsId);
+        if (disposed || response?.status !== "success" || !response.data) return;
+        if (response.data.task_modules_configured === false) return;
+        const apiModules = Array.isArray(response.data.task_modules) ? response.data.task_modules : [];
+        applyRemoteTaskModules(apiModules, "tasklist-realtime-poll", emsId);
+      } catch (_) {
+      } finally {
+        requestInFlight = false;
+      }
+    };
+    void refreshTaskModules();
+    const intervalId = window.setInterval(refreshTaskModules, 5000);
+    const refreshOnFocus = () => { void refreshTaskModules(); };
+    const refreshOnVisibility = () => {
+      if (!document.hidden) void refreshTaskModules();
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+    };
+  }, [applyRemoteTaskModules, currentProjectName, isLoggedIn]);
 
   // Any real architectural plan page automatically registers its floor in the shared list.
   useEffect(() => {

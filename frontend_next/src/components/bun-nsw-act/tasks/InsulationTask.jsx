@@ -7,7 +7,7 @@ import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogByInsulationArea, catalogRValue, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { firstDropdownValue, resolveDropdownValue } from "@/utils/dropdownValueGuard";
-import { normalizeFloorLevel, replaceAutoFillRows, shouldIncludeWallInInsulation } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, replaceAutoFillRows, shouldIncludeWallInInsulation, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
@@ -733,6 +733,7 @@ export default function InsulationTask({
 
   // Wall Inline Edit Logic
   const handleStartEdit = (w) => {
+    setIsReadOnly(false);
     setEditingRowId(w.id);
     const isExt = String(w.type || "").toLowerCase().includes("ext");
     const rOptions = isExt ? extRValueOptions : intRValueOptions;
@@ -967,6 +968,7 @@ export default function InsulationTask({
       try {
         const res = await ApiService.fetchInsulationJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -1890,7 +1892,7 @@ export default function InsulationTask({
             isOpen={isEnteredWallsOpen}
             onToggle={() => setIsEnteredWallsOpen((v) => !v)}
             autoFillDisabled={isAutoFilling}
-            autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+            autoFillLabel={isAutoFilling ? "Calculating..." : "Fill"}
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
@@ -2252,7 +2254,7 @@ export default function InsulationTask({
               {(!wallEntries || wallEntries.length === 0) && (
                 <tr>
                   <td colSpan={9} style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>
-                    No insulation walls entered yet. Click &quot;Auto Fill (AI)&quot; or enter manually above.
+                    No insulation walls entered yet. Click &quot;Fill&quot; to load data from the plan, or enter it manually above.
                   </td>
                 </tr>
               )}

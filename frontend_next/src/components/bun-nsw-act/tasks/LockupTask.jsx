@@ -5,7 +5,7 @@ import { useAppModel } from "@/models/app.context";
 import { ApiService } from "@/models/api.service";
 import { getDoorWidthInMm, getDoorHeightInMm } from "@/views/right-property-pane/UIComponents";
 import { getActiveClientShortName } from "@/constants/clients";
-import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask, getDoorPresetFamily, sanitizeProcurementDoorType } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, isWindowOpening, getDoorProcurementTask, getDoorPresetFamily, sanitizeProcurementDoorType, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
@@ -529,6 +529,7 @@ export default function LockupTask({
     let th = row.thickness || (isExt ? (isLoose ? 38 : 40) : (isLoose ? 38 : 35));
     if (typeof th === "string") th = th.replace("mm", "").trim();
 
+    setIsReadOnly(false);
     setEditingDoorData({
       id: row.id,
       doorId: row.doorId,
@@ -1428,6 +1429,7 @@ export default function LockupTask({
       try {
         const res = await ApiService.fetchLockoutJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data) {
           const matchedRows = res.data.filter(j => {
             const jn = String(j.job_number || "").trim().toLowerCase();
@@ -2518,7 +2520,7 @@ export default function LockupTask({
             isOpen={!isCard2Collapsed}
             onToggle={() => setIsCard2Collapsed((v) => !v)}
             autoFillDisabled={isAutoFilling}
-            autoFillLabel={isAutoFilling ? "Calculating..." : "Auto Fill"}
+            autoFillLabel={isAutoFilling ? "Calculating..." : "Fill"}
 
             onSave={handleSaveToDatabase}
             saveDisabled={isSaving || !entries || entries.length === 0}
@@ -3096,7 +3098,7 @@ export default function LockupTask({
                     <tr>
                       <td colSpan={18} style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
                         {(entries || []).length === 0
-                          ? <>No doors entered. Use <strong>⚡ Auto Fill (AI)</strong> to populate door data from the selected plan.</>
+                          ? <>No doors entered. Use <strong>Fill</strong> to populate door data from the selected plan.</>
                           : <>No {locationFilter === "external" ? "EXT" : "INT"} doors in this list.</>}
                       </td>
                     </tr>

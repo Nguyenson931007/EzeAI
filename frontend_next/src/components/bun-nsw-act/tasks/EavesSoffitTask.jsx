@@ -9,7 +9,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog, catalogRoleKey, procurementProductLabel } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
-import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
+import { normalizeFloorLevel, shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 export default function EavesSoffitTask({
   formData = {},
@@ -299,6 +299,7 @@ export default function EavesSoffitTask({
       try {
         const res = await ApiService.fetchEavesJobs();
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -435,6 +436,7 @@ export default function EavesSoffitTask({
   }, [entries]);
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     setEditRowData({
       ...item,

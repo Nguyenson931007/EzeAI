@@ -9,6 +9,7 @@ import { getActiveClientShortName } from "@/constants/clients";
 import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -686,6 +687,7 @@ export default function FowPlumbingTask({
       try {
         const res = await ApiService.fetchFowPlumbingJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.item_name || r.code || r.description)
@@ -831,6 +833,7 @@ export default function FowPlumbingTask({
   };
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingId(item.id);
     setEditData({ ...item });
   };

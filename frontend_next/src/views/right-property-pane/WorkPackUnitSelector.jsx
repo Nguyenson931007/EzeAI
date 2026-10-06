@@ -12,6 +12,11 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
   const [busy, setBusy] = useState(false);
   const [customer, setCustomer] = useState(() => String(getActiveClientInfo()?.shortName || "").trim());
 
+  const confirmTaskLeave = async () => {
+    if (typeof window === "undefined" || typeof window.__ezefloorConfirmTaskLeave !== "function") return true;
+    return window.__ezefloorConfirmTaskLeave();
+  };
+
   useEffect(() => {
     const refreshCustomer = () => setCustomer(String(getActiveClientInfo()?.shortName || "").trim());
     refreshCustomer();
@@ -51,6 +56,7 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
   const handleAdd = async () => {
     const job = String(currentProjectName || "").trim();
     if (!customer || !job || busy) return;
+    if (!(await confirmTaskLeave())) return;
     setBusy(true);
     try {
       const result = await ApiService.addWorkPackUnit(customer, job);
@@ -68,6 +74,7 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
     const job = String(currentProjectName || "").trim();
     const unit = String(activeWorkPackUnit || "Unit 1").trim() || "Unit 1";
     if (!customer || !job || busy || units.length <= 1 || unit === "Unit 1") return;
+    if (!(await confirmTaskLeave())) return;
 
     const confirmed = await showConfirm(
       `Delete ${unit}? This removes the saved Procurement work-pack data for this Unit.`
@@ -126,7 +133,10 @@ export default function WorkPackUnitSelector({ currentProjectName, tone = "light
         <select
           value={activeWorkPackUnit || "Unit 1"}
           disabled={busy}
-          onChange={(event) => setActiveWorkPackUnit(event.target.value)}
+          onChange={async (event) => {
+            const nextUnit = event.target.value;
+            if (await confirmTaskLeave()) setActiveWorkPackUnit(nextUnit);
+          }}
           style={{ height: "24px", width: "84px", borderRadius: "6px", border: isDark ? "1px solid rgba(191, 219, 254, 0.42)" : "1px solid #cbd5e1", background: isDark ? "#26395f" : "#fff", color: isDark ? "#ffffff" : "#0f172a", padding: isDark ? "0 20px 0 7px" : "0 5px", fontSize: "11px", fontWeight: 700, outline: "none", flexShrink: 0, appearance: isDark ? "none" : "auto", WebkitAppearance: isDark ? "none" : "auto", colorScheme: isDark ? "dark" : "light" }}
         >
           {units.map((unit) => <option key={unit} value={unit} style={{ background: isDark ? "#26395f" : "#ffffff", color: isDark ? "#ffffff" : "#0f172a" }}>{unit}</option>)}

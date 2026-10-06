@@ -34,6 +34,25 @@
   text-transform: none;
 }
 
+.task-ui-section-count {
+  min-width: 20px;
+  height: 18px;
+  margin-left: 5px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .task-ui-section-right {
   margin-left: auto;
   display: flex;
@@ -435,6 +454,20 @@ tr.task-floor-level-row td {
   background: #fff;
 }
 
+.task-ui-inline-entered.is-collapsible {
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.task-ui-inline-entered.is-collapsible > .task-ui-section-header {
+  border-bottom: 0;
+}
+
+.task-ui-inline-entered.is-collapsible > .task-ui-section-header + .task-ui-inline-entered-body {
+  border-top: 1px solid #dbe4f0;
+}
+
 .task-ui-inline-entered-title {
   padding: 7px 10px;
   border-bottom: 1px solid #dbe4f0;
@@ -572,20 +605,16 @@ tr.task-floor-level-row td {
 }
 
 
-/* Flooring entered rows can be much taller than the right pane.
-   Keep their own vertical scroll, but allow wheel/trackpad scrolling to chain
-   back to the outer task pane when the table reaches its top/bottom so the
-   schedule/footer below remains reachable. */
+/* Tables only own horizontal overflow. Vertical scrolling belongs to the
+   surrounding task/panel so a task never shows two adjacent vertical bars. */
 .flooring-entered-table-scroll.task-table-viewport {
-  max-height: min(55vh, 560px) !important;
+  max-height: none !important;
   overflow-x: auto !important;
-  overflow-y: auto !important;
+  overflow-y: visible !important;
   overscroll-behavior-x: contain;
   overscroll-behavior-y: auto;
-  scrollbar-gutter: stable;
 }
 
 .flooring-entered-table-scroll.task-table-viewport::-webkit-scrollbar {
-  width: 10px;
   height: 10px;
 }

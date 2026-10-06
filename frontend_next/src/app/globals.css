@@ -3369,6 +3369,147 @@ svg {
   background-color: var(--blue-800);
 }
 
+/* Unsaved task dialog — extends the application's shared dialog language. */
+.task-leave-overlay {
+  z-index: 100000;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.52) !important;
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}
+
+.task-leave-dialog {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  border-radius: 10px !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 22px 55px rgba(15, 23, 42, 0.26) !important;
+}
+
+.task-leave-dialog__header {
+  min-height: 58px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--blue-900), #26395f) !important;
+}
+
+.task-leave-dialog__icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(253, 230, 138, 0.42);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #fde68a;
+}
+
+.task-leave-dialog__title {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.1px;
+}
+
+.task-leave-dialog__eyebrow {
+  margin-top: 2px;
+  color: #bfdbfe;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.task-leave-dialog__body {
+  gap: 12px;
+  padding: 18px 18px 16px;
+}
+
+.task-leave-dialog__message {
+  color: #1e293b;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.task-leave-dialog__hint {
+  padding: 9px 11px;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #f59e0b;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.task-leave-dialog__hint strong {
+  color: #334155;
+}
+
+.task-leave-dialog__error {
+  padding: 8px 10px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.task-leave-dialog__footer {
+  padding: 11px 16px;
+}
+
+.task-leave-dialog__footer .custom-dialog-btn {
+  min-width: 82px;
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 5px;
+}
+
+.task-leave-dialog__footer .custom-dialog-btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.task-leave-dialog__discard {
+  border: 1px solid #fca5a5;
+  background: #ffffff;
+  color: #b91c1c;
+}
+
+.task-leave-dialog__discard:hover:not(:disabled) {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.task-leave-dialog__save {
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.18);
+}
+
+.task-leave-dialog__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.38);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: task-leave-spin 0.7s linear infinite;
+}
+
+@keyframes task-leave-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* --- Redesigned Scale Dialog HUD CSS --- */
 .scale-dialog-box {
   width: 360px !important;

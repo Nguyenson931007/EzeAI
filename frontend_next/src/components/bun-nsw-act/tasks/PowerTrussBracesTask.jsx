@@ -8,6 +8,7 @@ import { ApiService } from "@/models/api.service";
 import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
+import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -386,6 +387,7 @@ export default function PowerTrussBracesTask({
   }, [entries]);
 
   const handleStartEdit = (item) => {
+    setIsReadOnly(false);
     setEditingRowId(item.id);
     setEditRowData({
       ...item,
@@ -457,6 +459,7 @@ export default function PowerTrussBracesTask({
       try {
         const res = await ApiService.fetchPowerTrussJobs(resolvedJobKey);
         if (cancelled) return;
+        if (!shouldApplyDatabaseTaskLoad()) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.wall_height || r.length || r.type)

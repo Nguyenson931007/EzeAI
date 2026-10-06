@@ -2952,7 +2952,7 @@ class WallSegmentService:
     @staticmethod
     def predict(
         image_bytes: bytes,
-        confidence: float = 0.10,
+        confidence: float = 0.25,
         imgsz: int = 1280,
         real_scale: float = 1.0,
         filename: str = "plan.png",
@@ -2969,8 +2969,8 @@ class WallSegmentService:
         if device == "cpu" and imgsz > 1280:
             imgsz = 1280
             
-        # Scale confidence down by 0.5 to increase sensitivity for wall detection
-        confidence = float(confidence * 0.5)
+        # Confidence is used as-is. Do NOT scale down -- low thresholds flood
+        # the pipeline with false positives (text, dimensions, furniture).
         model = _get_model()
 
         # Load image
@@ -3053,7 +3053,7 @@ class WallSegmentService:
         merged_walls = _merge_collinear_walls(
             detected_walls,
             perp_dist_threshold=15.0,
-            gap_threshold=250.0,
+            gap_threshold=80.0,
         )
         snapped_walls = _snap_perpendicular_corners(merged_walls)
         snapped_walls = _snap_t_junctions(snapped_walls)
@@ -3064,6 +3064,21 @@ class WallSegmentService:
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        filtered_walls = []
+        for w in snapped_walls:
+            c = w.get("centerline")
+            if not c or len(c) != 2:
+                filtered_walls.append(w)
+                continue
+            length = math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1])
+            thickness = float(w.get("thickness") or w.get("width") or 20.0)
+            aspect = length / max(thickness, 1.0)
+            if length < 120.0:
+                continue
+            if aspect < 3.0:
+                continue
+            filtered_walls.append(w)
+        snapped_walls = filtered_walls
 
         # Step 3: Reconstruct into perfect 20px-wide rectangles from final snapped/merged centerlines
         reconstructed_walls = []
@@ -3324,8 +3339,8 @@ class WallSegmentService:
         if device == "cpu" and imgsz > 1280:
             imgsz = 1280
             
-        # Scale confidence down by 0.5 to increase sensitivity for wall detection
-        confidence = float(confidence * 0.5)
+        # Confidence is used as-is. Do NOT scale down -- low thresholds flood
+        # the pipeline with false positives (text, dimensions, furniture).
         model = _get_model()
 
         # Load image
@@ -3419,7 +3434,7 @@ class WallSegmentService:
         merged_walls = _merge_collinear_walls(
             processed_walls,
             perp_dist_threshold=15.0,
-            gap_threshold=250.0,
+            gap_threshold=80.0,
         )
         snapped_walls = _snap_perpendicular_corners(merged_walls)
         snapped_walls = _snap_t_junctions(snapped_walls)
@@ -3428,6 +3443,21 @@ class WallSegmentService:
         snapped_walls = _filter_strong_visual_false_positives(img_np, snapped_walls)
         snapped_walls = _filter_orphan_fragments(img_np, snapped_walls)
         snapped_walls = _dedupe_near_parallel_centerlines(snapped_walls)
+        filtered_walls = []
+        for w in snapped_walls:
+            c = w.get("centerline")
+            if not c or len(c) != 2:
+                filtered_walls.append(w)
+                continue
+            length = math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1])
+            thickness = float(w.get("thickness") or w.get("width") or 20.0)
+            aspect = length / max(thickness, 1.0)
+            if length < 120.0:
+                continue
+            if aspect < 3.0:
+                continue
+            filtered_walls.append(w)
+        snapped_walls = filtered_walls
 
         # Step 3: Reconstruct
         reconstructed_walls = []
@@ -3601,7 +3631,7 @@ class WallSegmentService:
     def predict_from_pdf(
         pdf_bytes: bytes,
         filename: str = "plan.pdf",
-        confidence: float = 0.10,
+        confidence: float = 0.25,
         imgsz: int = 1280,
         real_scale: float = 1.0
     ) -> List[Dict[str, Any]]:

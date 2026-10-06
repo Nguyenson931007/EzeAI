@@ -513,12 +513,52 @@ export const isAutoFillRow = (row) => {
   return Boolean(source && source !== "manual") || /^(?:ins-)?ai-/i.test(text(row?.id));
 };
 
+// Database responses may arrive after the user has already started changing
+// the plan/task. In that case the visible draft always wins until Save or
+// Don't Save resolves it.
+export const shouldApplyDatabaseTaskLoad = () => {
+  if (typeof window === "undefined") return true;
+  const draft = window.__ezefloorActiveTaskDraft;
+  if (!draft?.dirty) return true;
+  draft.skipPlanFallback = true;
+  return false;
+};
+
+const taskRowIdentity = (row, index) => {
+  const linkedIds = [
+    ...(Array.isArray(row?.wallIds) ? row.wallIds : []),
+    ...(Array.isArray(row?.doorIds) ? row.doorIds : []),
+    ...(Array.isArray(row?.roomIds) ? row.roomIds : []),
+    row?.wallId, row?.doorId, row?.door_id, row?.roomId,
+  ].map(text).filter(Boolean).sort();
+  if (linkedIds.length) return `linked:${linkedIds.join("|")}`;
+  const explicitId = text(row?.id);
+  if (explicitId) return `id:${explicitId}`;
+  return `row:${index}`;
+};
+
+// Inline edit and plan reconciliation can finish in the same React frame. Keep
+// the newest version of a logical row and never render both the draft and the
+// regenerated plan copy.
+export const dedupeTaskRows = (rows = []) => {
+  const source = Array.isArray(rows) ? rows : [];
+  const latestByIdentity = new Map();
+  source.forEach((row, index) => latestByIdentity.set(taskRowIdentity(row, index), row));
+  const emitted = new Set();
+  return source.flatMap((row, index) => {
+    const identity = taskRowIdentity(row, index);
+    if (emitted.has(identity) || latestByIdentity.get(identity) !== row) return [];
+    emitted.add(identity);
+    return [row];
+  });
+};
+
 // Auto Fill owns only drawing/AI rows. Rows entered through a task form have a
 // separate lifecycle and must survive every regeneration of plan-derived data.
-export const replaceAutoFillRows = (currentRows = [], generatedRows = []) => [
+export const replaceAutoFillRows = (currentRows = [], generatedRows = []) => dedupeTaskRows([
   ...(Array.isArray(currentRows) ? currentRows : []).filter((row) => !isAutoFillRow(row)),
   ...(Array.isArray(generatedRows) ? generatedRows : []),
-];
+]);
 
 export const buildFrameRows = (wallsByPage = {}, pages = [], scalesByPage = {}, fallbackScale = 1) => {
   const groups = new Map();

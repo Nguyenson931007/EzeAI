@@ -44,6 +44,8 @@ from api.timber_posts_routes import router as timber_posts_router
 from api.catalog_routes import router as catalog_router
 from api.procurement_routes import router as procurement_router
 from api.Fixout_routes import router as fixout_router
+# ── Socket.io for real-time updates (Tasklist pattern) ──
+from socketio_server import socket_app as sio_app
 from api.shelving_routes import router as shelving_router
 from api.fow_plumbing_routes import router as fow_plumbing_router
 from api.power_truss_routes import router as power_truss_router
@@ -190,5 +192,8 @@ app.include_router(power_truss_router, tags=["PowerTrussBraces-router"])
 app.include_router(agent_router, tags=["AI-agent"])
 app.include_router(plan_ai_router, tags=["AI-plan"])
 app.include_router(roof_v3_router)
+
+# Mount Socket.io for real-time updates
+app.mount("/socket.io", sio_app)
 
 
