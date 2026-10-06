@@ -10,6 +10,7 @@ import { PROCUREMENT_TASK_KEYS } from "@/constants/procurementFormParity";
 import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
+import DimensionPair from "@/components/shared/forms/DimensionPair";
 
 export default function CladdingTask({
   formData = {},
@@ -753,53 +754,19 @@ const claddingManualRows = (() => {
         {isSection1Open && (
           <div style={{ padding: "12px", display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
 
-            {/* Wall Height */}
-            <div style={{ flex: "1 1 100px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
-                <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="e.g. 2.44"
-                value={wallHeight}
-                onChange={(e) => setWallHeight(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  fontSize: "10.5px",
-                  borderRadius: "5px",
-                  border: "1px solid #fde047",
-                  background: "#fffbeb",
-                  boxSizing: "border-box"
-                }}
-              />
-            </div>
-
-            {/* Wall Length */}
-            <div style={{ flex: "2 1 150px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
-                <span style={{ fontSize: "10px", color: "#94a3b8" }}>m</span>
-              </div>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Enter lineal metres"
-                value={wallLength}
-                onChange={(e) => setWallLength(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  fontSize: "10.5px",
-                  borderRadius: "5px",
-                  border: "1px solid #fde047",
-                  background: "#fffbeb",
-                  boxSizing: "border-box"
-                }}
-              />
-            </div>
+            {/* Wall Height + Wall Length — shared DimensionPair (unit: meters) */}
+            <DimensionPair
+              heightValue={wallHeight}
+              lengthValue={wallLength}
+              onHeightChange={setWallHeight}
+              onLengthChange={setWallLength}
+              unit="m"
+              heightLabel="Wall Height"
+              lengthLabel="Wall Length"
+              heightPlaceholder="e.g. 2.44"
+              lengthPlaceholder="Enter lineal metres"
+              style={{ flex: "3 1 250px" }}
+            />
 
             <button
               type="button"

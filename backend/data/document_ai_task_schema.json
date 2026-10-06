@@ -106,51 +106,6 @@
         }
       }
     },
-    "hebel_flooring": {
-      "label": "Hebel Flooring",
-      "mode": "rows",
-      "output_mode": "aggregate",
-      "identity_fields": [
-        "id",
-        "roomId",
-        "floorLevel",
-        "location"
-      ],
-      "fields": {
-        "floorLevel": {
-          "type": "text",
-          "allow_gpt": true,
-          "role": "level"
-        },
-        "location": {
-          "type": "text",
-          "allow_gpt": true,
-          "role": "location"
-        },
-        "typeArea": {
-          "type": "dropdown",
-          "allow_gpt": true,
-          "role": "classification",
-          "option_key": "typeArea"
-        },
-        "product": {
-          "type": "dropdown",
-          "allow_gpt": true,
-          "role": "product",
-          "option_key": "product"
-        },
-        "areaM2": {
-          "type": "number",
-          "allow_gpt": false,
-          "role": "canvas_geometry"
-        },
-        "totalM2": {
-          "type": "number",
-          "allow_gpt": false,
-          "role": "calculated"
-        }
-      }
-    },
     "insulation": {
       "label": "Insulation",
       "mode": "rows",

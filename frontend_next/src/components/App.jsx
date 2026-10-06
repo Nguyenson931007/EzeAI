@@ -23,7 +23,7 @@ import dynamic from "next/dynamic";
 import { polygonAreaM2 as polygonAreaM2Util, centroid, distancePointToSegment, pointInPolygon, getBaseWallId, snapRoomPolygonToWalls } from "@/utils/geometry";
 import LoginView from "@/views/LoginView";
 import RibbonView from "@/views/RibbonView";
-import RightPropertyPaneView from "@/views/RightPropertyPaneView";
+import RightPropertyTabBar from "@/views/right-property-pane/RightPropertyTabBar";
 import CanvasView from "@/views/CanvasView";
 import SearchSidebarView from "@/views/SearchSidebarView";
 import ThumbnailSidebarView from "@/views/ThumbnailSidebarView";
@@ -2990,7 +2990,7 @@ export default function App() {
                 setHoveredSearchResultId={setHoveredSearchResultId}
               />
             ) : (
-              <RightPropertyPaneView
+              <RightPropertyTabBar
                 selectedRoom={rooms.find(r => r.id === selectedId)}
                 selectedWall={(wallsByPage[currentPage] || []).find(w => w.id === selectedId || getBaseWallId(w.id) === getBaseWallId(selectedId))}
                 selectedDoor={(processedDoorsByPage[currentPage] || []).find(d => d.id === selectedId) || (processedDoorsByPage[currentPage] || []).find(d => (selectedDoorIds || []).includes(d.id))}

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ApiService } from "@/models/api.service";
 
 const DATABASE_TASKS = new Set([
-  "frame_hardware", "flooring_decking", "hebel_flooring", "insulation",
+  "frame_hardware", "flooring_decking", "insulation",
   "eaves_soffit", "cladding", "hardies_fire_walls", "lockup", "lock_up",
   "fixout", "window", "windows", "shelving", "timber_posts", "fow_plumbing",
   "power_truss_braces",

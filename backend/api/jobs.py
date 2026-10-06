@@ -33,7 +33,6 @@ router = APIRouter()
 TASK_ARCHIVE_PROCEDURES = {
     "frame_hardware": "dbo.usp_EzeFloor_FrameWork_Archive",
     "flooring_decking": "dbo.usp_EzeFloor_AreaSummary_Archive",
-    "hebel_flooring": "dbo.usp_EzeFloor_AreaSummary_Archive",
     "insulation": "dbo.usp_EzeFloor_Insulation_Archive",
     "eaves_soffit": "dbo.usp_EzeFloor_Eaves_Archive",
     "cladding": "dbo.usp_EzeFloor_Cladding_Archive",
