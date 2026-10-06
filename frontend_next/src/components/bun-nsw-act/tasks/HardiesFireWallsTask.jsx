@@ -6,7 +6,6 @@ import { useCatalog } from "@/utils/catalogHelpers";
 import { normalizeFloorLevel } from "@/utils/procurementAutoFill";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import EnteredTaskActions from "@/components/shared/EnteredTaskActions";
-import DimensionPair from "@/components/shared/forms/DimensionPair";
 import { TaskRowNumber } from "./TaskUi";
 
 export default function HardiesFireWallsTask({
@@ -550,17 +549,34 @@ export default function HardiesFireWallsTask({
               />
             </div>
 
-            <DimensionPair
-              heightValue={wallHeight}
-              lengthValue={wallLength}
-              onHeightChange={setWallHeight}
-              onLengthChange={setWallLength}
-              unit="m"
-              heightLabel="Wall Height"
-              lengthLabel="Wall Length"
-              heightPlaceholder="e.g. 2.70"
-              lengthPlaceholder="e.g. 6.80"
-            />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "#475569", display: "block", marginBottom: "3px" }}>
+                  Wall Length (m) *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 6.80"
+                  value={wallLength}
+                  onChange={(e) => setWallLength(e.target.value)}
+                  style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px", fontWeight: 700 }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "#475569", display: "block", marginBottom: "3px" }}>
+                  Wall Height (m)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2.70"
+                  value={wallHeight}
+                  onChange={(e) => setWallHeight(e.target.value)}
+                  style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px", fontWeight: 700 }}
+                />
+              </div>
+            </div>
 
             <div>
               <label style={{ fontSize: "11px", fontWeight: 700, color: "#475569", display: "block", marginBottom: "3px" }}>

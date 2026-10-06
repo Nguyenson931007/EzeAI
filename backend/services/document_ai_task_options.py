@@ -21,6 +21,7 @@ from app.catalog_repository import get_catalog
 _CATALOG_TASK_KEYS = {
     "frame_hardware": "frame-hardware",
     "flooring_decking": "flooring",
+    "hebel_flooring": "flooring",
     "insulation": "insulation",
     "eaves_soffit": "eaves-soffits",
     "cladding": "cladding",
@@ -173,6 +174,7 @@ def _static_options(task_key: str, field: str, customer: str) -> List[str]:
             "rodSize": ["M12", "M16"],
         },
         "flooring_decking": {"typeArea": _FLOORING_AREA_TYPES},
+        "hebel_flooring": {"typeArea": _FLOORING_AREA_TYPES},
         "insulation": {
             "type": ["Ext wall", "Int wall", "Partywall", "Ceiling", "Floor"],
             "areaType": ["Ceiling", "Floor"],
@@ -369,7 +371,7 @@ def get_task_option_dependencies(task_key: str, customer: str) -> Dict[str, Dict
     for item in items:
         product = _canonical_product(item)
         params = item.get("parameters") or {}
-        if task_key == "flooring_decking":
+        if task_key in {"flooring_decking", "hebel_flooring"}:
             add("product_by_typeArea", params.get("area_key"), product)
         elif task_key == "cladding":
             for key in (params.get("product_type"), params.get("category"), item.get("usage_label")):

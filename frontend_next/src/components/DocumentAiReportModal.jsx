@@ -7,6 +7,7 @@ const STATUSES = ["CHANGE", "KEEP", "NO_EVIDENCE", "UNRESOLVED"];
 const TASK_LABELS = {
   frame_hardware: "Frame Hardware",
   flooring_decking: "Flooring & Decking",
+  hebel_flooring: "Hebel Flooring",
   insulation: "Insulation",
   eaves_soffit: "Eaves & Soffit",
   cladding: "Cladding",

@@ -12,7 +12,6 @@ import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import { getBaseWallId } from "@/utils/geometry";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { TaskRowNumber } from "./TaskUi";
-import DimensionPair from "@/components/shared/forms/DimensionPair";
 
 export const DEFAULT_WALL_PRODUCTS = {
   "R2.0": [
@@ -1202,19 +1201,33 @@ export default function InsulationTask({
               </div>
               {isExtOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <DimensionPair
-                    heightValue={extHeight}
-                    lengthValue={extLength}
-                    onHeightChange={(v) => setExtHeight(v)}
-                    onLengthChange={(v) => setExtLength(v)}
-                    unit="mm"
-                    highlight={true}
-                    heightLabel="Wall Height"
-                    lengthLabel="Wall Length"
-                    heightPlaceholder="Height"
-                    lengthPlaceholder="Length mm"
-                    style={{ flex: "2.2 1 195px" }}
-                  />
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={extHeight}
+                      onChange={(e) => setExtHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={extLength}
+                      onChange={(e) => setExtLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
 
                   <div style={{ flex: "0.8 1 70px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
@@ -1307,19 +1320,33 @@ export default function InsulationTask({
               </div>
               {isIntOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <DimensionPair
-                    heightValue={intHeight}
-                    lengthValue={intLength}
-                    onHeightChange={(v) => setIntHeight(v)}
-                    onLengthChange={(v) => setIntLength(v)}
-                    unit="mm"
-                    highlight={true}
-                    heightLabel="Wall Height"
-                    lengthLabel="Wall Length"
-                    heightPlaceholder="Height"
-                    lengthPlaceholder="Length mm"
-                    style={{ flex: "2.2 1 195px" }}
-                  />
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={intHeight}
+                      onChange={(e) => setIntHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={intLength}
+                      onChange={(e) => setIntLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
 
                   <div style={{ flex: "0.8 1 70px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>
@@ -1412,19 +1439,33 @@ export default function InsulationTask({
               </div>
               {isPartyOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "6px", flexWrap: "wrap" }}>
-                  <DimensionPair
-                    heightValue={partyHeight}
-                    lengthValue={partyLength}
-                    onHeightChange={(v) => setPartyHeight(v)}
-                    onLengthChange={(v) => setPartyLength(v)}
-                    unit="mm"
-                    highlight={true}
-                    heightLabel="Wall Height"
-                    lengthLabel="Wall Length"
-                    heightPlaceholder="Height"
-                    lengthPlaceholder="Length mm"
-                    style={{ flex: "2.2 1 195px" }}
-                  />
+                  <div style={{ flex: "1 1 85px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Height</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={partyHeight}
+                      onChange={(e) => setPartyHeight(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ flex: "1.2 1 110px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                      <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "9px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Length mm"
+                      value={partyLength}
+                      onChange={(e) => setPartyLength(e.target.value)}
+                      style={{ width: "100%", padding: "5px 6px", fontSize: "11px", borderRadius: "4px", border: "1px solid #fde047", background: "#fffbeb", boxSizing: "border-box" }}
+                    />
+                  </div>
 
                   <div style={{ flex: "0.8 1 70px" }}>
                     <span style={{ fontSize: "10px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "3px" }}>R Value</span>

@@ -9,8 +9,6 @@ import { POWER_TRUSS_TYPES } from "@/constants/procurementFormParity";
 import { normalizeFloorLevelCode } from "@/utils/floorLevel";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import { shouldApplyDatabaseTaskLoad } from "@/utils/procurementAutoFill";
-import DimensionPair from "@/components/shared/forms/DimensionPair";
-import TypeQtyFields from "@/components/shared/forms/TypeQtyFields";
 
 // ══════════════════════════════════════════════════════
 // CONSTANTS & OPTIONS
@@ -677,30 +675,50 @@ export default function PowerTrussBracesTask({
           <div style={{ padding: "12px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
 
-              {/* Wall Height + Length — shared DimensionPair */}
-              <DimensionPair
-                heightValue={wallHeightDraft}
-                lengthValue={lengthDraft}
-                onHeightChange={setWallHeightDraft}
-                onLengthChange={setLengthDraft}
+              {/* Wall Height */}
+              <InputField
+                label="Wall Height"
                 unit="mm"
-                heightLabel="Wall Height"
-                lengthLabel="Length"
-                heightPlaceholder="Wall Height"
-                lengthPlaceholder="Length"
-                style={{ flex: "2 1 280px" }}
+                value={wallHeightDraft}
+                isYellow={true}
+                flex="1.5 1 140px"
+                minWidth="120px"
+                onChange={setWallHeightDraft}
+                placeholder="Wall Height"
               />
 
-              {/* Type + Qty — shared TypeQtyFields */}
-              <TypeQtyFields
-                typeValue={typeDraft}
-                qtyValue={qtyDraft}
-                onTypeChange={setTypeDraft}
-                onQtyChange={setQtyDraft}
-                typeOptions={POWER_TRUSS_TYPES}
-                typeLabel="Type"
-                qtyLabel="Qty"
-                style={{ flex: "1.5 1 180px" }}
+              {/* Length */}
+              <InputField
+                label="Length"
+                unit="mm"
+                value={lengthDraft}
+                isYellow={true}
+                flex="1.5 1 140px"
+                minWidth="120px"
+                onChange={setLengthDraft}
+                placeholder="Length"
+              />
+
+              {/* Type */}
+              <SelectField
+                label="Type"
+                value={typeDraft}
+                options={POWER_TRUSS_TYPES}
+                flex="1.2 1 120px"
+                minWidth="100px"
+                onChange={setTypeDraft}
+              />
+
+              {/* Quantity Field */}
+              <InputField
+                label="Qty"
+                value={qtyDraft}
+                isYellow={true}
+                numeric={true}
+                flex="0.8 1 70px"
+                minWidth="60px"
+                onChange={setQtyDraft}
+                placeholder="1"
               />
 
               {/* Add Button */}

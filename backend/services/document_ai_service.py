@@ -302,7 +302,7 @@ def _apply_task_dependencies(row: Dict[str, Any], task_key: str, task_contract: 
     if row.get("product"):
         return
     product = None
-    if task_key == "flooring_decking" and row.get("typeArea"):
+    if task_key in {"flooring_decking", "hebel_flooring"} and row.get("typeArea"):
         product = _unique_dependency_value(deps.get("product_by_typeArea") or {}, row.get("typeArea"))
     elif task_key == "cladding" and row.get("claddingType"):
         product = _unique_dependency_value(deps.get("product_by_claddingType") or {}, row.get("claddingType"))

@@ -2369,6 +2369,7 @@ export default function BOQTable({
         {[
           { id: "frame_hardware", label: "01 Frame Hardware", icon: "🔩" },
           { id: "flooring_decking", label: "02 Flooring & Decking - GF", icon: "🪵" },
+          { id: "hebel_flooring", label: "03 Hebel Flooring", icon: "🧱" },
           { id: "insulation", label: "04 Insulation", icon: "🧽" },
           { id: "eaves_soffits", label: "05 Eaves & Soffit", icon: "🏠" },
           { id: "cladding", label: "06 Cladding", icon: "🧱" },

@@ -1372,9 +1372,6 @@ export default function LockupTask({
   useEffect(() => {
     const handleSyncFromModal = (e) => {
       if (suppressAutoInit) return;
-      // DB priority: if DB data already loaded, don't overwrite with AI/plan rows.
-      // User confirmed flow: "uu tien lay db, co db thi lay db, ko co db thi lay tren plan"
-      if (dataSource === "db") return;
       if (e.detail?.lockoutRows && e.detail.lockoutRows.length > 0) {
         const mapped = e.detail.lockoutRows.filter((row) => !isWindowOpening(row)).map((r, idx) => {
           const mode = normalizeLockupModeValue(r.mode || r.category)
@@ -1417,7 +1414,7 @@ export default function LockupTask({
       window.addEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
       return () => window.removeEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
     }
-  }, [onSetEntries, suppressAutoInit, dataSource]);
+  }, [onSetEntries, suppressAutoInit]);
 
   // ── Auto-load saved data from DB when job changes ──
   const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();

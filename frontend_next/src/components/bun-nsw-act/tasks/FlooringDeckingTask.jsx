@@ -438,8 +438,6 @@ export default function FlooringDeckingTask({
   // Listen to global Auto-Calculate & Fill AI Rooms event from AreaSummary modal
   useEffect(() => {
     const handleAutoApply = (e) => {
-      // DB priority: if DB data already loaded, don't overwrite with AI/plan rows.
-      if (dataSource === "db") return;
       if (!e.detail) return;
       const { dryArea: d, wetArea: w, balconyArea: b, otherArea: o, otherTypeArea: ot, groupedAIRooms: gRooms } = e.detail;
       if (d !== undefined && d !== "") {
@@ -574,7 +572,7 @@ export default function FlooringDeckingTask({
 
     window.addEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
     return () => window.removeEventListener("ezefloor:apply_ai_rooms_to_flooring", handleAutoApply);
-  }, [onChange, onSetEntries, selectedTaskFloor, dataSource]);
+  }, [onChange, onSetEntries, selectedTaskFloor]);
 
   // ── Auto-load saved data from DB when job changes ──
   const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();

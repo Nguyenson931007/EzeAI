@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { LOCKUP_HUNG, LOCKUP_INTERNAL_HUNG, BUN_VIC_LOCKUP_PARITY, isBunVicCustomer } from "@/constants/procurementFormParity";
-import { getActiveClientShortName } from "@/constants/clients";
 import { ApiService } from "@/models/api.service";
 import {
   DOOR_TYPE_REGISTRY,
@@ -1153,26 +1151,11 @@ export default function DoorWindowPropertyPanel({
         <span className="panel-label">Hinge Side</span>
         <select
           className="panel-select"
-          value={activeDoor.hinge_side || activeDoor.hingeSide || ""}
+          value={activeDoor.hinge_side || activeDoor.hingeSide || "left"}
           onChange={(e) => handleApplyProperty({ hinge_side: e.target.value, hingeSide: e.target.value })}
         >
-          {(() => {
-            // Use the same Hung options as Lockup/Fixout task tables (customer-specific).
-            // Do NOT hardcode — pull directly from procurementFormParity.
-            const customer = getActiveClientShortName();
-            const isBunVic = isBunVicCustomer(customer);
-            const category = String(activeDoor.category || activeDoor.location || "internal").toLowerCase();
-            const isInternal = category.includes("int");
-            let opts;
-            if (isBunVic) {
-              opts = isInternal ? BUN_VIC_LOCKUP_PARITY.internalHung : LOCKUP_HUNG;
-            } else {
-              opts = isInternal ? LOCKUP_INTERNAL_HUNG : LOCKUP_HUNG;
-            }
-            return opts.map((opt) => (
-              <option key={String(opt)} value={opt}>{opt}</option>
-            ));
-          })()}
+          <option value="left">Left Hinge</option>
+          <option value="right">Right Hinge</option>
         </select>
       </div>
 

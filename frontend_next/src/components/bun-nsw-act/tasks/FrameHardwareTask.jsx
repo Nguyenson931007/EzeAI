@@ -11,7 +11,6 @@ import { calculateEnteredWallsByLevel } from "@/engines/TakeoffSummaryEngine";
 import { groupByFloorLevel } from "@/utils/floorLevelDisplay";
 import FloorLevelGroupRow from "./FloorLevelGroupRow";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
-import DimensionPair from "@/components/shared/forms/DimensionPair";
 import {
   EnteredDataCard,
   TaskCard,
@@ -393,8 +392,6 @@ export default function FrameHardwareTask({
   // ── Listen for Auto-Calculate & Fill event from FrameworkJobsModal ──
   useEffect(() => {
     const handleAutoApplyFramework = (e) => {
-      // DB priority: if DB data already loaded, don't overwrite with AI/plan rows.
-      if (dataSource === "db") return;
       if (!e.detail) return;
       const { wallEntries = [] } = e.detail;
       if (wallEntries.length > 0 && onSetEntries) {
@@ -403,7 +400,7 @@ export default function FrameHardwareTask({
     };
     window.addEventListener("ezefloor:apply_ai_walls_to_framework", handleAutoApplyFramework);
     return () => window.removeEventListener("ezefloor:apply_ai_walls_to_framework", handleAutoApplyFramework);
-  }, [onSetEntries, dataSource]);
+  }, [onSetEntries]);
 
   const [editingRowId, setEditingRowId] = useState(null);
   const [editRowData, setEditRowData] = useState({});
@@ -727,10 +724,7 @@ export default function FrameHardwareTask({
 
   // ── Save to database via API ──
   const handleSaveToDatabase = async () => {
-    // Allow saving with 0 entries (clears DB). Previously this returned
-    // silently, leaving saveStatus as "idle" which made EnteredTaskActions
-    // throw "The task was not saved."
-    const hasEntries = entries && entries.length > 0;
+    if (!entries || entries.length === 0) return;
 
     setIsSaving(true);
     setSaveSuccess(false);
@@ -1239,21 +1233,45 @@ export default function FrameHardwareTask({
               </div>
               {isSlabOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-                  {/* Wall Height + Length — shared DimensionPair */}
-                  <DimensionPair
-                    heightValue={slabWallHeight}
-                    lengthValue={slabWallLength}
-                    onHeightChange={setSlabWallHeight}
-                    onLengthChange={setSlabWallLength}
-                    unit="mm"
-                    heightLabel="Wall Height"
-                    lengthLabel="Wall Length"
-                    heightOptions={WALL_HEIGHT_OPTIONS}
-                    lengthPlaceholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
-                    highlight={true}
-                    hideHeight={isBunVic}
-                    style={{ flex: "2 1 270px" }}
-                  />
+                  {!isBunVic && (<>
+                  {/* Wall Height */}
+                  <div style={{ flex: "1 1 120px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
+                    <select
+                      value={slabWallHeight}
+                      onChange={(e) => setSlabWallHeight(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_HEIGHT_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+                  </>)}
+
+                  {/* Wall Length */}
+                  <div style={{ flex: "1.4 1 150px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
+                      value={slabWallLength}
+                      onChange={(e) => setSlabWallLength(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
 
                   {/* Tiedown Spacing */}
                   <div style={{ flex: "1 1 100px" }}>
@@ -1360,20 +1378,43 @@ export default function FrameHardwareTask({
               </div>
               {isTimberOpen && (
                 <div style={{ padding: "10px", display: "flex", alignItems: "flex-end", gap: "8px", flexWrap: "wrap" }}>
-                  {/* Wall Height + Length — shared DimensionPair */}
-                  <DimensionPair
-                    heightValue={timberWallHeight}
-                    lengthValue={timberWallLength}
-                    onHeightChange={setTimberWallHeight}
-                    onLengthChange={setTimberWallLength}
-                    unit="mm"
-                    heightLabel="Wall Height"
-                    lengthLabel="Wall Length"
-                    heightOptions={WALL_HEIGHT_OPTIONS}
-                    lengthPlaceholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
-                    highlight={true}
-                    style={{ flex: "2 1 270px" }}
-                  />
+                  {/* Wall Height */}
+                  <div style={{ flex: "1 1 120px" }}>
+                    <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700, display: "block", marginBottom: "4px" }}>Wall Height</span>
+                    <select
+                      value={timberWallHeight}
+                      onChange={(e) => setTimberWallHeight(e.target.value)}
+                      className="task-field-select"
+                      style={{ width: "100%", padding: "6px 8px", fontSize: "10.5px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+                    >
+                      {WALL_HEIGHT_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Wall Length */}
+                  <div style={{ flex: "1.4 1 150px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "10.5px", color: "#475569", fontWeight: 700 }}>Wall Length</span>
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>mm</span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder={cadMetrics.grandTotalLength ? `${Math.round(cadMetrics.grandTotalLength * 1000)}` : "Enter millimetres..."}
+                      value={timberWallLength}
+                      onChange={(e) => setTimberWallLength(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        fontSize: "10.5px",
+                        borderRadius: "5px",
+                        border: "1px solid #fde047",
+                        background: "#fffbeb",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
 
                   {/* Tiedown Spacing */}
                   <div style={{ flex: "1 1 100px" }}>
