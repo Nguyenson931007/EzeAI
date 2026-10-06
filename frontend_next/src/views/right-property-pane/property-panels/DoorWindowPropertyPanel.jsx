@@ -15,6 +15,7 @@ import { getDoorWindowDisplayWidthMm } from "../UIComponents";
 import SearchableSelect from "@/components/SearchableSelect";
 import { buildTaskDraft, taskDraftToDoorPatch } from "@/components/DoorTaskAlignedFields";
 import { markTaskDirty } from "@/utils/taskDraftRegistry";
+import { FIXOUT_FURNITURE } from "@/constants/procurementFormParity";
 
 const FALLBACK_EXT_TYPES = [
   "TBA",
@@ -968,6 +969,10 @@ export default function DoorWindowPropertyPanel({
         const modelValue = draft.door_type || "";
         const hungValue = getDoorHungValue(activeDoor, task);
         const hungOptions = getDoorHungOptions(customer, activeDoor, task);
+        const furnitureMode = String(draft.category || "").toLowerCase().includes("cavity")
+          ? "cavity"
+          : String(draft.category || "").toLowerCase().includes("loose") ? "loose-jamb" : "prehung";
+        const furnitureOptions = FIXOUT_FURNITURE[furnitureMode] || FIXOUT_FURNITURE.prehung;
         const updateDraft = (nextDraft, extraPatch = {}) => {
           handleApplyProperty({ ...taskDraftToDoorPatch(nextDraft), ...extraPatch });
         };
@@ -1166,6 +1171,18 @@ export default function DoorWindowPropertyPanel({
               >
                 <option value="inward">Inward Swing</option>
                 <option value="outward">Outward Swing</option>
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Door Furniture</span>
+              <select
+                className="panel-select"
+                value={draft.door_furniture || ""}
+                onChange={(e) => updateDraft({ ...draft, door_furniture: e.target.value })}
+              >
+                <option value="">—</option>
+                {furnitureOptions.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </div>
           </>

@@ -77,6 +77,7 @@ export function buildTaskDraft(door = {}) {
     internal_type: door.internal_type || door.hole || "",
     color: door.color || door.finish || "",
     door_stop: door.door_stop || door.stop || "",
+    door_furniture: door.door_furniture || "",
   };
 }
 
@@ -126,6 +127,7 @@ export function taskDraftToDoorPatch(draft = {}) {
     jamb_or_wall: draft.jamb_or_wall, jambWall: draft.jamb_or_wall, jamb_size: draft.jamb_size, jambSize: draft.jamb_size,
     hung: draft.hung, ...(hinge ? { hinge_side: hinge, hingeSide: hinge } : {}), lockup_type: draft.type, internal_type: draft.internal_type, hole: draft.internal_type,
     color: draft.color, finish: draft.color, door_stop: draft.door_stop, stop: draft.door_stop,
+    door_furniture: draft.door_furniture,
   };
 }
 
@@ -206,6 +208,9 @@ export default function DoorTaskAlignedFields({ door, draft: controlledDraft, on
 
   const ext = draft.location === "External";
   const productOptions = ext ? doorLists.external : doorLists.internal;
+  const lockFurniture = FIXOUT_FURNITURE[
+    isCavity(draft.category) ? "cavity" : (lower(draft.category).includes("loose") ? "loose-jamb" : "prehung")
+  ] || FIXOUT_FURNITURE.prehung;
   return <div style={grid}>
     <Field label="Label" value={draft.label} onChange={(v) => change("label", v)} />
     <Field label="Location" value={draft.location} onChange={(v) => change("location", v)} options={["Internal", "External"]} />
@@ -220,5 +225,6 @@ export default function DoorTaskAlignedFields({ door, draft: controlledDraft, on
     <Field label="HF/HO" value={draft.internal_type} onChange={(v) => change("internal_type", v)} options={lock.internalHoles} disabled={ext} />
     <Field label="Color" value={draft.color} onChange={(v) => change("color", v)} options={lock.internalFinishes} disabled={ext} />
     <Field label="Stop" value={draft.door_stop} onChange={(v) => change("door_stop", v)} options={lock.doorStops} />
+    <Field label="Door Furniture" value={draft.door_furniture} onChange={(v) => change("door_furniture", v)} options={lockFurniture} />
   </div>;
 }

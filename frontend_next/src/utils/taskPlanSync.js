@@ -206,6 +206,7 @@ const patchDoorFromRow = (taskId, row) => {
     assignNonEmpty(patch, "jamb_or_wall", row?.jamb_or_wall);
     assignNonEmpty(patch, "jamb_size", row?.jamb_size);
     assignNonEmpty(patch, "lockup_type", row?.type);
+    assignNonEmpty(patch, "door_furniture", row?.door_furniture);
     const thickness = parseNumber(row?.thickness || row?.thicks);
     if (thickness > 0) {
       patch.door_thickness = String(thickness);
@@ -591,6 +592,7 @@ const syncDoorRow = (taskId, row, door) => {
       next.internal_type = door.internal_type || door.hole || "";
     }
     if (has("color", "finish")) next.color = door.color || door.finish || "";
+    if (has("door_furniture")) next.door_furniture = door.door_furniture || "";
   } else if (taskId === "window" || taskId === "windows") {
     if (label) next.label = label;
     if (height) next.height = String(Math.round(height));
