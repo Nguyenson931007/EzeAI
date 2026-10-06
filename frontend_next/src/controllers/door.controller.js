@@ -43,6 +43,7 @@ import {
 } from '@/engines/DoorGeometryEngine';
 import { snapDoorToWalls, cutWallsByDoors, distancePointToSegment, mirrorPolygonAcrossLine, mirrorPolygonAcrossPerpendicular } from '@/utils/geometry';
 import { syncLintelsWithDoors, createLintelForDoor } from './lintel.controller';
+import { getOpeningOwnerTask, markTaskDirty } from '@/utils/taskDraftRegistry';
 
 /**
  * useDoorController — React hook providing door state and operations.
@@ -615,8 +616,13 @@ export function useDoorController({
     const oldDoor = doors.find(d => d.id === newDoorData.id);
     if (!oldDoor) return;
 
+    if (!newDoorData?.suppressTaskDirty) {
+      markTaskDirty(getOpeningOwnerTask({ ...oldDoor, ...newDoorData }), "plan-edit");
+    }
+
+    const { suppressTaskDirty: _suppressTaskDirty, ...cleanDoorData } = newDoorData;
     let updatedDoor = {
-      ...newDoorData,
+      ...cleanDoorData,
       data_revision: Number(oldDoor.data_revision || 0) + 1,
       updated_at: Date.now(),
       modifiedAt: new Date().toISOString(),

@@ -587,7 +587,7 @@ export default function FlooringDeckingTask({
       try {
         const res = await ApiService.fetchAreaSummaryJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("flooring_decking")) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

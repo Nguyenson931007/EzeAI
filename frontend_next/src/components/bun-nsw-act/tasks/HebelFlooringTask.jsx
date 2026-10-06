@@ -356,7 +356,7 @@ export default function HebelFlooringTask({
       try {
         const res = await ApiService.fetchAreaSummaryJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("hebel_flooring")) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

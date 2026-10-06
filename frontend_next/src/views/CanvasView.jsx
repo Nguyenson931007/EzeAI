@@ -51,6 +51,7 @@ import {
 import { calculateDoorGeometry, getDoorBoundingBox as getDoorBoundingBoxCalculated } from "@/engines/DoorArcLabelEngine";
 import { snapPointToWall, rotateDoorGeometry, projectDoorOntoWall, scaleDoorWidth } from "@/engines/DoorGeometryEngine";
 import { resolveDoorTypeId, DOOR_TYPE_REGISTRY, findParentWall } from "@/models/DoorTypeRegistry";
+import { markTaskDirty } from "@/utils/taskDraftRegistry";
 
 
 // Review/Confidence Color Mapping
@@ -3745,6 +3746,9 @@ export default function CanvasView({
   // Door context menu state
   const [doorContextMenu, setDoorContextMenu] = useState({ visible: false, x: 0, y: 0, door: null });
   const [doorEditDialog, setDoorEditDialog] = useState({ visible: false, door: null });
+  // Popup/Properties edits are staged in memory until the owning task is saved.
+  // taskKey -> Map(doorId -> original door snapshot)
+  const stagedTaskDoorEditsRef = useRef(new Map());
 
   // Wall context menu state
   const [wallContextMenu, setWallContextMenu] = useState({ visible: false, x: 0, y: 0, wall: null });
@@ -4272,8 +4276,104 @@ export default function CanvasView({
     }
   };
 
-  const handleDoorEditSave = (updatedDoor, applyToAll) => {
+  useEffect(() => {
+    const normalizeTaskKey = (value) => {
+      const key = String(value || "").toLowerCase();
+      if (key === "lock_up") return "lockup";
+      if (key === "window") return "windows";
+      return key;
+    };
+
+    const handleCommit = (event) => {
+      const taskKey = normalizeTaskKey(event?.detail?.taskKey);
+      if (!taskKey) return;
+      stagedTaskDoorEditsRef.current.delete(taskKey);
+    };
+
+    const handleRollback = (event) => {
+      const taskKey = normalizeTaskKey(event?.detail?.taskKey);
+      if (!taskKey) return;
+      const staged = stagedTaskDoorEditsRef.current.get(taskKey);
+      if (!staged || staged.size === 0) return;
+
+      staged.forEach((originalDoor) => {
+        if (!originalDoor) return;
+        updateDoor?.(originalDoor);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("ezefloor:door-metadata-updated", {
+            detail: { door: originalDoor, rollback: true, taskKey }
+          }));
+        }
+      });
+      stagedTaskDoorEditsRef.current.delete(taskKey);
+    };
+
+    window.addEventListener("ezefloor:task-cache-commit", handleCommit);
+    window.addEventListener("ezefloor:task-cache-rollback", handleRollback);
+    return () => {
+      window.removeEventListener("ezefloor:task-cache-commit", handleCommit);
+      window.removeEventListener("ezefloor:task-cache-rollback", handleRollback);
+    };
+  }, [updateDoor]);
+
+  const handleDoorEditSave = (updatedDoor, applyToAll, saveMeta = {}) => {
     if (!updateDoor) return;
+
+    const doorForUpdate = saveMeta?.rollback
+      ? { ...updatedDoor, suppressTaskDirty: true }
+      : updatedDoor;
+
+    const normalizeTaskKey = (value) => {
+      const key = String(value || "").toLowerCase();
+      if (key === "lock_up") return "lockup";
+      if (key === "window") return "windows";
+      return key;
+    };
+    const taskKey = normalizeTaskKey(saveMeta?.taskKey);
+    if (saveMeta?.stageOnly && taskKey) {
+      markTaskDirty(taskKey, "plan-popup-edit");
+      let stagedForTask = stagedTaskDoorEditsRef.current.get(taskKey);
+      if (!stagedForTask) {
+        stagedForTask = new Map();
+        stagedTaskDoorEditsRef.current.set(taskKey, stagedForTask);
+      }
+      const targetId = updatedDoor?.id;
+      if (targetId != null && !stagedForTask.has(String(targetId))) {
+        const original = saveMeta?.originalDoor || (doors || []).find((item) => String(item?.id) === String(targetId));
+        if (original) {
+          let snapshot;
+          try {
+            snapshot = typeof structuredClone === "function" ? structuredClone(original) : JSON.parse(JSON.stringify(original));
+          } catch (_) {
+            snapshot = { ...original };
+          }
+          stagedForTask.set(String(targetId), snapshot);
+        }
+      }
+
+      // Window bulk-edit can touch more than the selected opening; snapshot every affected item.
+      if (applyToAll) {
+        const originalType = doorEditDialog.door?.class || "single_door";
+        (doors || []).forEach((item) => {
+          if ((item?.class || "single_door") !== originalType) return;
+          const id = item?.id;
+          if (id == null || stagedForTask.has(String(id))) return;
+          let snapshot;
+          try {
+            snapshot = typeof structuredClone === "function" ? structuredClone(item) : JSON.parse(JSON.stringify(item));
+          } catch (_) {
+            snapshot = { ...item };
+          }
+          stagedForTask.set(String(id), snapshot);
+        });
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("ezefloor:task-cache-staged", {
+          detail: { taskKey, door: updatedDoor, originalDoor: saveMeta?.originalDoor || null }
+        }));
+      }
+    }
     if (applyToAll) {
       // Apply to all doors of same type in a single atomic batch
       const originalType = doorEditDialog.door?.class || 'single_door';
@@ -4309,7 +4409,7 @@ export default function CanvasView({
         pushHistory(null, walls, newDoors);
       }
     } else {
-      updateDoor(updatedDoor);
+      updateDoor(doorForUpdate);
     }
 
     // Keep every task table that references this plan penetration in sync with
@@ -4317,7 +4417,7 @@ export default function CanvasView({
     // owns the task-state updates; this event only carries plan metadata.
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("ezefloor:door-metadata-updated", {
-        detail: { door: updatedDoor }
+        detail: { door: doorForUpdate, rollback: Boolean(saveMeta?.rollback) }
       }));
     }
   };

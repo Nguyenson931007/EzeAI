@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ApiService } from "@/models/api.service";
+import {
+  getTaskDraftStatus,
+  markTaskDirty,
+  markTaskSaved,
+  TASK_DRAFT_RESET_EVENT,
+  TASK_DRAFT_STATUS_EVENT,
+} from "@/utils/taskDraftRegistry";
 
 const DATABASE_TASKS = new Set([
   "frame_hardware", "flooring_decking", "insulation",
@@ -34,27 +41,54 @@ export default function EnteredTaskActions({
   const onSaveRef = useRef(onSave);
   const onAutoFillRef = useRef(onAutoFill);
   const saveDisabledRef = useRef(saveDisabled);
+  const saveStatusRef = useRef(saveStatus);
   const isReadOnlyRef = useRef(isReadOnly);
+  const onEditRef = useRef(onEdit);
   const dirtyRef = useRef(false);
-  const previousReadOnlyRef = useRef(isReadOnly);
+  const [draftStatus, setDraftStatus] = useState("saved");
   const wasLoadingFromDbRef = useRef(isLoadingFromDb);
   const didRunPlanFallbackRef = useRef(false);
   onSaveRef.current = onSave;
   onAutoFillRef.current = onAutoFill;
   saveDisabledRef.current = saveDisabled;
+  saveStatusRef.current = saveStatus;
   isReadOnlyRef.current = isReadOnly;
+  onEditRef.current = onEdit;
   const isSaving = saveStatus === "saving";
   const isSaved = saveStatus === "success";
   const isSaveError = saveStatus === "error";
   const isDbSource = dataSource === "db";
 
+  const getActiveTaskKeys = () => {
+    if (typeof window === "undefined") return [];
+    const context = window.__ezefloorActiveTaskContext || {};
+    return Array.from(new Set([context.statusTaskKey, context.taskKey].filter(Boolean)));
+  };
+
+  const readDraftStatus = () => {
+    const keys = getActiveTaskKeys();
+    return keys.some((key) => getTaskDraftStatus(key) === "dirty") ? "dirty" : "saved";
+  };
+
+  const isEditing = draftStatus === "dirty";
+  // "Saved" is the read-only state of the task draft, including a valid
+  // empty task. Database presence only controls where the data came from.
+  const showSavedState = !isEditing;
+
   const markDirty = () => {
-    if (isReadOnlyRef.current) return;
     dirtyRef.current = true;
+    setDraftStatus("dirty");
+    getActiveTaskKeys().forEach((key) => markTaskDirty(key, "task-edit"));
   };
 
   const clearDirty = () => {
     dirtyRef.current = false;
+    setDraftStatus("saved");
+  };
+
+  const markSaved = () => {
+    clearDirty();
+    getActiveTaskKeys().forEach((key) => markTaskSaved(key, "save"));
   };
 
   const deleteTaskData = async () => {
@@ -72,7 +106,7 @@ export default function EnteredTaskActions({
         await ApiService.deleteTaskData(taskKey, context.jobId);
       }
       await onClear?.();
-      clearDirty();
+      markSaved();
     } catch (error) {
       const message = error?.message || "Could not delete this task's saved data.";
       if (typeof window !== "undefined" && window.appDialog?.showAlert) {
@@ -113,7 +147,7 @@ export default function EnteredTaskActions({
   };
 
   const saveLatestTaskState = async () => {
-    if (saveDisabledRef.current || isReadOnlyRef.current || typeof onSaveRef.current !== "function") return;
+    if (saveDisabledRef.current || !dirtyRef.current || typeof onSaveRef.current !== "function") return;
 
     // A number of task tables keep the value currently being edited in a
     // row-level draft and commit that draft when focus leaves the editor.
@@ -143,21 +177,34 @@ export default function EnteredTaskActions({
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
     }
-    if (dirtyRef.current) {
+    if (saveStatusRef.current === "error") {
       throw new Error("The task was not saved. Please fix the error and try again.");
     }
+    // Some task save handlers intentionally no-op for an empty table. That is
+    // still a valid saved/read-only draft and must not surface as an error.
+    if (dirtyRef.current) markSaved();
     return result;
   };
 
   useEffect(() => {
-    if (previousReadOnlyRef.current && !isReadOnly) markDirty();
-    if (isReadOnly) clearDirty();
-    previousReadOnlyRef.current = isReadOnly;
-  }, [isReadOnly]);
+    if (saveStatus === "success") markSaved();
+  }, [saveStatus]);
 
   useEffect(() => {
-    if (saveStatus === "success") clearDirty();
-  }, [saveStatus]);
+    if (typeof window === "undefined") return undefined;
+    const refresh = () => {
+      const status = readDraftStatus();
+      dirtyRef.current = status === "dirty";
+      setDraftStatus(status);
+    };
+    refresh();
+    window.addEventListener(TASK_DRAFT_STATUS_EVENT, refresh);
+    window.addEventListener(TASK_DRAFT_RESET_EVENT, refresh);
+    return () => {
+      window.removeEventListener(TASK_DRAFT_STATUS_EVENT, refresh);
+      window.removeEventListener(TASK_DRAFT_RESET_EVENT, refresh);
+    };
+  }, []);
 
   useEffect(() => {
     if (isLoadingFromDb) {
@@ -172,8 +219,20 @@ export default function EnteredTaskActions({
       typeof onAutoFillRef.current === "function"
     ) {
       didRunPlanFallbackRef.current = true;
-      markDirty();
       onAutoFillRef.current();
+      // Auto fallback can legitimately find no plan rows. Wait for the task
+      // state to settle and only enter Editing when there is actually data to
+      // save; an empty task must not appear dirty on first open.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const taskPanel = document.querySelector(".task-panel");
+          const hasEnteredRows = Array.from(taskPanel?.querySelectorAll?.("tbody tr") || []).some((row) => (
+            !row.querySelector("td[colspan]") && row.querySelectorAll("td").length > 1
+          ));
+          if (hasEnteredRows && !saveDisabledRef.current) markDirty();
+          else markSaved();
+        });
+      });
     }
     wasLoadingFromDbRef.current = false;
   }, [isLoadingFromDb, dataSource]);
@@ -188,21 +247,27 @@ export default function EnteredTaskActions({
     window.__ezefloorActiveTaskDraft = guard;
 
     const markFromTaskControl = (event) => {
-      if (isReadOnlyRef.current) return;
-      if (event.target?.closest?.(".task-panel")) markDirty();
+      if (!event.target?.closest?.(".task-panel")) return;
+      if (isReadOnlyRef.current) onEditRef.current?.();
+      markDirty();
     };
     const beforeUnload = (event) => {
       if (!dirtyRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
+    const markFromStagedPopupEdit = () => {
+      markDirty();
+    };
     document.addEventListener("input", markFromTaskControl, true);
     document.addEventListener("change", markFromTaskControl, true);
+    window.addEventListener("ezefloor:task-cache-staged", markFromStagedPopupEdit);
     window.addEventListener("beforeunload", beforeUnload);
     return () => {
       if (window.__ezefloorActiveTaskDraft === guard) delete window.__ezefloorActiveTaskDraft;
       document.removeEventListener("input", markFromTaskControl, true);
       document.removeEventListener("change", markFromTaskControl, true);
+      window.removeEventListener("ezefloor:task-cache-staged", markFromStagedPopupEdit);
       window.removeEventListener("beforeunload", beforeUnload);
     };
   }, []);
@@ -231,10 +296,10 @@ export default function EnteredTaskActions({
         ok: false,
       };
 
-      if (saveDisabledRef.current || isReadOnlyRef.current) {
-        resultDetail.error = isReadOnlyRef.current
-          ? "Task data is read-only. Enter Edit mode before saving EzeIn changes."
-          : "Task save is currently disabled.";
+      if (saveDisabledRef.current || !dirtyRef.current) {
+        resultDetail.error = saveDisabledRef.current
+          ? "Task save is currently disabled."
+          : "There are no task changes to save.";
         window.dispatchEvent(new CustomEvent("ezefloor:gpt-save-result", { detail: resultDetail }));
         return;
       }
@@ -283,30 +348,30 @@ export default function EnteredTaskActions({
       )}
 
       {/* DB source badge — shown when data comes from database */}
-      {!isLoadingFromDb && (isDbSource || isReadOnly || onSave) && (
+      {!isLoadingFromDb && (isEditing || showSavedState) && (
         <span
           style={{
             fontSize: "10px",
             fontWeight: 700,
-            color: isReadOnly ? "#0369a1" : "#b45309",
+            color: showSavedState ? "#0369a1" : "#b45309",
             whiteSpace: "nowrap",
             padding: "3px 8px",
-            background: isReadOnly ? "#e0f2fe" : "#fef3c7",
-            border: `1px solid ${isReadOnly ? "#7dd3fc" : "#fcd34d"}`,
+            background: showSavedState ? "#e0f2fe" : "#fef3c7",
+            border: `1px solid ${showSavedState ? "#7dd3fc" : "#fcd34d"}`,
             borderRadius: "5px",
             minHeight: "28px",
             display: "inline-flex",
             alignItems: "center",
-            order: isReadOnly ? 2 : 0,
+            order: showSavedState ? 2 : 0,
           }}
-          title={isReadOnly ? "Saved data — press Edit to modify" : "Changes are local until you press Save"}
+          title={showSavedState ? "Saved data — press Edit to modify" : "Changes are local until you press Save"}
         >
-          {isReadOnly ? "✓ Saved" : "✏️ Editing"}
+          {showSavedState ? "✓ Saved" : "✏️ Editing"}
         </span>
       )}
 
       {/* Edit button — only visible when DB data is in read-only mode */}
-      {isDbSource && isReadOnly && onEdit && !isLoadingFromDb && (
+      {!isEditing && !isLoadingFromDb && (onEdit || onAutoFill || onClear || onSave) && (
         <button
           className="entered-task-action entered-task-action--edit"
           type="button"
@@ -326,7 +391,7 @@ export default function EnteredTaskActions({
           onClick={(e) => {
             e.stopPropagation();
             markDirty();
-            onEdit();
+            onEdit?.();
           }}
           title="Unlock editing to modify saved data"
         >
@@ -335,7 +400,7 @@ export default function EnteredTaskActions({
       )}
 
       {/* Auto Fill — hidden in read-only mode */}
-      {onAutoFill && !isReadOnly && !isLoadingFromDb && (
+      {onAutoFill && isEditing && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--autofill"
           type="button"
@@ -365,7 +430,7 @@ export default function EnteredTaskActions({
       )}
 
       {/* Add data — hidden in read-only mode */}
-      {onAddData && !isReadOnly && !isLoadingFromDb && (
+      {onAddData && isEditing && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--add-data"
           type="button"
@@ -395,7 +460,7 @@ export default function EnteredTaskActions({
       )}
 
       {/* Clear data — hidden in read-only mode */}
-      {onClear && !isReadOnly && !isLoadingFromDb && (
+      {onClear && isEditing && !isLoadingFromDb && (
         <button
           className="entered-task-action entered-task-action--clear"
           type="button"
@@ -423,38 +488,36 @@ export default function EnteredTaskActions({
       )}
 
       {/* Save / Update button — disabled in read-only mode */}
-      {onSave && !isLoadingFromDb && !isReadOnly && (
+      {onSave && !isLoadingFromDb && isEditing && (
         <button
           className={`entered-task-action entered-task-action--confirm${isSaved ? " is-saved" : ""}${isSaveError ? " is-error" : ""}`}
           type="button"
           style={{
-            background: isSaveError ? "#fef2f2" : isSaved ? "#dcfce7" : isReadOnly ? "#f1f5f9" : "#f0fdf4",
+            background: isSaveError ? "#fef2f2" : isSaved ? "#dcfce7" : "#f0fdf4",
             border: "1px solid",
-            borderColor: isSaveError ? "#fca5a5" : isSaved ? "#4ade80" : isReadOnly ? "#cbd5e1" : "#86efac",
-            color: isSaveError ? "#b91c1c" : isReadOnly ? "#94a3b8" : "#15803d",
+            borderColor: isSaveError ? "#fca5a5" : isSaved ? "#4ade80" : "#86efac",
+            color: isSaveError ? "#b91c1c" : "#15803d",
             fontSize: "10.5px",
             fontWeight: 700,
             padding: "3px 10px",
             minHeight: "28px",
             borderRadius: "5px",
-            cursor: saveDisabled || isSaving || isReadOnly ? "not-allowed" : "pointer",
-            opacity: saveDisabled || isSaving || isReadOnly ? 0.65 : 1,
+            cursor: saveDisabled || isSaving ? "not-allowed" : "pointer",
+            opacity: saveDisabled || isSaving ? 0.65 : 1,
             whiteSpace: "nowrap"
           }}
           onClick={(e) => {
             e.stopPropagation();
-            if (!isReadOnly) {
-              void saveLatestTaskState().catch(async (error) => {
-                const message = error?.message || "Could not save this task.";
-                if (window.appDialog?.showAlert) await window.appDialog.showAlert(message);
-                else window.alert(message);
-              });
-            }
+            void saveLatestTaskState().catch(async (error) => {
+              const message = error?.message || "Could not save this task.";
+              if (window.appDialog?.showAlert) await window.appDialog.showAlert(message);
+              else window.alert(message);
+            });
           }}
-          disabled={saveDisabled || isSaving || isReadOnly}
-          title={isReadOnly ? "Data already saved — press Edit to modify" : "Save"}
+          disabled={saveDisabled || isSaving}
+          title="Save"
         >
-          {isSaving ? "Saving..." : isSaved ? "✓ Saved" : isSaveError ? "Retry Save" : isReadOnly ? "✓ Saved" : `💾 ${effectiveSaveLabel}`}
+          {isSaving ? "Saving..." : isSaveError ? "Retry Save" : `💾 ${effectiveSaveLabel}`}
         </button>
       )}
     </div>

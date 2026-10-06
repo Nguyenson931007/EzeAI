@@ -299,7 +299,7 @@ export default function EavesSoffitTask({
       try {
         const res = await ApiService.fetchEavesJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("eaves_soffit")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

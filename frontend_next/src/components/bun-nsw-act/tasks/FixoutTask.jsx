@@ -1520,13 +1520,49 @@ export default function FixoutTask({
     });
 
     const linkedDoorId = originalRow?.doorId || originalRow?.door_id;
-    if (editedLabel && linkedDoorId && typeof updateDoorsProperty === "function") {
+    if (linkedDoorId && typeof updateDoorsProperty === "function") {
+      const hungValue = currentData.hung || currentData.handing || currentData.lift_off_pivot || "";
+      const rawHung = String(hungValue).toLowerCase();
+      const hinge = rawHung.includes("left") || rawHung.startsWith("lh")
+        ? "left"
+        : (rawHung.includes("right") || rawHung.startsWith("rh") ? "right" : "");
       updateDoorsProperty([linkedDoorId], {
-        door_name: editedLabel,
-        doorName: editedLabel,
-        doorLabel: editedLabel,
-        door_label: editedLabel,
-        name: editedLabel,
+        ...(editedLabel ? {
+          door_name: editedLabel,
+          doorName: editedLabel,
+          doorLabel: editedLabel,
+          door_label: editedLabel,
+          name: editedLabel,
+        } : {}),
+        category: currentData.category,
+        height: Number(currentData.height) || currentData.height,
+        height_mm: Number(currentData.height) || undefined,
+        width: Number(currentData.width) || currentData.width,
+        width_mm: Number(currentData.width) || undefined,
+        width_source: "manual",
+        // Procurement Thicks is table data only. Do not change the drawn door geometry.
+        thicks: currentData.thicks,
+        fixout_thicks: currentData.thicks,
+        procurement_thickness: currentData.thicks,
+        wall_width: currentData.wall_width,
+        door_frame: finalDoorFrame,
+        hung: hungValue,
+        handing: currentData.handing || hungValue,
+        lift_off_pivot: currentData.lift_off_pivot,
+        hole: currentData.hole,
+        finish: currentData.finish,
+        door_type: currentData.door_type,
+        product: currentData.door_type,
+        door_stop: currentData.door_stop,
+        stop: currentData.door_stop,
+        door_furniture: currentData.door_furniture,
+        qty: q,
+        default_qty: q,
+        ...(hinge ? { hinge_side: hinge, hingeSide: hinge } : {}),
+        procurementTask: "fixout",
+        procurement_task: "fixout",
+        // Never write procurement category/type back into doorTypeId/penetration_type.
+        // Those fields remain the original canvas Penetration Type.
       });
     }
     setEditingRowId(null);
@@ -1574,7 +1610,7 @@ export default function FixoutTask({
       try {
         const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("fixout")) return;
         const rows = Array.isArray(res?.data) ? res.data : [];
         const revealRows = rows
           .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
@@ -1766,6 +1802,9 @@ export default function FixoutTask({
 
       const res = await ApiService.saveFixoutJobs(payload);
       if (res && res.success) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("ezefloor:task-cache-commit", { detail: { taskKey: "fixout" } }));
+        }
         setSaveSuccess(true);
         setDataSource("db");
         setIsReadOnly(true);

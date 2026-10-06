@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { getActiveClientShortName } from "@/constants/clients";
+import { buildDoorHungPatch, getDoorHungOptions, getDoorHungValue, getDoorProcurementTask } from "@/utils/doorTaskFieldBridge";
 import { ApiService } from "@/models/api.service";
 import {
   DOOR_TYPE_REGISTRY,
@@ -6,12 +8,13 @@ import {
   resolveDoorTypeId,
   getDoorTypeOptions,
   MATERIAL_OPTIONS,
-  FIRE_RATING_OPTIONS,
   findStackedLowerDoor,
   findStackedUpperWindow
 } from "@/models/DoorTypeRegistry";
 import { getDoorWindowDisplayWidthMm } from "../UIComponents";
 import SearchableSelect from "@/components/SearchableSelect";
+import { buildTaskDraft, taskDraftToDoorPatch } from "@/components/DoorTaskAlignedFields";
+import { markTaskDirty } from "@/utils/taskDraftRegistry";
 
 const FALLBACK_EXT_TYPES = [
   "TBA",
@@ -229,15 +232,30 @@ export default function DoorWindowPropertyPanel({
   const numDoors = selectedDoors.length - numWindows;
   const isSelectedWindow = isMulti ? (numWindows > numDoors) : isWindowItem(activeDoor);
 
-  // Apply property change to all selected doors (or single door)
+  // Apply property change to all selected doors (or single door). Property
+  // edits are task drafts exactly like table/popup edits: they stay local until
+  // the owning task Save succeeds.
   const handleApplyProperty = (patch) => {
+    const ownerTask = isSelectedWindow ? "window" : getDoorProcurementTask(activeDoor || {});
+    markTaskDirty(ownerTask, "properties-edit");
     const targetIds = isMulti ? selectedDoorIds : (activeDoor ? [activeDoor.id] : []);
+    const emitLinkedTaskUpdates = () => {
+      if (typeof window === "undefined") return;
+      const sourceDoors = isMulti ? selectedDoors : (activeDoor ? [activeDoor] : []);
+      sourceDoors.forEach((door) => {
+        window.dispatchEvent(new CustomEvent("ezefloor:door-metadata-updated", {
+          detail: { door: { ...door, ...patch }, source: "properties" }
+        }));
+      });
+    };
     if (targetIds.length > 0 && updateDoorsProperty) {
       updateDoorsProperty(targetIds, patch);
+      emitLinkedTaskUpdates();
       return;
     }
     if (!isMulti && updateDoor && activeDoor) {
       updateDoor({ ...activeDoor, ...patch });
+      emitLinkedTaskUpdates();
     }
   };
 
@@ -484,7 +502,7 @@ export default function DoorWindowPropertyPanel({
             value={isMulti ? "(Multiple windows selected)" : (activeDoor.door_name || "")}
             disabled={isMulti}
             style={isMulti ? { opacity: 0.6, fontStyle: "italic" } : {}}
-            onChange={(e) => updateDoor && updateDoor({ ...activeDoor, door_name: e.target.value })}
+            onChange={(e) => handleApplyProperty({ door_name: e.target.value })}
           />
         </div>
 
@@ -942,234 +960,217 @@ export default function DoorWindowPropertyPanel({
         </div>
       )}
 
-      <div className="panel-field">
-        <span className="panel-label">Door Name</span>
-        <input
-          className="panel-input"
-          value={isMulti ? "(Multiple doors selected)" : (activeDoor.door_name || "")}
-          disabled={isMulti}
-          style={isMulti ? { opacity: 0.6, fontStyle: "italic" } : {}}
-          onChange={(e) => updateDoor && updateDoor({ ...activeDoor, door_name: e.target.value })}
-        />
-      </div>
+      {(() => {
+        const task = getDoorProcurementTask(activeDoor);
+        const draft = buildTaskDraft(activeDoor);
+        const customer = getActiveClientShortName();
+        const labelValue = task === "fixout" ? draft.door_label : draft.label;
+        const modelValue = draft.door_type || "";
+        const hungValue = getDoorHungValue(activeDoor, task);
+        const hungOptions = getDoorHungOptions(customer, activeDoor, task);
+        const updateDraft = (nextDraft, extraPatch = {}) => {
+          handleApplyProperty({ ...taskDraftToDoorPatch(nextDraft), ...extraPatch });
+        };
 
-      <div className="panel-field">
-        <span className="panel-label">Location / Category</span>
-        <select
-          className="panel-select"
-          value={category}
-          onChange={(e) => {
-            const nextCat = e.target.value;
-            const newTypeId = resolveDoorTypeId(activeDoorTypeId, nextCat);
-            const def = DOOR_TYPE_REGISTRY[newTypeId];
-            const storedConfig = getStoredDoorConfig();
-            const newModel = nextCat === "external" ? storedConfig.extDoorType : storedConfig.intDoorType;
-            handleApplyProperty({
-              is_ext: nextCat === "external",
-              is_exterior: nextCat === "external",
-              location: nextCat,
-              scope: nextCat,
-              doorTypeId: newTypeId,
-              penetration_type: def?.renderClass || activeDoor.penetration_type,
-              class: def?.renderClass || activeDoor.class,
-              door_type: newModel,
-              lockup_door_type: newModel,
-              product: newModel
-            });
-          }}
-        >
-          <option value="internal">Internal Door</option>
-          <option value="external">External Door</option>
-        </select>
-      </div>
+        return (
+          <>
+            <div className="panel-field">
+              <span className="panel-label">Door Name</span>
+              <input
+                className="panel-input"
+                value={isMulti ? "(Multiple doors selected)" : labelValue}
+                disabled={isMulti}
+                style={isMulti ? { opacity: 0.6, fontStyle: "italic" } : {}}
+                onChange={(e) => {
+                  if (task === "fixout") updateDraft({ ...draft, door_label: e.target.value });
+                  else updateDraft({ ...draft, label: e.target.value });
+                }}
+              />
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Door Type</span>
-        <SearchableSelect
-          value={activeDoorTypeId}
-          options={getDoorTypeOptions(category)}
-          placeholder="Search door type (e.g. Single, Sliding)..."
-          onChange={(typeId) => {
-            const def = DOOR_TYPE_REGISTRY[typeId];
-            handleApplyProperty({
-              doorTypeId: typeId,
-              penetration_type: def?.renderClass || "door",
-              class: def?.renderClass || "door",
-              class_name: def?.renderClass || "door",
-              type: def?.doorType || "door",
-              doorType: def?.doorType || "door"
-            });
-          }}
-        />
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Location</span>
+              <select
+                className="panel-select"
+                value={(DOOR_TYPE_REGISTRY[activeDoorTypeId]?.category || category) === "external" ? "external" : "internal"}
+                onChange={(e) => {
+                  const nextCategory = e.target.value === "external" ? "external" : "internal";
+                  const currentDef = DOOR_TYPE_REGISTRY[activeDoorTypeId];
+                  const nextTypeId = resolveDoorTypeId(
+                    currentDef?.renderClass || activeDoorTypeId || activeDoor.penetration_type || activeDoor.class || activeDoor.type,
+                    nextCategory
+                  );
+                  const nextDef = DOOR_TYPE_REGISTRY[nextTypeId];
+                  handleApplyProperty({
+                    location: nextCategory === "external" ? "External" : "Internal",
+                    is_ext: nextCategory === "external",
+                    is_exterior: nextCategory === "external",
+                    doorTypeId: nextTypeId,
+                    penetration_type: nextDef?.renderClass || activeDoor.penetration_type || "door",
+                    class: nextDef?.renderClass || activeDoor.class || "door",
+                    class_name: nextDef?.renderClass || activeDoor.class_name || "door"
+                  });
+                }}
+              >
+                <option value="internal">Internal</option>
+                <option value="external">External</option>
+              </select>
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Door Model (Lockup)</span>
-        <SearchableSelect
-          value={isMulti ? "" : (activeDoor.door_type || activeDoor.lockup_door_type || activeDoor.product || "")}
-          options={category === "external" ? (lockoutDoorTypes.external.length > 0 ? lockoutDoorTypes.external : ["SCX1 D/C", "SCX1 P/PLY", "SCX1 PCM", "SCX1 SPM"]) : (lockoutDoorTypes.internal.length > 0 ? lockoutDoorTypes.internal : ["H1 PCM", "H1 SPM", "H1 PCLC 4.75mm"])}
-          placeholder={isMulti ? "(Multiple door models)" : (category === "external" ? "Search model (e.g. SCX1 D/C)..." : "Search model (e.g. H1 PCM)...")}
-          allowCustom={true}
-          onChange={(val) => {
-            handleApplyProperty({
-              door_type: val,
-              lockup_door_type: val,
-              product: val
-            });
-          }}
-        />
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Door Type</span>
+              <select
+                className="panel-select"
+                value={activeDoorTypeId}
+                onChange={(e) => {
+                  const typeId = e.target.value;
+                  const def = DOOR_TYPE_REGISTRY[typeId];
+                  const nextCategory = def?.category === "external" ? "external" : "internal";
+                  // Door Type in Properties is exactly the same source/value as
+                  // Penetration Type in the edit popup. Procurement door_type/model
+                  // remains a separate field and is not written here.
+                  handleApplyProperty({
+                    doorTypeId: typeId,
+                    location: nextCategory === "external" ? "External" : "Internal",
+                    is_ext: nextCategory === "external",
+                    is_exterior: nextCategory === "external",
+                    penetration_type: def?.renderClass || activeDoor.penetration_type || "door",
+                    class: def?.renderClass || activeDoor.class || "door",
+                    class_name: def?.renderClass || activeDoor.class_name || "door"
+                  });
+                }}
+              >
+                {getDoorTypeOptions().map((option) => {
+                  const value = String(option?.value || "");
+                  const label = value.toLowerCase() === "int_cavity_slider"
+                    ? "Cavity"
+                    : option.label;
+                  return <option key={value} value={value}>{label}</option>;
+                })}
+              </select>
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Material</span>
-        <select
-          className="panel-select"
-          value={activeDoor.material || "timber"}
-          onChange={(e) => handleApplyProperty({ material: e.target.value })}
-        >
-          {MATERIAL_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Door Model ({task === "fixout" ? "Fixout" : "Lockup"})</span>
+              <SearchableSelect
+                value={isMulti ? "" : modelValue}
+                options={category === "external"
+                  ? (lockoutDoorTypes.external.length > 0 ? lockoutDoorTypes.external : ["SCX1 D/C", "SCX1 P/PLY", "SCX1 PCM", "SCX1 SPM"])
+                  : (lockoutDoorTypes.internal.length > 0 ? lockoutDoorTypes.internal : ["H1 PCM", "H1 SPM", "H1 PCLC 4.75mm"])}
+                placeholder={isMulti ? "(Multiple door models)" : "Search door model..."}
+                allowCustom={true}
+                onChange={(val) => updateDraft({ ...draft, door_type: val })}
+              />
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Fire Rating</span>
-        <select
-          className="panel-select"
-          value={activeDoor.fireRating || "none"}
-          onChange={(e) => handleApplyProperty({ fireRating: e.target.value })}
-        >
-          {FIRE_RATING_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Material</span>
+              <select
+                className="panel-select"
+                value={activeDoor.material || "timber"}
+                onChange={(e) => handleApplyProperty({ material: e.target.value })}
+              >
+                {MATERIAL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Status</span>
-        <select
-          className="panel-select"
-          value={activeDoor.status || "active"}
-          onChange={(e) => handleApplyProperty({ status: e.target.value })}
-        >
-          <option value="active">Active</option>
-          <option value="deleted">Deleted</option>
-          <option value="superseded">Superseded</option>
-        </select>
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Width (mm)</span>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="number"
+                  className="panel-input"
+                  style={{ flex: 1 }}
+                  placeholder={isMulti && !effectiveDoorWidthMm ? "(Multiple values)" : ""}
+                  value={effectiveDoorWidthMm}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!Number.isNaN(val) && val > 0) updateDraft({ ...draft, width: String(val) });
+                  }}
+                />
+                <select
+                  className="panel-select"
+                  style={{ width: "100px" }}
+                  value={effectiveDoorWidthMm || ""}
+                  onChange={(e) => e.target.value && updateDraft({ ...draft, width: String(Number(e.target.value)) })}
+                >
+                  <option value="">Presets</option>
+                  {[520,620,720,760,820,870,920,1020,1500,1520,1640,1800,2400,3000,5000].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Width (mm)</span>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            type="number"
-            className="panel-input"
-            style={{ flex: 1 }}
-            placeholder={isMulti && !effectiveDoorWidthMm ? "(Multiple values)" : ""}
-            value={effectiveDoorWidthMm}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              if (!isNaN(val) && val > 0) {
-                handleApplyProperty({ width_mm: val, width_source: "manual" });
-              }
-            }}
-          />
-          <select
-            className="panel-select"
-            style={{ width: "100px" }}
-            value={effectiveDoorWidthMm || ""}
-            onChange={(e) => {
-              if (e.target.value) {
-                handleApplyProperty({ width_mm: Number(e.target.value), width_source: "manual" });
-              }
-            }}
-          >
-            <option value="">Presets</option>
-            <option value={520}>520</option>
-            <option value={620}>620</option>
-            <option value={720}>720</option>
-            <option value={760}>760</option>
-            <option value={820}>820</option>
-            <option value={870}>870</option>
-            <option value={920}>920</option>
-            <option value={1020}>1020</option>
-            <option value={1500}>1500</option>
-            <option value={1520}>1520</option>
-            <option value={1640}>1640</option>
-            <option value={1800}>1800</option>
-            <option value={2400}>2400</option>
-            <option value={3000}>3000</option>
-            <option value={5000}>5000</option>
-          </select>
-        </div>
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Height (mm)</span>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="number"
+                  className="panel-input"
+                  style={{ flex: 1 }}
+                  placeholder={isMulti && !effectiveDoorHeightMm ? "(Multiple values)" : ""}
+                  value={effectiveDoorHeightMm}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (!Number.isNaN(val) && val > 0) updateDraft({ ...draft, height: String(val) });
+                  }}
+                />
+                <select
+                  className="panel-select"
+                  style={{ width: "100px" }}
+                  value={effectiveDoorHeightMm || ""}
+                  onChange={(e) => e.target.value && updateDraft({ ...draft, height: String(Number(e.target.value)) })}
+                >
+                  <option value="">Presets</option>
+                  {[1980,2040,2100,2200,2340,2400].map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            </div>
 
-      <div className="panel-field">
-        <span className="panel-label">Height (mm)</span>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <input
-            type="number"
-            className="panel-input"
-            style={{ flex: 1 }}
-            placeholder={isMulti && !effectiveDoorHeightMm ? "(Multiple values)" : ""}
-            value={effectiveDoorHeightMm}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              if (!isNaN(val) && val > 0) {
-                handleApplyProperty({ height_mm: val, height: val });
-              }
-            }}
-          />
-          <select
-            className="panel-select"
-            style={{ width: "100px" }}
-            value={effectiveDoorHeightMm || ""}
-            onChange={(e) => {
-              if (e.target.value) {
-                const val = Number(e.target.value);
-                handleApplyProperty({ height_mm: val, height: val });
-              }
-            }}
-          >
-            <option value="">Presets</option>
-            <option value={1980}>1980</option>
-            <option value={2040}>2040</option>
-            <option value={2100}>2100</option>
-            <option value={2200}>2200</option>
-            <option value={2340}>2340</option>
-            <option value={2400}>2400</option>
-          </select>
-        </div>
-      </div>
+            <div className="panel-field">
+              <span className="panel-label">Hinge Side</span>
+              <select
+                className="panel-select"
+                value={hungValue}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  let nextDraft = task === "fixout"
+                    ? { ...draft, handing: value }
+                    : { ...draft, hung: value };
 
-      <div className="panel-field">
-        <span className="panel-label">Hinge Side</span>
-        <select
-          className="panel-select"
-          value={activeDoor.hinge_side || activeDoor.hingeSide || "left"}
-          onChange={(e) => handleApplyProperty({ hinge_side: e.target.value, hingeSide: e.target.value })}
-        >
-          <option value="left">Left Hinge</option>
-          <option value="right">Right Hinge</option>
-        </select>
-      </div>
+                  if (task === "lockup" && draft.location === "External") {
+                    const pairedType = value === "Hung A" ? "Type A" : value === "Hung B" ? "Type B" : null;
+                    const currentType = String(draft.type || "").trim();
+                    if (pairedType && (!currentType || currentType === "-" || currentType === "Type A" || currentType === "Type B")) {
+                      nextDraft = { ...nextDraft, type: pairedType };
+                    }
+                  }
 
-      <div className="panel-field">
-        <span className="panel-label">Swing</span>
-        <select
-          className="panel-select"
-          value={activeDoor.swing_direction || activeDoor.swing || "inward"}
-          onChange={(e) => handleApplyProperty({ swing_direction: e.target.value, swing: e.target.value })}
-        >
-          <option value="inward">Inward Swing</option>
-          <option value="outward">Outward Swing</option>
-        </select>
-      </div>
+                  updateDraft(nextDraft, buildDoorHungPatch(value, task));
+                }}
+              >
+                <option value="">—</option>
+                {Array.from(new Set([...(hungOptions || []), ...(hungValue ? [hungValue] : [])])).map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="panel-field">
+              <span className="panel-label">Swing</span>
+              <select
+                className="panel-select"
+                value={activeDoor.swing_direction || activeDoor.swing || "inward"}
+                onChange={(e) => handleApplyProperty({ swing_direction: e.target.value, swing: e.target.value })}
+              >
+                <option value="inward">Inward Swing</option>
+                <option value="outward">Outward Swing</option>
+              </select>
+            </div>
+          </>
+        );
+      })()}
 
       <div style={{ marginTop: 12 }}>
         <button

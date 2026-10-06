@@ -968,7 +968,7 @@ export default function InsulationTask({
       try {
         const res = await ApiService.fetchInsulationJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("insulation")) return;
         if (res && res.data) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {
@@ -1894,7 +1894,7 @@ export default function InsulationTask({
             autoFillDisabled={isAutoFilling}
             autoFillLabel={isAutoFilling ? "Calculating..." : "Fill"}
             onSave={handleSaveToDatabase}
-            saveDisabled={isSaving || ((wallEntries || []).length === 0 && (areaEntries || []).length === 0)}
+            saveDisabled={isSaving}
             saveStatus={isSaving ? "saving" : saveSuccess ? "success" : "idle"}
             dataSource={dataSource}
             isReadOnly={isReadOnly}

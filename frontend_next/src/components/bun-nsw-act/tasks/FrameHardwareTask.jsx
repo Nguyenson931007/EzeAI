@@ -692,7 +692,7 @@ export default function FrameHardwareTask({
           timeoutPromise
         ]);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("frame_hardware")) return;
         if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

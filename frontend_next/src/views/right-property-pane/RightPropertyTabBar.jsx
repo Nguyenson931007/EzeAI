@@ -9,6 +9,7 @@ export default function RightPropertyTabBar({
   taskListJobs = [],
   EXTRA_MODULE_TABS = [],
   taskModuleTabs = [],
+  taskDraftStates = {},
   enabledModuleIds = [],
   showAddModulePopup,
   setShowAddModulePopup,
@@ -27,6 +28,19 @@ export default function RightPropertyTabBar({
     (taskModuleTabs.length ? taskModuleTabs : EXTRA_MODULE_TABS)
       .filter((mod) => mod.localOnly || enabledModuleIds.includes(mod.baseId || mod.id))
   );
+
+  const normalizeStatusKey = (value) => {
+    const key = String(value || "").trim().toLowerCase();
+    if (key === "lock_up") return "lockup";
+    if (key === "windows") return "window";
+    return key;
+  };
+
+  const getModuleStatus = (mod) => {
+    const exact = normalizeStatusKey(mod?.id);
+    const base = normalizeStatusKey(mod?.baseId);
+    return taskDraftStates?.[exact] || taskDraftStates?.[base] || "saved";
+  };
 
   return (
     <div className="rp-side-tab-bar">
@@ -118,19 +132,42 @@ export default function RightPropertyTabBar({
           <div style={{ width: "80%", height: "1px", background: "var(--border)", margin: "3px 0", flexShrink: 0 }} />
 
           {/* Dynamic Module tabs */}
-          {visibleTaskTabs.map((mod) => (
-            <button
-              key={mod.id}
-              title={mod.title}
-              onClick={() => setActivePaneTab((prev) => (prev === mod.id ? "collapsed" : mod.id))}
-              className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
-            >
-              {mod.icon}
-              <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
-                {mod.label}
-              </span>
-            </button>
-          ))}
+          {visibleTaskTabs.map((mod) => {
+            const status = getModuleStatus(mod);
+            const isDirty = status === "dirty";
+            const hint = isDirty ? "Changes not saved" : "All changes saved";
+            return (
+              <button
+                key={mod.id}
+                title={`${mod.title} — ${hint}`}
+                onClick={() => setActivePaneTab((prev) => (prev === mod.id ? "collapsed" : mod.id))}
+                className={`rp-side-tab-btn ${activePaneTab === mod.id ? "active" : ""}`}
+              >
+                <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                  {mod.icon}
+                  <span
+                    title={hint}
+                    aria-label={hint}
+                    style={{
+                      position: "absolute",
+                      top: "-3px",
+                      right: "-5px",
+                      width: "7px",
+                      height: "7px",
+                      borderRadius: "50%",
+                      background: isDirty ? "#ef4444" : "#22c55e",
+                      border: "1.5px solid #fff",
+                      boxShadow: "0 0 0 1px rgba(15,23,42,0.08)",
+                      pointerEvents: "auto"
+                    }}
+                  />
+                </span>
+                <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "-0.2px", lineHeight: "1.15", textAlign: "center", wordBreak: "break-word" }}>
+                  {mod.label}
+                </span>
+              </button>
+            );
+          })}
 
           {/* Add Module [+] Button & Popup */}
           <div style={{ position: "relative", width: "100%", marginTop: "2px" }}>

@@ -87,6 +87,7 @@ import RoofPropertyPanel from "./right-property-pane/property-panels/RoofPropert
 import LintelPropertyPanel from "./right-property-pane/property-panels/LintelPropertyPanel";
 import AnnotationPropertyPanel from "./right-property-pane/property-panels/AnnotationPropertyPanel";
 import { formatLintelCalloutText } from "../controllers/lintel.controller";
+import { getTaskDraftStatesSnapshot, markTaskDirty, resetTaskDraftStates, TASK_DRAFT_STATUS_EVENT, TASK_DRAFT_RESET_EVENT } from "@/utils/taskDraftRegistry";
 import {
   buildFixoutRows,
   buildLockupRows,
@@ -106,7 +107,7 @@ import {
   shouldIncludeWallInInsulation,
 } from "@/utils/procurementAutoFill";
 import { buildArchitecturalFloorLevelMap, resolveObjectFloorLevel, resolvePageFloorLevel } from "@/utils/floorLevel";
-import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
+import { applyTaskRowsToPlan, linkLegacyInsulationRows, reconcileTaskRowsWithPlan, syncTaskDoorRow, syncTaskRowsFromPlan } from "@/utils/taskPlanSync";
 import { flooringTaskId, makeFlooringTaskTabs, normalizeTaskFloorCodes, parseFlooringTaskId } from "@/utils/taskFloorLevels";
 import { buildSyncPayloadForTasks } from "@/features/floor-ceiling/controllers/FloorCeilingEngine";
 
@@ -573,13 +574,24 @@ export default function RightPropertyPaneView({
   // ── PANE TAB STATE ("explorer" | "summary" | "job_task" | custom module IDs) ──
   const [activePaneTab, setActivePaneTab] = React.useState("explorer");
   const [taskLeavePrompt, setTaskLeavePrompt] = React.useState(null);
+  const [taskDraftStates, setTaskDraftStates] = React.useState(() => (
+    typeof window === "undefined" ? {} : getTaskDraftStatesSnapshot()
+  ));
 
-  const confirmTaskLeave = React.useCallback(() => {
-    if (typeof window === "undefined") return Promise.resolve(true);
-    const guard = window.__ezefloorActiveTaskDraft;
-    if (!guard?.dirty) return Promise.resolve(true);
-    return new Promise((resolve) => setTaskLeavePrompt({ guard, resolve, saving: false, error: "" }));
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const refresh = () => setTaskDraftStates(getTaskDraftStatesSnapshot());
+    window.addEventListener(TASK_DRAFT_STATUS_EVENT, refresh);
+    window.addEventListener(TASK_DRAFT_RESET_EVENT, refresh);
+    return () => {
+      window.removeEventListener(TASK_DRAFT_STATUS_EVENT, refresh);
+      window.removeEventListener(TASK_DRAFT_RESET_EVENT, refresh);
+    };
   }, []);
+
+  // Task drafts are intentionally non-blocking. Unsaved state is shown on the
+  // task rail instead of interrupting navigation with a modal dialog.
+  const confirmTaskLeave = React.useCallback(() => Promise.resolve(true), []);
 
   React.useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -2607,6 +2619,7 @@ export default function RightPropertyPaneView({
     }
     const context = {
       taskKey: activeModuleTab.baseId || parseFlooringTaskId(activePaneTab)?.baseId || activePaneTab,
+      statusTaskKey: activePaneTab,
       jobId: currentJobId || currentProjectName || null,
     };
     window.__ezefloorActiveTaskContext = context;
@@ -2615,17 +2628,39 @@ export default function RightPropertyPaneView({
     };
   }, [isTaskModuleActive, activeModuleTab, activePaneTab, currentJobId, currentProjectName]);
 
+  const taskDraftJobKeyRef = React.useRef(null);
+  React.useEffect(() => {
+    const jobKey = String(currentJobId || currentProjectName || "").trim();
+    if (!jobKey) return;
+    const nextKey = `${jobKey}::${String(activeWorkPackUnit || "Unit 1").trim() || "Unit 1"}`;
+    if (taskDraftJobKeyRef.current == null) {
+      taskDraftJobKeyRef.current = nextKey;
+      return;
+    }
+    if (taskDraftJobKeyRef.current !== nextKey) {
+      taskDraftJobKeyRef.current = nextKey;
+      resetTaskDraftStates("job-change");
+    }
+  }, [currentJobId, currentProjectName, activeWorkPackUnit]);
+
   const [isTaskExpanded, setIsTaskExpanded] = React.useState(false);
   const [taskPanelWidth, setTaskPanelWidth] = React.useState(420);
+  const [propertyPanelWidth, setPropertyPanelWidth] = React.useState(() => {
+    if (typeof window === "undefined") return 380;
+    const saved = Number(window.localStorage.getItem("ezefloor:right-property-width"));
+    return Number.isFinite(saved) && saved >= 300 ? saved : 380;
+  });
   const [isResizing, setIsResizing] = React.useState(false);
+  const resizeTargetRef = React.useRef("task");
   const startXRef = React.useRef(0);
   const startWidthRef = React.useRef(0);
 
   const handleMouseDownResize = (e) => {
     e.preventDefault();
+    resizeTargetRef.current = isTaskModuleActive ? "task" : "property";
     setIsResizing(true);
     startXRef.current = e.clientX;
-    startWidthRef.current = taskPanelWidth;
+    startWidthRef.current = isTaskModuleActive ? taskPanelWidth : propertyPanelWidth;
   };
 
   React.useEffect(() => {
@@ -2634,10 +2669,15 @@ export default function RightPropertyPaneView({
     const handleMouseMove = (e) => {
       const deltaX = startXRef.current - e.clientX;
       const maxW = typeof window !== "undefined" ? Math.round(window.innerWidth * 0.88) : 1450;
-      const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, 360), maxW);
-      setTaskPanelWidth(newWidth);
-      if (newWidth > 600) setIsTaskExpanded(true);
-      else setIsTaskExpanded(false);
+      const minW = resizeTargetRef.current === "task" ? 360 : 300;
+      const newWidth = Math.min(Math.max(startWidthRef.current + deltaX, minW), maxW);
+      if (resizeTargetRef.current === "task") {
+        setTaskPanelWidth(newWidth);
+        if (newWidth > 600) setIsTaskExpanded(true);
+        else setIsTaskExpanded(false);
+      } else {
+        setPropertyPanelWidth(newWidth);
+      }
     };
 
     const handleMouseUp = () => {
@@ -2651,6 +2691,11 @@ export default function RightPropertyPaneView({
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isResizing]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("ezefloor:right-property-width", String(Math.round(propertyPanelWidth)));
+  }, [propertyPanelWidth]);
 
   // ── AUTO SHOW / HIDE PROPERTIES PANE ON SELECTION CHANGE ──
   const prevSelectionKeyRef = React.useRef(null);
@@ -2980,9 +3025,9 @@ export default function RightPropertyPaneView({
     if (isTaskModuleActive) {
       return taskPanelWidth;
     }
-    // Properties / Explorer / Summary / Job tasks standard fixed width
-    return 380;
-  }, [activePaneTab, isTaskModuleActive, taskPanelWidth]);
+    // Properties / Explorer / Summary can be resized independently from task modules.
+    return propertyPanelWidth;
+  }, [activePaneTab, isTaskModuleActive, taskPanelWidth, propertyPanelWidth]);
 
   // ── INSULATION MODULE MULTI-FORM STATE (3 FORMS MATCHING BUN-NSW-ACT) ──
   const [insulationWallEntries, setInsulationWallEntries] = React.useState([]);
@@ -3494,6 +3539,41 @@ export default function RightPropertyPaneView({
   // 7. Lockup State & Custom Overrides
   const [lockupEntries, setLockupEntries] = React.useState([]);
   const [customLockupOverrides, setCustomLockupOverrides] = React.useState({});
+
+  // Popup and Properties edits update linked task rows immediately by doorId.
+  // The broader plan reconciliation remains as a fallback for geometry edits,
+  // but is no longer the only path for procurement fields.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleDoorMetadataUpdated = (event) => {
+      const door = event?.detail?.door;
+      const doorId = door?.id;
+      if (doorId === undefined || doorId === null) return;
+      const matchesDoor = (row) => {
+        const ids = [
+          row?.doorId,
+          row?.door_id,
+          ...(Array.isArray(row?.doorIds) ? row.doorIds : []),
+        ].filter((value) => value !== undefined && value !== null).map(String);
+        return ids.includes(String(doorId));
+      };
+      const syncRows = (taskId, setter) => setter((previous) => {
+        let changed = false;
+        const next = (Array.isArray(previous) ? previous : []).map((row) => {
+          if (!matchesDoor(row)) return row;
+          const synced = syncTaskDoorRow(taskId, row, door);
+          if (JSON.stringify(synced) !== JSON.stringify(row)) changed = true;
+          return synced;
+        });
+        return changed ? next : previous;
+      });
+      syncRows("fixout", setFixoutDoorEntries);
+      syncRows("lock_up", setLockupEntries);
+      syncRows("windows", setWindowEntries);
+    };
+    window.addEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
+    return () => window.removeEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
+  }, []);
 
   const handleSetLockupEntries = React.useCallback((actionOrEntries) => {
     setLockupEntries(prev => {
@@ -4092,6 +4172,11 @@ export default function RightPropertyPaneView({
       item?.renderClass, item?.doorTypeId, item?.is_window, item?.isWindow,
       item?.door_name, item?.doorName, item?.label, item?.category, item?.mode, item?.product,
       item?.procurement_task, item?.procurementTask, item?.task_route, item?.taskRoute,
+      item?.fixout_thicks, item?.lockup_thickness, item?.procurement_thickness, item?.thicks,
+      item?.leaf_thickness, item?.door_thickness, item?.wall_width, item?.wall_thickness,
+      item?.door_frame, item?.frame_type, item?.jamb_size, item?.jamb_or_wall,
+      item?.handing, item?.hung, item?.lift_off_pivot, item?.hole, item?.internal_type,
+      item?.finish, item?.color, item?.door_furniture, item?.door_stop, item?.stop,
     ])]),
     rooms: Object.entries(roomsByPageProp || {}).map(([page, items]) => [page, (items || []).map((item) => [
       item?.id, item?.polygon, item?.areaM2 ?? item?.area_m2 ?? item?.area, item?.type,
@@ -4236,12 +4321,13 @@ export default function RightPropertyPaneView({
           const source = String(row?.autofill_source || row?.source || "").toLowerCase();
           return source.includes("drawing") || source === "ai_generated";
         });
-        if (!hasPlanRows) return previousRows;
-        const legacyLinked = taskId === "insulation"
+        const legacyLinked = hasPlanRows && taskId === "insulation"
           ? linkLegacyInsulationRows(previousRows, generatedByTask[taskId])
           : previousRows;
-        const reconciled = reconcileTaskRowsWithPlan(legacyLinked, generatedByTask[taskId]);
-        return syncTaskRowsFromPlan({
+        const reconciled = hasPlanRows
+          ? reconcileTaskRowsWithPlan(legacyLinked, generatedByTask[taskId])
+          : legacyLinked;
+        const synced = syncTaskRowsFromPlan({
           taskId,
           rows: reconciled,
           wallsByPage: wallPages,
@@ -4250,6 +4336,10 @@ export default function RightPropertyPaneView({
           scalesByPage: effectiveScalesByPage,
           fallbackScale,
         });
+        if (planChanged && synced !== previousRows) {
+          Promise.resolve().then(() => markTaskDirty(taskId, "plan-sync"));
+        }
+        return synced;
       });
     };
 
@@ -5724,11 +5814,11 @@ export default function RightPropertyPaneView({
         </button>
       )}
 
-      {/* ── RESIZE DRAG HANDLE (CHỈ HIỆN TRÊN FORM TASK ĐỂ KÉO THAY ĐỔI WIDTH) ── */}
-      {isTaskModuleActive && activePaneTab !== "collapsed" && (
+      {/* ── RESIZE DRAG HANDLE: available for both task modules and Properties/Explorer/Summary ── */}
+      {activePaneTab !== "collapsed" && (
         <div
           onMouseDown={handleMouseDownResize}
-          title="Drag and drop to change the width of the Task frame"
+          title={isTaskModuleActive ? "Drag to resize the task panel" : "Drag to resize the Properties panel"}
           style={{
             position: "absolute",
             left: "-4px",
@@ -6277,6 +6367,7 @@ export default function RightPropertyPaneView({
         taskListJobs={taskListJobs}
         EXTRA_MODULE_TABS={EXTRA_MODULE_TABS}
         taskModuleTabs={taskModuleTabs}
+        taskDraftStates={taskDraftStates}
         enabledModuleIds={enabledModuleIds}
         showAddModulePopup={showAddModulePopup}
         setShowAddModulePopup={setShowAddModulePopup}

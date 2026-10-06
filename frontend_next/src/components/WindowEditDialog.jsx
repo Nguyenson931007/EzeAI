@@ -65,6 +65,7 @@ export default function WindowEditDialog({
   realScale = 1.0
 }) {
   const overlayRef = useRef(null);
+  const originalDoorRef = useRef(null);
 
   const getInitialWindowType = () => {
     if (!door) return 'win_standard';
@@ -191,6 +192,11 @@ export default function WindowEditDialog({
   // Initialize form fields when window changes
   useEffect(() => {
     if (!door) return;
+    try {
+      originalDoorRef.current = typeof structuredClone === 'function' ? structuredClone(door) : JSON.parse(JSON.stringify(door));
+    } catch (_) {
+      originalDoorRef.current = { ...door };
+    }
     setDisplayName(String(door.door_name || door.doorName || door.doorLabel || door.label || door.name || '').trim());
     setWindowType(getInitialWindowType());
     setGlazingType(door.glazingType || door.glazing_type || 'single');
@@ -298,7 +304,11 @@ export default function WindowEditDialog({
       width_source: 'manual',
       parentWallId: parentWall?.id || door.parentWallId || null
     };
-    onSave(updated, applyToAll);
+    onSave(updated, applyToAll, {
+      stageOnly: true,
+      taskKey: "windows",
+      originalDoor: originalDoorRef.current || door,
+    });
     onClose();
   };
 

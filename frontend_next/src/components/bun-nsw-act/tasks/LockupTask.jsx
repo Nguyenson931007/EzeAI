@@ -574,7 +574,9 @@ export default function LockupTask({
       width_source: "manual",
       height_mm: hMm,
       height: hMm,
-      thickness_mm: Number(target.thickness) || (isExt ? 40 : 35),
+      // Procurement Thicks is table data only. Do not map it to canvas geometry thickness.
+      lockup_thickness: target.thickness,
+      procurement_thickness: target.thickness,
       door_name: target.label || target.door_name || "D-1",
       doorName: target.label || target.door_name || "D-1",
       doorLabel: target.label || target.door_name || "D-1",
@@ -588,9 +590,23 @@ export default function LockupTask({
       is_ext: isExt,
       is_exterior: isExt,
       isExternal: isExt,
+      category: target.category,
       hung: target.hung,
-      hinge_side: (target.hung === "Hung B" || target.hung === "LH") ? "left" : "right",
-      hingeSide: (target.hung === "Hung B" || target.hung === "LH") ? "left" : "right"
+      hinge_side: (String(target.hung || "").toLowerCase().includes("left") || String(target.hung || "").toLowerCase().startsWith("lh") || target.hung === "Hung B") ? "left" : "right",
+      hingeSide: (String(target.hung || "").toLowerCase().includes("left") || String(target.hung || "").toLowerCase().startsWith("lh") || target.hung === "Hung B") ? "left" : "right",
+      jamb_or_wall: target.jamb_or_wall,
+      jambWall: target.jamb_or_wall,
+      jamb_size: target.jamb_size,
+      jambSize: target.jamb_size,
+      lockup_type: target.type,
+      internal_type: target.internal_type,
+      color: target.color,
+      door_stop: target.door_stop,
+      stop: target.door_stop,
+      qty: target.qty || target.default_qty || 1,
+      default_qty: target.default_qty || target.qty || 1,
+      procurementTask: "lockup",
+      procurement_task: "lockup"
     };
 
     const curList = (doorsByPage && doorsByPage[currentPage]) ? doorsByPage[currentPage] : (doors || []);
@@ -1372,6 +1388,9 @@ export default function LockupTask({
   useEffect(() => {
     const handleSyncFromModal = (e) => {
       if (suppressAutoInit) return;
+      // DB priority: if DB data already loaded, don't overwrite with AI/plan rows.
+      // User confirmed flow: "uu tien lay db, co db thi lay db, ko co db thi lay tren plan"
+      if (dataSource === "db") return;
       if (e.detail?.lockoutRows && e.detail.lockoutRows.length > 0) {
         const mapped = e.detail.lockoutRows.filter((row) => !isWindowOpening(row)).map((r, idx) => {
           const mode = normalizeLockupModeValue(r.mode || r.category)
@@ -1414,7 +1433,7 @@ export default function LockupTask({
       window.addEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
       return () => window.removeEventListener("ezefloor:apply_ai_doors_to_lockup", handleSyncFromModal);
     }
-  }, [onSetEntries, suppressAutoInit]);
+  }, [onSetEntries, suppressAutoInit, dataSource]);
 
   // ── Auto-load saved data from DB when job changes ──
   const resolvedJobKey = String(activeJobNumber || currentProjectName || currentJobId || "").trim();
@@ -1429,7 +1448,7 @@ export default function LockupTask({
       try {
         const res = await ApiService.fetchLockoutJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("lockup")) return;
         if (res && res.data) {
           const matchedRows = res.data.filter(j => {
             const jn = String(j.job_number || "").trim().toLowerCase();
@@ -1539,6 +1558,9 @@ export default function LockupTask({
 
       const res = await ApiService.saveLockoutJobs(payload);
       if (res && res.success) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("ezefloor:task-cache-commit", { detail: { taskKey: "lockup" } }));
+        }
         setSaveSuccess(true);
         setDataSource("db");
         setIsReadOnly(true);

@@ -11,7 +11,12 @@ logger = logging.getLogger("ezefloor.socketio")
 # Async Socket.io server (ASGI mode for FastAPI integration)
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins="*",
+    # CORS is handled once by FastAPI's CORSMiddleware in main.py.
+    # Disable Engine.IO's own CORS response headers here, otherwise mounted
+    # Socket.IO responses contain duplicate Access-Control-Allow-Origin values
+    # (for example: "http://localhost:3011, http://localhost:3011") and the
+    # browser rejects an otherwise successful 200 polling response.
+    cors_allowed_origins=[],
     logger=False,
     engineio_logger=False,
 )

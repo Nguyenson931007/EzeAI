@@ -687,7 +687,7 @@ export default function FowPlumbingTask({
       try {
         const res = await ApiService.fetchFowPlumbingJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("fow_plumbing")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.item_name || r.code || r.description)

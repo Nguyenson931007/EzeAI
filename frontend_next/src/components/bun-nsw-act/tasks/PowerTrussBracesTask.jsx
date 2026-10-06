@@ -459,7 +459,7 @@ export default function PowerTrussBracesTask({
       try {
         const res = await ApiService.fetchPowerTrussJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("power_truss_braces")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.wall_height || r.length || r.type)

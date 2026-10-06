@@ -168,17 +168,34 @@ const patchDoorFromRow = (taskId, row) => {
   if (width > 0) patch.width_mm = width;
 
   if (taskId === "fixout") {
+    assignNonEmpty(patch, "category", row?.category);
     assignNonEmpty(patch, "door_type", row?.door_type || row?.doorType);
+    assignNonEmpty(patch, "product", row?.door_type || row?.doorType);
     assignNonEmpty(patch, "frame_type", row?.door_frame || row?.jambType);
+    assignNonEmpty(patch, "door_frame", row?.door_frame || row?.jambType);
     assignNonEmpty(patch, "handing", row?.handing);
+    assignNonEmpty(patch, "lift_off_pivot", row?.lift_off_pivot);
     assignNonEmpty(patch, "hole", row?.hole);
     assignNonEmpty(patch, "finish", row?.finish);
     assignNonEmpty(patch, "door_furniture", row?.door_furniture);
     assignNonEmpty(patch, "door_stop", row?.door_stop);
+    const thickness = parseNumber(row?.thicks || row?.thickness);
+    if (thickness > 0) {
+      patch.thicks = String(thickness);
+      patch.fixout_thicks = String(thickness);
+      patch.procurement_thickness = String(thickness);
+      patch.door_thickness = String(thickness);
+      patch.leaf_thickness = String(thickness);
+    }
     const wallWidth = parseNumber(row?.wall_width);
-    if (wallWidth > 0) patch.wall_thickness = wallWidth;
+    if (wallWidth > 0) {
+      patch.wall_width = String(wallWidth);
+      patch.wall_thickness = wallWidth;
+    }
   } else if (taskId === "lock_up") {
+    assignNonEmpty(patch, "category", row?.category);
     assignNonEmpty(patch, "door_type", row?.door_type || row?.door);
+    assignNonEmpty(patch, "product", row?.door_type || row?.door);
     assignNonEmpty(patch, "scope", row?.scope);
     assignNonEmpty(patch, "location", row?.location);
     assignNonEmpty(patch, "mode", row?.mode || row?.category);
@@ -186,8 +203,16 @@ const patchDoorFromRow = (taskId, row) => {
     assignNonEmpty(patch, "door_stop", row?.door_stop || row?.stop);
     assignNonEmpty(patch, "internal_type", row?.internal_type || row?.hfHo);
     assignNonEmpty(patch, "color", row?.color);
+    assignNonEmpty(patch, "jamb_or_wall", row?.jamb_or_wall);
+    assignNonEmpty(patch, "jamb_size", row?.jamb_size);
+    assignNonEmpty(patch, "lockup_type", row?.type);
     const thickness = parseNumber(row?.thickness || row?.thicks);
-    if (thickness > 0) patch.door_thickness = thickness;
+    if (thickness > 0) {
+      patch.door_thickness = String(thickness);
+      patch.lockup_thickness = String(thickness);
+      patch.procurement_thickness = String(thickness);
+      patch.thicks = String(thickness);
+    }
   }
   return patch;
 };
@@ -478,6 +503,7 @@ const syncWallRow = (taskId, row, linked, scalesByPage, fallbackScale) => {
 
 const syncDoorRow = (taskId, row, door) => {
   const next = { ...row };
+  const has = (...keys) => keys.some((key) => Object.prototype.hasOwnProperty.call(door || {}, key));
   const label = text(door?.door_name || door?.doorName || door?.doorLabel || door?.label);
   const height = finite(door?.height_mm || door?.height);
   const width = finite(door?.width_mm || door?.width);
@@ -502,7 +528,10 @@ const syncDoorRow = (taskId, row, door) => {
       door?.lockup_mode,
     ].filter(Boolean).join(" ").toLowerCase();
 
-    if (/cavity|sliding|slider/.test(fixoutCategorySource)) {
+    const explicitCategory = lower(door?.category);
+    if (["cavity", "sliding", "bifold", "prehung", "loose-jamb"].includes(explicitCategory)) {
+      next.category = explicitCategory;
+    } else if (/cavity|sliding|slider/.test(fixoutCategorySource)) {
       next.category = "cavity";
     } else {
       const mode = lower(door?.mode || door?.category);
@@ -510,14 +539,20 @@ const syncDoorRow = (taskId, row, door) => {
       else if (mode.includes("prehung")) next.category = "prehung";
     }
 
-    if (door?.door_type) next.door_type = door.door_type;
-    if (door?.frame_type) next.door_frame = door.frame_type;
-    if (door?.handing) next.handing = door.handing;
-    if (door?.hole) next.hole = door.hole;
-    if (door?.finish) next.finish = door.finish;
-    if (door?.door_furniture) next.door_furniture = door.door_furniture;
-    if (door?.door_stop) next.door_stop = door.door_stop;
+    if (has("door_type")) next.door_type = door.door_type || "";
+    if (has("door_frame", "frame_type")) next.door_frame = door.door_frame || door.frame_type || "";
+    if (has("handing")) next.handing = door.handing || "";
+    if (has("lift_off_pivot")) next.lift_off_pivot = door.lift_off_pivot || "";
+    if (has("hole")) next.hole = door.hole || "";
+    if (has("finish")) next.finish = door.finish || "";
+    if (has("door_furniture")) next.door_furniture = door.door_furniture || "";
+    if (has("door_stop", "stop")) next.door_stop = door.door_stop || door.stop || "";
     if (door?.wall_thickness) next.wall_width = String(door.wall_thickness);
+    if (door?.wall_width) next.wall_width = String(door.wall_width).replace(/mm/gi, "").replace(/\s*wall$/i, "");
+    const thickness = door?.fixout_thicks || door?.procurement_thickness || door?.thicks || door?.leaf_thickness || door?.door_thickness;
+    if (thickness !== undefined && thickness !== null && String(thickness).trim() !== "") {
+      next.thicks = String(thickness).replace(/mm/gi, "");
+    }
   } else if (taskId === "lock_up") {
     if (label) {
       next.label = label;
@@ -532,20 +567,46 @@ const syncDoorRow = (taskId, row, door) => {
       door?.class,
       door?.type,
     ].filter(Boolean).join(" ").toLowerCase();
+    if (door?.category) next.category = door.category;
     if (/cavity|sliding|slider/.test(lockupModeSource)) next.mode = "Cavity";
+    else if (door?.lockup_mode || door?.mode) next.mode = door.lockup_mode || door.mode;
     if (height) next.height = String(Math.round(height));
     if (width) next.width = String(Math.round(width));
-    if (door?.door_type) next.door_type = door.door_type;
+    if (has("door_type")) next.door_type = door.door_type || "";
     if (door?.scope) next.scope = door.scope;
     if (door?.location) next.location = door.location;
-    if (door?.hung || door?.handing) next.hung = door.hung || door.handing;
-    if (door?.door_stop) next.door_stop = door.door_stop;
-    if (door?.door_thickness) next.thicks = `${door.door_thickness}mm`;
-    if (door?.internal_type) next.hfHo = door.internal_type;
-    if (door?.color) next.color = door.color;
+    if (has("hung", "handing")) next.hung = door.hung || door.handing || "";
+    if (has("door_stop", "stop")) next.door_stop = door.door_stop || door.stop || "";
+    const thickness = door?.lockup_thickness || door?.procurement_thickness || door?.door_thickness || door?.thicks;
+    if (thickness !== undefined && thickness !== null && String(thickness).trim() !== "") {
+      const normalizedThickness = String(thickness).replace(/mm/gi, "");
+      next.thicks = normalizedThickness;
+      next.thickness = normalizedThickness;
+    }
+    if (has("jamb_or_wall", "jambWall")) next.jamb_or_wall = door.jamb_or_wall || door.jambWall || "";
+    if (has("jamb_size", "jambSize")) next.jamb_size = door.jamb_size || door.jambSize || "";
+    if (has("lockup_type", "type_code")) next.type = door.lockup_type || door.type_code || "";
+    if (has("internal_type", "hole")) {
+      next.hfHo = door.internal_type || door.hole || "";
+      next.internal_type = door.internal_type || door.hole || "";
+    }
+    if (has("color", "finish")) next.color = door.color || door.finish || "";
+  } else if (taskId === "window" || taskId === "windows") {
+    if (label) next.label = label;
+    if (height) next.height = String(Math.round(height));
+    if (width) next.width = String(Math.round(width));
+    if (has("window_type", "door_type")) next.windowType = door.window_type || door.door_type || "Window";
+    if (has("scope", "location")) {
+      const location = lower(door.scope || door.location);
+      next.location = location.startsWith("ext") ? "External" : location.startsWith("int") ? "Internal" : (door.location || "");
+    }
   }
   return next;
 };
+
+// Public single-door bridge used by popup/Properties events. Keeping this
+// mapping here prevents those surfaces from inventing a second field contract.
+export const syncTaskDoorRow = (taskId, row, door) => syncDoorRow(taskId, row, door);
 
 const syncRoomRow = (taskId, row, room, scale) => {
   const next = { ...row };

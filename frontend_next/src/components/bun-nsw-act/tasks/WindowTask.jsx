@@ -73,7 +73,7 @@ export default function WindowTask({
       try {
         const res = await ApiService.fetchFixoutJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("window")) return;
         const savedWindows = (Array.isArray(res?.data) ? res.data : [])
           .filter((row) => String(row?.category || "").toLowerCase() === "reveal")
           .filter((row) => String(row?.door_type || "").toLowerCase().includes("window"))
@@ -165,6 +165,9 @@ export default function WindowTask({
         jobs: [{ id_job_hw: String(targetJob), fixout_items: [...doorItems, ...revealItems] }],
       });
       if (res?.success) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("ezefloor:task-cache-commit", { detail: { taskKey: "windows" } }));
+        }
         setSaveStatus("success");
         setDataSource("db");
         setIsReadOnly(true);

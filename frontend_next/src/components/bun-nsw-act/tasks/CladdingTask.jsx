@@ -450,7 +450,7 @@ export default function CladdingTask({
       try {
         const res = await ApiService.fetchCladdingJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("cladding")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedRows = res.data.filter(j => {

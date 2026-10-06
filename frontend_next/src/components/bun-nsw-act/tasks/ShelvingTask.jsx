@@ -403,7 +403,7 @@ export default function ShelvingTask({
       try {
         const res = await ApiService.fetchShelvingJobs(resolvedJobKey);
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("shelving")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const loaded = res.data
             .filter((r) => r.type || r.size || r.qty)

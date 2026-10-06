@@ -488,7 +488,7 @@ export default function TimberPostsTask({
       try {
         const res = await ApiService.fetchTimberPostsJobs();
         if (cancelled) return;
-        if (!shouldApplyDatabaseTaskLoad()) return;
+        if (!shouldApplyDatabaseTaskLoad("timber_posts")) return;
         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
           const target = resolvedJobKey.toLowerCase();
           const matchedJob = res.data.find(j => {

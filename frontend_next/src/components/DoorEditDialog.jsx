@@ -10,6 +10,9 @@ import {
 } from '@/models/DoorTypeRegistry';
 
 import { mergeCollinearWalls } from '@/utils/geometry';
+import { getActiveClientShortName } from '@/constants/clients';
+import { getDoorProcurementTask } from '@/utils/doorTaskFieldBridge';
+import DoorTaskAlignedFields, { buildTaskDraft, taskDraftToDoorPatch } from '@/components/DoorTaskAlignedFields';
 const PENETRATION_TYPE_OPTIONS = getDoorTypeOptions();
 
 const getPenetrationTypeUiLabel = (option = {}) => {
@@ -40,6 +43,9 @@ export default function DoorEditDialog({
   realScale = 1.0
 }) {
   const overlayRef = useRef(null);
+  const originalDoorRef = useRef(null);
+  const hydratingRef = useRef(false);
+  const hasLiveChangesRef = useRef(false);
 
   // Determine the initial penetration type from the door class
   const getInitialPenetType = () => {
@@ -70,11 +76,12 @@ export default function DoorEditDialog({
   const [material, setMaterial] = useState('timber');
   const [fireRating, setFireRating] = useState('none');
   const [status, setStatus] = useState('active');
+  const [taskDraft, setTaskDraft] = useState(() => buildTaskDraft(door || {}));
   const [distanceSide, setDistanceSide] = useState('left');
   const [distanceValue, setDistanceValue] = useState(0);
   const [heightMm, setHeightMm] = useState(1980);
   const [widthMm, setWidthMm] = useState(760);
-  const [applyToAll, setApplyToAll] = useState(false);
+  const [swingDirection, setSwingDirection] = useState('inward');
   const [computedDistances, setComputedDistances] = useState({ left: 0, right: 0 });
 
   const healedWalls = React.useMemo(() => {
@@ -179,15 +186,26 @@ export default function DoorEditDialog({
     return { side, value, distLeftMm, distRightMm };
   };
 
-  // Initialize form fields when door changes
+  // Initialize only when the dialog opens or switches to a different door.
+  // Live preview replaces the door object in the parent after every field
+  // change; re-hydrating for that new object would immediately reset the
+  // dropdown the user just selected.
   useEffect(() => {
-    if (!door) return;
+    if (!visible || !door) return;
+    hydratingRef.current = true;
+    hasLiveChangesRef.current = false;
+    try {
+      originalDoorRef.current = typeof structuredClone === 'function' ? structuredClone(door) : JSON.parse(JSON.stringify(door));
+    } catch (_) {
+      originalDoorRef.current = { ...door };
+    }
     setDisplayName(String(door.door_name || door.doorName || door.doorLabel || door.label || door.name || '').trim());
     setPenetrationType(getInitialPenetType());
     setHardwareType(door.hardwareType || door.hardware_type || 'passage');
     setMaterial(door.material || 'timber');
     setFireRating(door.fireRating || 'none');
     setStatus(door.status || 'active');
+    setTaskDraft(buildTaskDraft(door));
     
     const actDist = getActualCurrentDistance();
     setDistanceSide(actDist.side);
@@ -208,10 +226,12 @@ export default function DoorEditDialog({
 
     setHeightMm(door.height_mm || 1980);
     setWidthMm(effW || 760);
-    setApplyToAll(false);
-  }, [door, walls, realScale]);
+    setSwingDirection(door.swing_direction || door.swing || 'inward');
 
-  if (!visible || !door) return null;
+    // Let all initialization state updates settle before live-sync starts.
+    const timer = setTimeout(() => { hydratingRef.current = false; }, 0);
+    return () => clearTimeout(timer);
+  }, [visible, door?.id]);
 
   // Derive the "Penetration" read-only label
   const doorDef = DOOR_TYPE_REGISTRY[penetrationType];
@@ -229,7 +249,7 @@ export default function DoorEditDialog({
     ? `${Math.floor(heightVal / 1000)}m ${heightVal % 1000}mm`
     : '0mm';
 
-  const handleSave = () => {
+  const buildUpdatedDoor = () => {
     const parentWall = getParentWall();
     const parsedHeight = Math.max(300, Math.min(2420, parseInt(heightMm) || 1980));
     const parsedWidth = Math.max(300, parseInt(widthMm) || 760);
@@ -265,18 +285,93 @@ export default function DoorEditDialog({
       material: material,
       fireRating: fireRating,
       status: status,
+      // Plan-only geometry fields remain editable even though the procurement fields mirror the task table.
       distance_from: { side: distanceSide, value: distanceValue },
-      height_mm: parsedHeight,
-      height: parsedHeight,
-      width_mm: parsedWidth,
-      width_source: 'manual',
-      mode: lockupMode,
-      lockup_mode: lockupMode,
-      parentWallId: parentWall?.id || door.parentWallId || null
+      swing_direction: swingDirection,
+      swing: swingDirection,
+      parentWallId: parentWall?.id || door.parentWallId || null,
+      // Procurement/table fields are applied last so the table-aligned editor is the source of truth.
+      // doorTypeId/class/penetration_type above stay the original canvas Penetration Type.
+      ...taskDraftToDoorPatch(taskDraft),
+      ...(taskDraft.task === "lockup" ? {
+        mode: ["cavity", "sliding", "bifold"].includes(String(taskDraft.category || "").toLowerCase()) ? "Cavity" : (String(taskDraft.category || "").toLowerCase().includes("loose") ? "Loose" : "Prehung"),
+        lockup_mode: ["cavity", "sliding", "bifold"].includes(String(taskDraft.category || "").toLowerCase()) ? "Cavity" : (String(taskDraft.category || "").toLowerCase().includes("loose") ? "Loose" : "Prehung")
+      } : {})
     };
-    onSave(updated, applyToAll);
+    return updated;
+  };
+
+  // Keep the canvas Properties panel and every linked task row on the same
+  // in-memory door object while this dialog is open. The task-level Save is
+  // still the only database commit point.
+  useEffect(() => {
+    if (!visible || !door || hydratingRef.current || typeof onSave !== 'function') return;
+    hasLiveChangesRef.current = true;
+    const updatedDoor = buildUpdatedDoor();
+    onSave(updatedDoor, false, {
+      stageOnly: true,
+      livePreview: true,
+      taskKey: getDoorProcurementTask(updatedDoor),
+      originalDoor: originalDoorRef.current || door,
+    });
+  }, [
+    visible,
+    displayName,
+    penetrationType,
+    hardwareType,
+    material,
+    fireRating,
+    status,
+    taskDraft,
+    distanceSide,
+    distanceValue,
+    heightMm,
+    widthMm,
+    swingDirection,
+  ]);
+
+  const commitAndClose = () => {
+    if (door && typeof onSave === 'function') {
+      const updatedDoor = buildUpdatedDoor();
+      const taskKey = getDoorProcurementTask(updatedDoor);
+      // SAVE in this popup is cache-only: stage the plan/task change.
+      // The task-level Save button is the actual commit point.
+      onSave(updatedDoor, false, {
+        stageOnly: true,
+        taskKey,
+        originalDoor: originalDoorRef.current || door,
+      });
+    }
+    hasLiveChangesRef.current = false;
     onClose();
   };
+
+  const cancelAndClose = () => {
+    if (hasLiveChangesRef.current && originalDoorRef.current && typeof onSave === 'function') {
+      onSave(originalDoorRef.current, false, { rollback: true });
+    }
+    hasLiveChangesRef.current = false;
+    onClose();
+  };
+
+  // Popup edits are staged locally. Only SAVE commits them to the plan/task data.
+  // CANCEL / Esc / X / outside click close without applying changes.
+  useEffect(() => {
+    if (!visible) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelAndClose();
+      } else if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        commitAndClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  });
+
+  if (!visible || !door) return null;
 
   const inputStyle = {
     width: '100%',
@@ -316,7 +411,7 @@ export default function DoorEditDialog({
   return (
     <div
       ref={overlayRef}
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      onClick={(e) => { if (e.target === overlayRef.current) cancelAndClose(); }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -333,7 +428,7 @@ export default function DoorEditDialog({
         background: '#ffffff',
         borderRadius: '8px',
         boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
-        width: '520px',
+        width: '760px',
         maxHeight: '90vh',
         overflow: 'auto'
       }}>
@@ -351,7 +446,7 @@ export default function DoorEditDialog({
             Edit Penetration
           </h3>
           <button
-            onClick={onClose}
+            onClick={cancelAndClose}
             style={{
               background: 'none',
               border: 'none',
@@ -372,30 +467,19 @@ export default function DoorEditDialog({
 
         {/* Form Body */}
         <div style={{ padding: '20px' }}>
-          {/* Drawing label / name — shared by plan + task rows */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Label / Name:</span>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSave();
-                }
-              }}
-              placeholder="e.g. D-02, Entry Door"
-              style={{ ...inputStyle, flex: 1, fontWeight: 700 }}
-            />
-          </div>
-
-          {/* Penetration Type */}
+          {/* Penetration Type is intentionally kept separate from Procurement task fields. */}
           <div style={rowStyle}>
             <span style={labelStyle}>Penetration Type:</span>
             <select
               value={penetrationType}
-              onChange={(e) => setPenetrationType(e.target.value)}
+              onChange={(e) => {
+                const nextType = e.target.value;
+                setPenetrationType(nextType);
+                // Location follows the original canvas Penetration Type, while procurement
+                // Category/Type remain independent and continue to use task rules.
+                const nextLocation = String(nextType).startsWith('ext_') ? 'External' : 'Internal';
+                setTaskDraft((prev) => ({ ...prev, location: nextLocation }));
+              }}
               style={{ ...selectStyle, flex: 1 }}
             >
               {PENETRATION_TYPE_OPTIONS.map(o => (
@@ -404,190 +488,79 @@ export default function DoorEditDialog({
             </select>
           </div>
 
-          {/* Penetration (read-only derived label) */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Penetration:</span>
-            <input
-              type="text"
-              readOnly
-              value={`${prefix} ${
-                penetrationType === "int_cavity_slider"
-                  ? "Cavity"
-                  : typeLabel.replace(' (Custom Size)', '')
-              } - ${isExternal ? 'External' : 'Internal'}`}
-              style={{ ...inputStyle, flex: 1, background: '#f3f4f6', color: '#6b7280', cursor: 'default' }}
-            />
-          </div>
 
-          {/* Door Hardware Type */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Door Hardware Type:</span>
-            <select
-              value={hardwareType}
-              onChange={(e) => setHardwareType(e.target.value)}
-              style={{ ...selectStyle, flex: 1 }}
-            >
-              {HARDWARE_TYPES.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
+          <DoorTaskAlignedFields
+            door={door}
+            draft={taskDraft}
+            onDraftChange={setTaskDraft}
+          />
 
-          {/* Material */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Material:</span>
-            <select
-              value={material}
-              onChange={(e) => setMaterial(e.target.value)}
-              style={{ ...selectStyle, flex: 1 }}
-            >
-              {MATERIAL_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Fire Rating */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Fire Rating:</span>
-            <select
-              value={fireRating}
-              onChange={(e) => setFireRating(e.target.value)}
-              style={{ ...selectStyle, flex: 1 }}
-            >
-              {FIRE_RATING_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>Status:</span>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              style={{ ...selectStyle, flex: 1 }}
-            >
-              <option value="active">Active</option>
-              <option value="deleted">Deleted</option>
-              <option value="superseded">Superseded</option>
-            </select>
-          </div>
-
-          {/* Distance From */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>
-              Distance from <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
-            </span>
-            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-              <select
-                value={distanceSide}
-                onChange={(e) => {
-                  const newSide = e.target.value;
-                  setDistanceSide(newSide);
-                  setDistanceValue(newSide === 'left' ? computedDistances.left : computedDistances.right);
-                }}
-                style={{ ...selectStyle, width: '80px', flex: 'none' }}
-              >
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-              <input
-                type="number"
-                min="0"
-                value={distanceValue}
-                onChange={(e) => setDistanceValue(Math.max(0, parseInt(e.target.value) || 0))}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {distanceMmDisplay}
-              </span>
+          {/* Keep plan-specific geometry controls that do not belong to the procurement table. */}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>
+              Plan Geometry
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.03em' }}>Distance From</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <select
+                    value={distanceSide}
+                    onChange={(e) => {
+                      const side = e.target.value;
+                      setDistanceSide(side);
+                      setDistanceValue(side === 'left' ? computedDistances.left : computedDistances.right);
+                    }}
+                    style={{ ...selectStyle, width: 88, flex: 'none', height: 34, padding: '0 8px', fontSize: 12 }}
+                  >
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    value={distanceValue}
+                    onChange={(e) => setDistanceValue(Math.max(0, parseInt(e.target.value) || 0))}
+                    style={{ ...inputStyle, minWidth: 0, height: 34, padding: '0 8px', fontSize: 12 }}
+                  />
+                </div>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.03em' }}>Swing</span>
+                <select
+                  value={swingDirection}
+                  onChange={(e) => setSwingDirection(e.target.value)}
+                  style={{ ...selectStyle, height: 34, padding: '0 8px', fontSize: 12 }}
+                >
+                  <option value="inward">Inward Swing</option>
+                  <option value="outward">Outward Swing</option>
+                </select>
+              </label>
             </div>
           </div>
 
-          {/* Height */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>
-              Height <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm, min. 300, max. 2420)</span>
-              <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
-            </span>
-            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-              <input
-                type="number"
-                min="300"
-                max="2420"
-                value={heightMm}
-                onChange={(e) => setHeightMm(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {heightDisplay}
-              </span>
-            </div>
-          </div>
-
-          {/* Width */}
-          <div style={rowStyle}>
-            <span style={labelStyle}>
-              Width <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 400 }}>(mm, min. 300)</span>
-              <span style={{ color: '#dc2626', marginLeft: '2px' }}>*</span>
-            </span>
-            <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-              <input
-                type="number"
-                min="300"
-                value={widthMm}
-                onChange={(e) => setWidthMm(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <span style={{ fontSize: '12px', color: '#6b7280', whiteSpace: 'nowrap', minWidth: '70px' }}>
-                {parseInt(widthMm) || 0}mm
-              </span>
-            </div>
-          </div>
-
-          {/* Apply to all checkbox */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            marginTop: '8px',
-            padding: '10px 0',
-            borderTop: '1px solid #f3f4f6'
-          }}>
-            <input
-              type="checkbox"
-              id="applyToAll"
-              checked={applyToAll}
-              onChange={(e) => setApplyToAll(e.target.checked)}
-              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#3b82f6' }}
-            />
-            <label htmlFor="applyToAll" style={{ fontSize: '13px', color: '#4b5563', cursor: 'pointer' }}>
-              Apply changes to all <b>doors</b> of the same (initial) type.
-            </label>
-          </div>
         </div>
 
         {/* Footer */}
         <div style={{
           display: 'flex',
           justifyContent: 'center',
-          padding: '16px 20px',
+          padding: '10px 16px',
           borderTop: '1px solid #e5e7eb',
           background: '#f9fafb',
           borderRadius: '0 0 8px 8px',
-          gap: '12px'
+          gap: '8px'
         }}>
           <button
-            onClick={onClose}
+            onClick={cancelAndClose}
             style={{
-              padding: '8px 28px',
+              minWidth: '78px',
+              padding: '6px 14px',
               borderRadius: '4px',
               border: '1px solid #d1d5db',
               background: '#fff',
               color: '#374151',
-              fontSize: '13px',
+              fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: 'inherit',
@@ -599,22 +572,22 @@ export default function DoorEditDialog({
             CANCEL
           </button>
           <button
-            onClick={handleSave}
+            onClick={commitAndClose}
             style={{
-              padding: '8px 28px',
+              minWidth: '78px',
+              padding: '6px 14px',
               borderRadius: '4px',
-              border: '1px solid #2563eb',
-              background: '#3b82f6',
+              border: '1px solid #4f6fed',
+              background: '#5b7cfa',
               color: '#fff',
-              fontSize: '13px',
-              fontWeight: 600,
+              fontSize: '12px',
+              fontWeight: 700,
               cursor: 'pointer',
               fontFamily: 'inherit',
-              transition: 'all 0.15s',
-              boxShadow: '0 1px 3px rgba(59,130,246,0.3)'
+              transition: 'all 0.15s'
             }}
-            onMouseOver={(e) => { e.currentTarget.style.background = '#2563eb'; }}
-            onMouseOut={(e) => { e.currentTarget.style.background = '#3b82f6'; }}
+            onMouseOver={(e) => { e.currentTarget.style.background = '#4f6fed'; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = '#5b7cfa'; }}
           >
             SAVE
           </button>

@@ -1,5 +1,6 @@
 import React from "react";
 import TaskTableEnhancer from "@/components/bun-nsw-act/tasks/TaskTableEnhancer";
+import { syncTaskDoorRow } from "@/utils/taskPlanSync";
 
 export default function TaskModulesContainer({
   activeModuleTab,
@@ -93,6 +94,84 @@ export default function TaskModulesContainer({
 }) {
   if (!activeModuleTab) return null;
   const activeModuleId = activeModuleTab.baseId || activeModuleTab.id;
+  const normalizeCacheTaskKey = React.useCallback((value) => {
+    const key = String(value || "").toLowerCase();
+    if (key === "lock_up") return "lockup";
+    if (key === "window") return "windows";
+    return key;
+  }, []);
+  const taskCacheSnapshotsRef = React.useRef(new Map());
+  React.useEffect(() => {
+    const clone = (value) => {
+      try {
+        return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+      } catch (_) {
+        return Array.isArray(value) ? [...value] : { ...(value || {}) };
+      }
+    };
+
+    const handleStage = (event) => {
+      const taskKey = normalizeCacheTaskKey(event?.detail?.taskKey);
+      if (!taskKey || taskCacheSnapshotsRef.current.has(taskKey)) return;
+      if (taskKey === "lockup") {
+        taskCacheSnapshotsRef.current.set(taskKey, { entries: clone(lockupEntries || []) });
+      } else if (taskKey === "fixout") {
+        taskCacheSnapshotsRef.current.set(taskKey, {
+          entries: clone(fixoutDoorEntries || []),
+          revealRows: clone((() => {
+            try {
+              const parsed = JSON.parse(moduleFormData?.fixout?.fixout_reveal_openings || "[]");
+              return Array.isArray(parsed) ? parsed : [];
+            } catch (_) { return []; }
+          })()),
+        });
+      } else if (taskKey === "windows") {
+        taskCacheSnapshotsRef.current.set(taskKey, {
+          windows: clone(windowEntries || []),
+          revealRows: clone((() => {
+            try {
+              const parsed = JSON.parse(moduleFormData?.fixout?.fixout_reveal_openings || "[]");
+              return Array.isArray(parsed) ? parsed : [];
+            } catch (_) { return []; }
+          })()),
+        });
+      }
+    };
+
+    const handleCommit = (event) => {
+      const taskKey = normalizeCacheTaskKey(event?.detail?.taskKey);
+      if (taskKey) taskCacheSnapshotsRef.current.delete(taskKey);
+    };
+
+    const handleRollback = (event) => {
+      const taskKey = normalizeCacheTaskKey(event?.detail?.taskKey);
+      const snapshot = taskCacheSnapshotsRef.current.get(taskKey);
+      if (!taskKey || !snapshot) return;
+      if (taskKey === "lockup") {
+        handleSetLockupEntries?.(clone(snapshot.entries || []));
+      } else if (taskKey === "fixout") {
+        setFixoutDoorEntries?.(clone(snapshot.entries || []));
+        handleModuleFormChange?.("fixout", "fixout_reveal_openings", JSON.stringify(snapshot.revealRows || []));
+      } else if (taskKey === "windows") {
+        setWindowEntries?.(clone(snapshot.windows || []));
+        handleModuleFormChange?.("fixout", "fixout_reveal_openings", JSON.stringify(snapshot.revealRows || []));
+      }
+      taskCacheSnapshotsRef.current.delete(taskKey);
+    };
+
+    window.addEventListener("ezefloor:task-cache-staged", handleStage);
+    window.addEventListener("ezefloor:task-cache-commit", handleCommit);
+    window.addEventListener("ezefloor:task-cache-rollback", handleRollback);
+    return () => {
+      window.removeEventListener("ezefloor:task-cache-staged", handleStage);
+      window.removeEventListener("ezefloor:task-cache-commit", handleCommit);
+      window.removeEventListener("ezefloor:task-cache-rollback", handleRollback);
+    };
+  }, [
+    normalizeCacheTaskKey, lockupEntries, fixoutDoorEntries, windowEntries, moduleFormData,
+    handleSetLockupEntries, setFixoutDoorEntries, setWindowEntries, handleModuleFormChange
+  ]);
+
   const fixoutRevealRows = (() => {
     try {
       const raw = moduleFormData?.fixout?.fixout_reveal_openings;
@@ -116,28 +195,17 @@ export default function TaskModulesContainer({
     const handleDoorMetadataUpdated = (event) => {
       const door = event?.detail?.door;
       const doorId = door?.id || door?.doorId || door?.door_id;
-      const displayName = String(
-        door?.door_name || door?.doorName || door?.doorLabel || door?.label || door?.name || ""
-      ).trim();
-      if (!doorId || !displayName) return;
+      if (doorId === undefined || doorId === null) return;
 
       const normalizeDoorRow = (row) => {
         const linkedId = row?.doorId || row?.door_id;
         if (!linkedId || String(linkedId) !== String(doorId)) return row;
-        return {
-          ...row,
-          label: displayName,
-          name: displayName,
-          door_label: displayName,
-          door_name: displayName,
-          doorName: displayName,
-          doorLabel: displayName,
-        };
+        return syncTaskDoorRow("windows", row, door);
       };
 
-      handleSetLockupEntries?.((current) => (current || []).map(normalizeDoorRow));
-      setFixoutDoorEntries?.((current) => (current || []).map(normalizeDoorRow));
-
+      // Fixout and Lockup are synchronized by the parent using the complete
+      // shared field mapping. Do not send their older rows back to the plan
+      // from here, or they can overwrite a popup selection that just changed.
       const nextRevealRows = (fixoutRevealRows || []).map(normalizeDoorRow);
       const revealChanged = nextRevealRows.some((row, index) => row !== fixoutRevealRows[index]);
       if (revealChanged) {
@@ -152,7 +220,7 @@ export default function TaskModulesContainer({
 
     window.addEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
     return () => window.removeEventListener("ezefloor:door-metadata-updated", handleDoorMetadataUpdated);
-  }, [handleSetLockupEntries, setFixoutDoorEntries, setWindowEntries, handleModuleFormChange, fixoutRevealRows]);
+  }, [setWindowEntries, handleModuleFormChange, fixoutRevealRows]);
 
   const excludeAiWindow = (row) => {
     if (!row?.doorId) return;
@@ -251,6 +319,7 @@ export default function TaskModulesContainer({
 
   return (
     <div
+      id="task-module-content-root"
       style={{
         width: "100%",
         flex: 1,

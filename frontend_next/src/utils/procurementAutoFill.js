@@ -21,6 +21,7 @@ import {
   SHELVING_TYPES,
   SHELVING_SIZES,
 } from "@/constants/procurementFormParity";
+import { isTaskDirty, normalizeDraftTaskKey } from "@/utils/taskDraftRegistry";
 import { resolveDropdownValue } from "@/utils/dropdownValueGuard";
 import {
   buildArchitecturalFloorLevelMap,
@@ -318,14 +319,20 @@ const explicitHanding = (d, allowed) => {
 export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => isTaskEligibleOpening(d) && !isWindowOpening(d) && getDoorProcurementTask(d, walls) === "fixout").map((d, idx) => {
   const label = text(d?.door_name || d?.doorName || d?.doorLabel || d?.label) || `D-${idx + 1}`;
   const presetFamily = getDoorPresetFamily(d);
-  const cavity = presetFamily === "cavity";
+  const explicitCategory = lower(d?.category);
+  const category = ["cavity", "sliding", "bifold", "prehung", "loose-jamb"].includes(explicitCategory)
+    ? explicitCategory
+    : (presetFamily || (lower(d?.mode).includes("loose") ? "loose-jamb" : "prehung"));
+  const cavity = ["cavity", "sliding", "bifold"].includes(category);
   const dims = doorDimensions(d);
   const heights = cavity ? FIXOUT_CAVITY_HEIGHTS : FIXOUT_HEIGHTS;
   const widths = cavity ? FIXOUT_CAVITY_WIDTHS : FIXOUT_WIDTHS;
   const parentWall = findDoorParentWall(d, walls);
   const parentWallThickness = finite(parentWall?.thickness_mm || parentWall?.thickness);
   const wallWidth = closestAllowed(parentWallThickness || d?.wall_thickness || d?.thickness_mm, FIXOUT_WALL_WIDTHS, 15);
-  const thickness = closestAllowed(d?.leaf_thickness || d?.door_thickness || d?.thickness, FIXOUT_THICKNESSES, 3);
+  const explicitThickness = d?.fixout_thicks || d?.procurement_thickness || d?.thicks || d?.leaf_thickness || d?.door_thickness;
+  const thickness = explicitAllowed(String(explicitThickness || "").replace(/mm/gi, ""), FIXOUT_THICKNESSES)
+    || closestAllowed(d?.leaf_thickness || d?.door_thickness || d?.thickness, FIXOUT_THICKNESSES, 3);
   const frame = explicitAllowed(d?.frame_type || d?.frameType, FIXOUT_FRAME_TYPES);
   const handing = cavity ? "" : explicitHanding(d, FIXOUT_HANDING);
   const hole = cavity ? "" : explicitAllowed(d?.hole, FIXOUT_HOLES);
@@ -335,9 +342,9 @@ export const buildFixoutRows = (doors = [], walls = []) => doors.filter((d) => i
     id: `fix-ai-${d?.id ?? idx}`,
     doorId: d?.id,
     floorLevel: text(d?.__floorLevel || d?.floorLevel || d?.floor_level) || "GF",
-    category: presetFamily || (lower(d?.mode).includes("loose") ? "loose-jamb" : "prehung"),
+    category,
     door_label: label,
-    door_type: "",
+    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
     door_type_candidate: sanitizeProcurementDoorType(d?.door_type || d?.product),
     doorTypeId: d?.doorTypeId || null,
     height: closestAllowed(dims.height, heights, 90) || (dims.height ? String(Math.round(dims.height)) : ""),
@@ -368,14 +375,16 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => i
   const scope = explicitExterior ? "external" : (explicitInterior ? "internal" : "");
   const rawMode = lower(d?.mode || d?.category);
   const presetFamily = getDoorPresetFamily(d);
-  const category = presetFamily === "cavity"
+  const explicitCategory = text(d?.category);
+  const category = explicitCategory || (presetFamily === "cavity"
     ? "Cavity"
     : presetFamily === "sliding"
       ? "Sliding"
       : presetFamily === "bifold"
         ? "Bifold"
-        : (rawMode.includes("loose") ? "Loose Jamb" : (rawMode.includes("prehung") ? "Prehung" : "-"));
+        : (rawMode.includes("loose") ? "Loose Jamb" : (rawMode.includes("prehung") ? "Prehung" : "-")));
   const hung = explicitAllowed(d?.hung, scope === "internal" ? LOCKUP_INTERNAL_HUNG : LOCKUP_HUNG) || explicitHanding(d, scope === "internal" ? LOCKUP_INTERNAL_HUNG : LOCKUP_HUNG);
+  const explicitThickness = d?.lockup_thickness || d?.procurement_thickness || d?.door_thickness || d?.thicks;
   return {
     id: `lock-ai-${d?.id ?? idx}`,
     doorId: d?.id,
@@ -388,17 +397,18 @@ export const buildLockupRows = (doors = [], walls = []) => doors.filter((d) => i
     door_name: label,
     height: closestAllowed(dims.height, LOCKUP_HEIGHTS, 90) || (dims.height ? String(Math.round(dims.height)) : ""),
     width: closestAllowed(dims.width, LOCKUP_WIDTHS, 70) || (dims.width ? String(Math.round(dims.width)) : ""),
-    thickness: closestAllowed(d?.door_thickness || d?.leaf_thickness || d?.thickness, LOCKUP_THICKNESSES, 3),
+    thickness: explicitAllowed(String(explicitThickness || "").replace(/mm/gi, ""), LOCKUP_THICKNESSES)
+      || closestAllowed(d?.door_thickness || d?.leaf_thickness || d?.thickness, LOCKUP_THICKNESSES, 3),
     jamb_or_wall: (parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))
       ? `${Math.round(parentWallThickness || finite(d?.wall_thickness || d?.thickness_mm))}mm Wall`
       : "",
-    jamb_size: "",
+    jamb_size: text(d?.jamb_size || d?.jambSize),
     jamb_size_candidate: text(d?.jamb_size || d?.jambSize),
     hung,
-    door_type: "",
+    door_type: sanitizeProcurementDoorType(d?.door_type || d?.product),
     door_type_candidate: sanitizeProcurementDoorType(d?.door_type || d?.product),
     doorTypeId: d?.doorTypeId || null,
-    type: "",
+    type: text(d?.lockup_type || d?.type_code),
     type_candidate: text(d?.type_code || d?.lockup_type),
     door_stop: explicitAllowed(d?.door_stop || d?.stop, ["Cushion", "DS2 with Riser"]),
     internal_type: explicitAllowed(d?.hole || d?.internal_type, LOCKUP_INTERNAL_HOLES),
@@ -516,11 +526,20 @@ export const isAutoFillRow = (row) => {
 // Database responses may arrive after the user has already started changing
 // the plan/task. In that case the visible draft always wins until Save or
 // Don't Save resolves it.
-export const shouldApplyDatabaseTaskLoad = () => {
+export const shouldApplyDatabaseTaskLoad = (taskKey = null) => {
   if (typeof window === "undefined") return true;
-  const draft = window.__ezefloorActiveTaskDraft;
-  if (!draft?.dirty) return true;
-  draft.skipPlanFallback = true;
+  const context = window.__ezefloorActiveTaskContext || {};
+  const keys = [
+    taskKey,
+    context.statusTaskKey,
+    context.taskKey,
+  ].map(normalizeDraftTaskKey).filter(Boolean);
+  const blocked = keys.some((key) => isTaskDirty(key));
+  if (!blocked) return true;
+
+  // Once a task has local edits, database hydration is not allowed to replace
+  // that draft. Auto Fill, plan edits and manual form edits may still merge
+  // into the in-memory task state until the task Save succeeds.
   return false;
 };
 
