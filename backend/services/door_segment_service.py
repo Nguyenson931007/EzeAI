@@ -208,13 +208,19 @@ class DoorSegmentService:
                 if model_target == "window" and not is_window:
                     continue
 
-                # Confidence filtering
-                if is_sliding or is_window:
+                # Confidence filtering. The combined production model exposes
+                # Window as a fourth class. Accepting that class at 0.02 caused
+                # ordinary door swing symbols to leak into the Window task.
+                # Keep the legacy low threshold for sliding doors, but require
+                # a meaningful confidence for a Window classification.
+                if is_window:
+                    if conf < max(base_conf, 0.15):
+                        continue
+                elif is_sliding:
                     if conf < 0.02:
                         continue
-                else:
-                    if conf < base_conf:
-                        continue
+                elif conf < base_conf:
+                    continue
 
                 # Get polygon coordinates as [[x, y], [x, y], ...] from YOLO inference space
                 poly_xy = masks.xy[idx]

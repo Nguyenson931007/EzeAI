@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Depends, Response, Header, Query, 
 import secrets
 import logging
 import time
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from app.database import get_db_connection
 from app.mssql_db import get_procurement_connection
@@ -54,6 +54,17 @@ class TaskDataDelete(BaseModel):
     task: str
     job_id: str
     user_update: Optional[str] = None
+
+    @field_validator("job_id", mode="before")
+    @classmethod
+    def normalize_job_id(cls, value):
+        """Accept numeric local job IDs while keeping the DB resolver contract textual."""
+        if value is None or isinstance(value, (dict, list, tuple, set)):
+            raise ValueError("A valid job_id is required.")
+        normalized = str(value).strip()
+        if not normalized:
+            raise ValueError("A valid job_id is required.")
+        return normalized
 
 # ── Katherine (EZE0098) standard HW contract ──
 # Cairns keeps its existing separate workflow. Every other Katherine customer

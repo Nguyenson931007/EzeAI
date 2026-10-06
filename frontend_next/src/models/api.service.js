@@ -874,10 +874,14 @@ export const ApiService = {
   },
 
   async deleteTaskData(task, jobId) {
+    const normalizedJobId = String(jobId ?? "").trim();
+    if (!normalizedJobId || normalizedJobId === "[object Object]") {
+      throw new Error("No valid active job was found for this task.");
+    }
     const res = await fetch(`${BASE_URL}/jobs/task-data/delete`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ task, job_id: jobId }),
+      body: JSON.stringify({ task, job_id: normalizedJobId }),
       credentials: "include"
     });
     return handleResponse(res);
