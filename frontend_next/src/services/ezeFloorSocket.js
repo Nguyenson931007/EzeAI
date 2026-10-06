@@ -7,20 +7,12 @@ import { io } from "socket.io-client";
 let socket = null;
 
 const getBackendUrl = () => {
-  // Use the backend API URL (not the frontend origin)
-  // The backend runs on a different port (e.g., 8090) than the frontend (e.g., 3011)
   if (typeof window === "undefined") return "";
-  try {
-    // Try to get from APP_CONFIG if available
-    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-    if (apiUrl) {
-      // Extract origin from API URL (e.g., http://localhost:8090/api -> http://localhost:8090)
-      const url = new URL(apiUrl);
-      return url.origin;
-    }
-  } catch (_) {}
-  // Match TaskList: use the current origin so HTTPS/Nginx deployments do not
-  // create a mixed-content socket connection. Next/Nginx proxies /socket.io.
+
+  // Always connect through the frontend origin. NEXT_PUBLIC_API_BASE_URL may
+  // be a loopback address used internally by the Next.js server, but exposing
+  // it to the browser would make 127.0.0.1 point at the user's own computer.
+  // The /socket.io rewrite in next.config.mjs forwards this request internally.
   return window.location.origin;
 };
 
