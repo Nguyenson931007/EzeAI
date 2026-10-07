@@ -379,6 +379,8 @@ export default function LockupTask({
 
   // Excel-style inline row editing: one double-click edits the whole row.
   const [editingDoorData, setEditingDoorData] = useState(null);
+  // Values shown when inline editing started; used to detect real user edits.
+  const editStartSnapshotRef = useRef(null);
 
   const enteredDoorsByFloor = useMemo(() => {
     const floorOrder = { GF: 0, FF: 1, SF: 2, TF: 3 };
@@ -530,7 +532,7 @@ export default function LockupTask({
     if (typeof th === "string") th = th.replace("mm", "").trim();
 
     setIsReadOnly(false);
-    setEditingDoorData({
+    const startData = {
       id: row.id,
       doorId: row.doorId,
       mode: row.mode || (isLoose ? "Loose" : (isPrehung ? "Prehung" : (isExt ? "Prehung" : "Loose"))),
@@ -555,7 +557,9 @@ export default function LockupTask({
       door_stop: normalizeDoorStop(row.door_stop || row.stop),
       default_qty: row.default_qty || row.qty || 1,
       qty: row.qty || row.default_qty || 1
-    });
+    };
+    editStartSnapshotRef.current = startData;
+    setEditingDoorData(startData);
   };
 
   // ── Helper đồng bộ thay đổi từ bảng Lockup sang trực tiếp Door trên Canvas / Properties Panel ──
@@ -652,9 +656,13 @@ export default function LockupTask({
 
     onSetEntries(prev => (prev || []).map(item => {
       if (item.id !== savedData.id) return item;
+      // Any user edit turns an AI/DB row into a manual row (drops the badge).
+      const startData = editStartSnapshotRef.current?.id === savedData.id ? editStartSnapshotRef.current : null;
+      const userEdited = Boolean(startData) && Object.keys(savedData).some((key) => String(savedData[key] ?? "") !== String(startData[key] ?? ""));
       return {
         ...item,
         ...savedData,
+        ...(userEdited ? { autofill_source: "manual" } : {}),
         label: savedData.label || item.label || item.door_name || "D-1",
         door_name: savedData.label || item.door_name || item.label || "D-1",
         doorName: savedData.label || item.doorName || item.door_name || item.label || "D-1",
@@ -664,7 +672,10 @@ export default function LockupTask({
         location: isExt ? "External" : "Internal",
         door: savedData.door_type || item.door,
         product: savedData.door_type || item.product,
-        category: isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-"),
+        // Keep the category the user picked (e.g. Sliding / Bifold) instead of re-deriving it from mode.
+        category: ["Cavity", "Sliding", "Bifold", "Prehung", "Loose Jamb"].includes(savedData.category)
+          ? savedData.category
+          : (isLoose ? "Loose Jamb" : (isPrehung ? "Prehung" : "-")),
         mode: isLoose ? "Loose" : (isPrehung ? "Prehung" : savedData.mode),
         size: `${savedData.height || 2040} × ${savedData.width || 820}`,
         thicks: `${savedData.thickness || (isExt ? 40 : 35)}mm`,
@@ -1109,6 +1120,8 @@ export default function LockupTask({
     onSetEntries(prev => (prev || []).map(r => {
       if (r.id !== rowId) return r;
       const updated = { ...r, [field]: finalVal };
+      // Any user edit turns an AI/DB row into a manual row (drops the badge).
+      if (String(r[field] ?? "") !== String(finalVal ?? "")) updated.autofill_source = "manual";
       if (field === "door_type") {
         updated.door = finalVal;
         updated.product = finalVal;
@@ -2816,7 +2829,8 @@ export default function LockupTask({
                                 value={editCategory === "-" ? (editIsLoose ? "Loose Jamb" : "Prehung") : editCategory}
                                 onChange={(e) => {
                                   const selectedCategory = e.target.value;
-                                  const selectedMode = selectedCategory === "Cavity"
+                                  // Cavity, Sliding and Bifold all use the Cavity mode (same rule as the door popup).
+                                  const selectedMode = ["Cavity", "Sliding", "Bifold"].includes(selectedCategory)
                                     ? "Cavity"
                                     : (selectedCategory === "Loose Jamb" ? "Loose" : "Prehung");
                                   const loose = selectedMode === "Loose";

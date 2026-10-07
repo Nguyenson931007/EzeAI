@@ -434,7 +434,8 @@ export const reconcileTaskRowsWithPlan = (rows = [], planRows = []) => {
       roomIds: planRow?.roomIds,
       sourcePageIndex: planRow?.sourcePageIndex ?? existing?.sourcePageIndex,
       floorLevel: planRow?.floorLevel || existing?.floorLevel,
-      autofill_source: "drawing",
+      // A row the user already edited stays manual (no AI badge) across plan syncs.
+      autofill_source: lower(existing?.autofill_source) === "manual" ? "manual" : "drawing",
     };
   });
 

@@ -3557,13 +3557,16 @@ export default function RightPropertyPaneView({
         ].filter((value) => value !== undefined && value !== null).map(String);
         return ids.includes(String(doorId));
       };
+      const isRollback = Boolean(event?.detail?.rollback);
       const syncRows = (taskId, setter) => setter((previous) => {
         let changed = false;
         const next = (Array.isArray(previous) ? previous : []).map((row) => {
           if (!matchesDoor(row)) return row;
           const synced = syncTaskDoorRow(taskId, row, door);
-          if (JSON.stringify(synced) !== JSON.stringify(row)) changed = true;
-          return synced;
+          if (JSON.stringify(synced) === JSON.stringify(row)) return synced;
+          changed = true;
+          // A user edit from the popup / Properties panel drops the AI/DB badge.
+          return isRollback ? synced : { ...synced, autofill_source: "manual" };
         });
         return changed ? next : previous;
       });
@@ -3748,14 +3751,9 @@ export default function RightPropertyPaneView({
           return entry;
         });
 
-        // Add any targetDoors that don't have a matching lockup entry yet
-        targetDoors.forEach((d, idx) => {
-          const hasEntry = existingEntries.some(e => matchId(e.doorId, d.id));
-          if (!hasEntry) {
-            changed = true;
-            updatedEntries.push(buildEntry(d, idx));
-          }
-        });
+        // Plan doors without a matching row are NOT appended here. Rows loaded
+        // from the database carry no doorId, so appending duplicated the whole
+        // list after any door edit. New plan doors enter the task via Fill.
 
         if (changed) {
           setLockupEntries(updatedEntries);

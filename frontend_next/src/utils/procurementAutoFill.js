@@ -29,6 +29,7 @@ import {
   resolveObjectFloorLevel,
   resolvePageFloorLevel,
 } from "@/utils/floorLevel";
+import { DOOR_TYPE_REGISTRY } from "@/models/DoorTypeRegistry";
 
 const text = (v) => String(v ?? "").trim();
 const lower = (v) => text(v).toLowerCase();
@@ -236,6 +237,13 @@ export const getDoorProcurementTask = (door, walls = []) => {
 
 export const isWindowOpening = (item) => {
   if (!item) return false;
+
+  // The Penetration Type is authoritative: an opening whose doorTypeId is a
+  // registered door type is never a window, even if stale AI window markers
+  // (window_ id, is_window flag) remain on the object.
+  const penetrationDef = DOOR_TYPE_REGISTRY[item.doorTypeId];
+  if (penetrationDef) return penetrationDef.renderClass === "window";
+
   const explicitWindowFlag = item.is_window ?? item.isWindow;
   if (explicitWindowFlag === true || explicitWindowFlag === 1 || lower(explicitWindowFlag) === "true") return true;
 

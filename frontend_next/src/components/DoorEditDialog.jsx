@@ -33,6 +33,7 @@ const getPenetrationTypeUiLabel = (option = {}) => {
  *   onClose      — Callback to dismiss
  *   walls        — Wall array (for distance calculations)
  *   realScale    — mm-per-pixel scale factor
+ *   rollbackDoor — Optional object to restore on Cancel (e.g. the window a door was converted from)
  */
 export default function DoorEditDialog({
   visible,
@@ -40,7 +41,8 @@ export default function DoorEditDialog({
   onSave,
   onClose,
   walls = [],
-  realScale = 1.0
+  realScale = 1.0,
+  rollbackDoor = null
 }) {
   const overlayRef = useRef(null);
   const originalDoorRef = useRef(null);
@@ -194,10 +196,11 @@ export default function DoorEditDialog({
     if (!visible || !door) return;
     hydratingRef.current = true;
     hasLiveChangesRef.current = false;
+    const restoreSource = rollbackDoor || door;
     try {
-      originalDoorRef.current = typeof structuredClone === 'function' ? structuredClone(door) : JSON.parse(JSON.stringify(door));
+      originalDoorRef.current = typeof structuredClone === 'function' ? structuredClone(restoreSource) : JSON.parse(JSON.stringify(restoreSource));
     } catch (_) {
-      originalDoorRef.current = { ...door };
+      originalDoorRef.current = { ...restoreSource };
     }
     setDisplayName(String(door.door_name || door.doorName || door.doorLabel || door.label || door.name || '').trim());
     setPenetrationType(getInitialPenetType());
@@ -298,6 +301,20 @@ export default function DoorEditDialog({
         lockup_mode: ["cavity", "sliding", "bifold"].includes(String(taskDraft.category || "").toLowerCase()) ? "Cavity" : (String(taskDraft.category || "").toLowerCase().includes("loose") ? "Loose" : "Prehung")
       } : {})
     };
+
+    // Changing a window to a door Penetration Type must drop stale window
+    // markers left on the object (e.g. from AI detection), otherwise the
+    // opening keeps routing to the Window task.
+    if (doorDef && doorDef.renderClass !== 'window') {
+      updated.is_window = false;
+      updated.isWindow = false;
+      ['class_name', 'renderClass', 'category', 'product'].forEach((key) => {
+        const value = String(updated[key] || '').toLowerCase();
+        if (value === 'window' || value.startsWith('win_') || value.startsWith('window_') || /(^|[\s_-])window([\s_-]|$)/.test(value)) {
+          delete updated[key];
+        }
+      });
+    }
     return updated;
   };
 

@@ -1,0 +1,6 @@
+{
+  "door_detection_accuracy": 0.95,
+  "hinge_accuracy": 0.92,
+  "swing_accuracy": 0.9,
+  "room_assignment_accuracy": 0.95
+}

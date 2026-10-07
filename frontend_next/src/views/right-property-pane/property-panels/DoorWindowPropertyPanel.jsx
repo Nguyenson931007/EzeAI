@@ -214,6 +214,9 @@ export default function DoorWindowPropertyPanel({
 
   const isWindowItem = (d) => {
     if (!d) return false;
+    // Penetration Type is authoritative once set (e.g. a window converted to a door).
+    const typeDef = DOOR_TYPE_REGISTRY[d.doorTypeId];
+    if (typeDef) return typeDef.renderClass === "window";
     return (
       (d.type === "window" ||
         d.class === "window" ||
@@ -560,13 +563,23 @@ export default function DoorWindowPropertyPanel({
           <span className="panel-label">Window Type</span>
           <SearchableSelect
             value={activeDoor.doorTypeId || activeDoor.penetration_type || activeDoor.penetrationType || (isRakedWindow ? "win_raked" : "win_standard")}
-            options={getDoorTypeOptions().filter((o) => {
-              const def = DOOR_TYPE_REGISTRY[o.value];
-              return def?.doorType === "window" || def?.renderClass === "window" || o.value.includes("win_");
-            })}
+            options={getDoorTypeOptions()}
             placeholder="Search window type..."
             onChange={(typeId) => {
               const def = DOOR_TYPE_REGISTRY[typeId];
+              // Converting a window to a door Penetration Type.
+              if (def && def.renderClass !== "window") {
+                handleApplyProperty({
+                  doorTypeId: typeId,
+                  penetration_type: def.renderClass,
+                  class: def.renderClass,
+                  type: def.doorType,
+                  is_window: false,
+                  isWindow: false,
+                  is_raked: false,
+                });
+                return;
+              }
               const isRakeSelected = typeId === "win_raked";
               const currentH = Number(activeDoor.height_mm || activeDoor.height || 1200);
               const currentH2 = Number(activeDoor.height2_mm !== undefined && activeDoor.height2_mm !== null ? activeDoor.height2_mm : currentH);

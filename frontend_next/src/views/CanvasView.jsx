@@ -8147,6 +8147,25 @@ export default function CanvasView({
               realScale={realScale}
               onSave={handleDoorEditSave}
               onClose={() => setDoorEditDialog({ visible: false, door: null })}
+              onConvertToDoor={(doorTypeId) => {
+                // Switch to the door Edit Penetration dialog. Nothing is applied
+                // to the plan until that dialog saves; Cancel restores the window.
+                const def = DOOR_TYPE_REGISTRY[doorTypeId];
+                setDoorEditDialog({
+                  visible: true,
+                  rollbackDoor: d,
+                  door: {
+                    ...d,
+                    doorTypeId,
+                    class: def?.renderClass,
+                    type: def?.doorType,
+                    penetration_type: def?.renderClass,
+                    is_window: false,
+                    isWindow: false,
+                    is_raked: false,
+                  },
+                });
+              }}
             />
           );
         }
@@ -8154,6 +8173,7 @@ export default function CanvasView({
           <DoorEditDialog
             visible={doorEditDialog.visible}
             door={d}
+            rollbackDoor={doorEditDialog.rollbackDoor || null}
             walls={walls}
             realScale={realScale}
             onSave={handleDoorEditSave}

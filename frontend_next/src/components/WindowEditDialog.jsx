@@ -3,6 +3,7 @@ import {
   DOOR_TYPE_REGISTRY,
   FIRE_RATING_OPTIONS,
   findStackedLowerDoor,
+  getDoorTypeOptions,
 } from '@/models/DoorTypeRegistry';
 
 import { mergeCollinearWalls } from '@/utils/geometry';
@@ -14,6 +15,9 @@ const WINDOW_TYPE_OPTIONS = [
   { value: 'win_raked', label: 'Raked Window (Trapezoid)' },
   { value: 'win_custom', label: 'Custom Window' },
 ];
+
+// Door Penetration Types a window can be converted to.
+const DOOR_CONVERSION_OPTIONS = getDoorTypeOptions().filter((o) => o.renderClass !== 'window');
 
 const GLAZING_TYPE_OPTIONS = [
   { value: 'single', label: 'Single Glazed' },
@@ -54,12 +58,14 @@ const OPERATION_TYPE_OPTIONS = [
  *   onClose      — Callback to dismiss
  *   walls        — Wall array (for distance calculations)
  *   realScale    — mm-per-pixel scale factor
+ *   onConvertToDoor — Callback(doorTypeId) when a door Penetration Type is chosen
  */
 export default function WindowEditDialog({
   visible,
   door,
   onSave,
   onClose,
+  onConvertToDoor,
   walls = [],
   doors = [],
   realScale = 1.0
@@ -431,6 +437,10 @@ export default function WindowEditDialog({
               value={windowType}
               onChange={(e) => {
                 const newType = e.target.value;
+                if (DOOR_TYPE_REGISTRY[newType]?.renderClass && DOOR_TYPE_REGISTRY[newType].renderClass !== 'window') {
+                  onConvertToDoor?.(newType);
+                  return;
+                }
                 setWindowType(newType);
                 if (newType !== 'win_raked') {
                   setHeight2Mm(heightMm);
@@ -444,9 +454,18 @@ export default function WindowEditDialog({
               }}
               style={{ ...selectStyle, flex: 1 }}
             >
-              {WINDOW_TYPE_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
+              <optgroup label="Windows">
+                {WINDOW_TYPE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </optgroup>
+              {onConvertToDoor && (
+                <optgroup label="Doors">
+                  {DOOR_CONVERSION_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 

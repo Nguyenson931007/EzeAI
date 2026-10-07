@@ -348,7 +348,7 @@ export default function EnteredTaskActions({
       )}
 
       {/* DB source badge — shown when data comes from database */}
-      {!isLoadingFromDb && (isEditing || showSavedState) && (
+      {!isLoadingFromDb && showSavedState && (
         <span
           style={{
             fontSize: "10px",
